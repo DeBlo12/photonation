@@ -112,13 +112,16 @@ impl Develop {
     /// its luminance, combined with local exposure.
     #[inline(always)]
     fn local_light(&self, rgb: [f32; 3], local: &LocalAmounts) -> [f32; 3] {
-        let warm = local.temperature * MAX_LOCAL_WHITE_BALANCE_EV / 2.0;
-        let magenta = local.tint * MAX_LOCAL_WHITE_BALANCE_EV;
-        let balance = [warm.exp2(), (-magenta).exp2(), (-warm).exp2()];
         let exposure = local
             .exposure
             .clamp(-MAX_LOCAL_EXPOSURE_EV, MAX_LOCAL_EXPOSURE_EV)
             .exp2();
+        if local.temperature == 0.0 && local.tint == 0.0 {
+            return rgb.map(|v| v * exposure);
+        }
+        let warm = local.temperature * MAX_LOCAL_WHITE_BALANCE_EV / 2.0;
+        let magenta = local.tint * MAX_LOCAL_WHITE_BALANCE_EV;
+        let balance = [warm.exp2(), (-magenta).exp2(), (-warm).exp2()];
         let scale = exposure / dot(&self.working_luminance, &balance);
         [0, 1, 2].map(|channel| rgb[channel] * balance[channel] * scale)
     }
@@ -178,35 +181,61 @@ impl Develop {
         out.map(|v| v.clamp(0.0, 1.0))
     }
 
-    /// One pixel, with `local` the masks' summed adjustments there.
-    #[inline(always)]
-    fn pixel(&self, camera_rgb: [f32; 3], local: &LocalAmounts) -> [f32; 3] {
-        let mut rgb = apply3(&self.camera_to_working, camera_rgb);
-        if local.exposure != 0.0 || local.temperature != 0.0 || local.tint != 0.0 {
-            rgb = self.local_light(rgb, local);
+    /// One pixel, with `local` the masks' summed adjustments there (`None`
+    /// where no mask applies).
+    #[cfg(test)]
+    fn pixel(&self, camera_rgb: [f32; 3], local: Option<&LocalAmounts>) -> [f32; 3] {
+        match local {
+            None => self.develop_pixel::<false>(camera_rgb, &LocalAmounts::NONE),
+            Some(local) => self.develop_pixel::<true>(camera_rgb, local),
         }
-        let haze = (self.haze + local.dehaze * MAX_HAZE)
-            .clamp(-MAX_TONE_AMOUNT * MAX_HAZE, MAX_TONE_AMOUNT * MAX_HAZE);
+    }
+
+    /// The develop steps for one pixel. `MASKED` is false for renders
+    /// without active masks: that copy is compiled separately with every
+    /// local step removed, so unmasked renders cost what they did before
+    /// masks existed. (Merely passing zero amounts is measurably slower:
+    /// the compiler must keep `x + 0.0`, which isn't `x` for `-0.0`.)
+    #[inline(always)]
+    fn develop_pixel<const MASKED: bool>(
+        &self,
+        camera_rgb: [f32; 3],
+        local: &LocalAmounts,
+    ) -> [f32; 3] {
+        let mut rgb = apply3(&self.camera_to_working, camera_rgb);
+        let (haze, highlights, shadows) = if MASKED {
+            if local.exposure != 0.0 || local.temperature != 0.0 || local.tint != 0.0 {
+                rgb = self.local_light(rgb, local);
+            }
+            let tone_amount = |v: f32| v.clamp(-MAX_TONE_AMOUNT, MAX_TONE_AMOUNT);
+            (
+                (self.haze + local.dehaze * MAX_HAZE)
+                    .clamp(-MAX_TONE_AMOUNT * MAX_HAZE, MAX_TONE_AMOUNT * MAX_HAZE),
+                tone_amount(self.highlights + local.highlights),
+                tone_amount(self.shadows + local.shadows),
+            )
+        } else {
+            (self.haze, self.highlights, self.shadows)
+        };
         if haze != 0.0 {
             rgb = Self::dehaze(rgb, haze);
         }
-        let highlights =
-            (self.highlights + local.highlights).clamp(-MAX_TONE_AMOUNT, MAX_TONE_AMOUNT);
-        let shadows = (self.shadows + local.shadows).clamp(-MAX_TONE_AMOUNT, MAX_TONE_AMOUNT);
         if highlights != 0.0 || shadows != 0.0 {
             rgb = self.highlights_shadows(rgb, highlights, shadows);
         }
-        if local.contrast != 0.0 {
+        if MASKED && local.contrast != 0.0 {
             rgb = self.local_contrast(rgb, local.contrast);
         }
         rgb = [0, 1, 2].map(|channel| self.tone.eval(channel, rgb[channel]));
         if let Some(color) = &self.color {
             rgb = color.apply(rgb);
         }
-        // Like the global slider, local Dehaze restores washed-out colour.
-        let saturation = local.saturation + DEHAZE_SATURATION * local.dehaze;
-        if saturation != 0.0 {
-            rgb = self.saturate(rgb, saturation);
+        if MASKED {
+            // Like the global slider, local Dehaze restores washed-out colour.
+            let saturation = local.saturation + DEHAZE_SATURATION * local.dehaze;
+            if saturation != 0.0 {
+                rgb = self.saturate(rgb, saturation);
+            }
         }
         self.to_output_gamut(rgb)
     }
@@ -214,13 +243,18 @@ impl Develop {
 
 impl PointOp for Develop {
     fn apply(&self, y: usize, row: &mut [f32]) {
-        for (x, pixel) in row.chunks_exact_mut(3).enumerate() {
-            let local = self
-                .local
-                .as_ref()
-                .map_or(LocalAmounts::NONE, |local| local.at(x, y));
-            let out = self.pixel([pixel[0], pixel[1], pixel[2]], &local);
-            pixel.copy_from_slice(&out);
+        let pixels = row.chunks_exact_mut(3);
+        match &self.local {
+            None => pixels.for_each(|pixel| {
+                let out = self
+                    .develop_pixel::<false>([pixel[0], pixel[1], pixel[2]], &LocalAmounts::NONE);
+                pixel.copy_from_slice(&out);
+            }),
+            Some(local) => pixels.enumerate().for_each(|(x, pixel)| {
+                let out =
+                    self.develop_pixel::<true>([pixel[0], pixel[1], pixel[2]], &local.at(x, y));
+                pixel.copy_from_slice(&out);
+            }),
         }
     }
 }
@@ -231,7 +265,7 @@ mod tests {
 
     /// A pixel with no masks covering it.
     fn global(develop: &Develop, rgb: [f32; 3]) -> [f32; 3] {
-        develop.pixel(rgb, &LocalAmounts::NONE)
+        develop.pixel(rgb, None)
     }
 
     fn plain() -> Develop {
@@ -262,7 +296,7 @@ mod tests {
         let one_stop = local(|l| l.exposure = 1.0);
         for v in [0.01, 0.1, 0.3] {
             let a = global(&global_stop, [v; 3]);
-            let b = plain().pixel([v; 3], &one_stop);
+            let b = plain().pixel([v; 3], Some(&one_stop));
             assert!((a[1] - b[1]).abs() < 1e-5, "{v}: {a:?} vs {b:?}");
         }
     }
@@ -271,9 +305,9 @@ mod tests {
     fn local_temperature_warms_and_tint_adds_magenta() {
         let develop = plain();
         let grey = [0.1f32; 3];
-        let warm = develop.pixel(grey, &local(|l| l.temperature = 0.6));
+        let warm = develop.pixel(grey, Some(&local(|l| l.temperature = 0.6)));
         assert!(warm[0] > warm[2] + 0.02, "{warm:?}");
-        let magenta = develop.pixel(grey, &local(|l| l.tint = 0.6));
+        let magenta = develop.pixel(grey, Some(&local(|l| l.tint = 0.6)));
         assert!(
             magenta[1] < magenta[0] && magenta[1] < magenta[2],
             "{magenta:?}"
@@ -290,17 +324,17 @@ mod tests {
     fn local_contrast_spreads_tones_around_mid_grey() {
         let develop = plain();
         let more = local(|l| l.contrast = 1.0);
-        let spread = |amounts: &LocalAmounts| {
+        let spread = |amounts: Option<&LocalAmounts>| {
             develop.pixel([0.6; 3], amounts)[1] - develop.pixel([0.03; 3], amounts)[1]
         };
-        assert!(spread(&more) > spread(&LocalAmounts::NONE) + 0.02);
+        assert!(spread(Some(&more)) > spread(None) + 0.02);
         let less = local(|l| l.contrast = -1.0);
-        assert!(spread(&less) < spread(&LocalAmounts::NONE) - 0.02);
+        assert!(spread(Some(&less)) < spread(None) - 0.02);
     }
 
     #[test]
     fn local_saturation_minus_100_is_grey() {
-        let out = plain().pixel([0.4, 0.1, 0.05], &local(|l| l.saturation = -1.0));
+        let out = plain().pixel([0.4, 0.1, 0.05], Some(&local(|l| l.saturation = -1.0)));
         assert!(
             (out[0] - out[1]).abs() < 2e-3 && (out[1] - out[2]).abs() < 2e-3,
             "{out:?}"
@@ -320,7 +354,7 @@ mod tests {
             saturation: 32.0,
         };
         for v in [0.0, 0.01, 1.0, 50.0] {
-            let out = plain().pixel([v; 3], &extreme);
+            let out = plain().pixel([v; 3], Some(&extreme));
             assert!(
                 out.iter().all(|c| c.is_finite() && (0.0..=1.0).contains(c)),
                 "{out:?}"
@@ -332,7 +366,7 @@ mod tests {
     fn neutral_stays_neutral() {
         let d = Develop::new(&Settings::default(), &Mat3::IDENTITY, 0.0, ColorSpace::Srgb);
         for v in [0.01, 0.1, 0.5, 1.0, 4.0] {
-            let out = d.pixel([v; 3], &LocalAmounts::NONE);
+            let out = d.pixel([v; 3], None);
             assert!(
                 (out[0] - out[1]).abs() < 1e-4 && (out[1] - out[2]).abs() < 1e-4,
                 "{v}: {out:?}"
@@ -347,7 +381,7 @@ mod tests {
             ..Settings::default()
         };
         let d = Develop::new(&s, &Mat3::IDENTITY, 0.0, ColorSpace::Srgb);
-        let out = d.pixel([0.4, 0.1, 0.05], &LocalAmounts::NONE);
+        let out = d.pixel([0.4, 0.1, 0.05], None);
         assert!(
             (out[0] - out[1]).abs() < 2e-3 && (out[1] - out[2]).abs() < 2e-3,
             "{out:?}"

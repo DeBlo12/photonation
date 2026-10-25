@@ -45,6 +45,8 @@ moxcms = { version = "0.9", default-features = false }
 # desktop app
 eframe = "0.37"
 rfd = "0.17"
+# Shader validation in tests; the same naga wgpu compiles shaders with.
+naga = { version = "30", default-features = false, features = ["wgsl-in"] }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

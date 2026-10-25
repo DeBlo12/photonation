@@ -57,6 +57,12 @@ pub struct ViewState {
     pub show_export: bool,
     pub export_options: ExportOptions,
     pub export_all: bool,
+    /// The mask window is open (and the selected mask's handles show).
+    pub show_masks: bool,
+    /// Index into `settings.masks`.
+    pub selected_mask: Option<usize>,
+    /// Tint the area the selected mask affects.
+    pub mask_overlay: bool,
 }
 
 impl Default for ViewState {
@@ -80,6 +86,9 @@ impl Default for ViewState {
             show_export: false,
             export_options: ExportOptions::default(),
             export_all: false,
+            show_masks: false,
+            selected_mask: None,
+            mask_overlay: true,
         }
     }
 }
@@ -113,6 +122,10 @@ pub struct PhotonationApp {
     pub export_progress: Option<(usize, usize)>,
     thumbnails_by_path: HashMap<PathBuf, usize>,
     screenshot: Option<crate::screenshot::Screenshot>,
+    /// The graphics adapter in use, e.g. "AMD Radeon Pro 5500M (discrete GPU, Metal)".
+    pub gpu: Option<String>,
+    /// The GPU mask overlay is installed (wgpu is rendering).
+    pub mask_overlay_ready: bool,
 }
 
 impl PhotonationApp {
@@ -140,7 +153,16 @@ impl PhotonationApp {
             export_progress: None,
             thumbnails_by_path: HashMap::new(),
             screenshot: crate::screenshot::Screenshot::from_env(),
+            gpu: None,
+            mask_overlay_ready: false,
         };
+        if let Some(render_state) = &cc.wgpu_render_state {
+            crate::gpu::mask_overlay::install(render_state);
+            let gpu = crate::gpu::describe(&render_state.adapter.get_info());
+            eprintln!("Photonation: rendering on {gpu}");
+            app.gpu = Some(gpu);
+            app.mask_overlay_ready = true;
+        }
         // `Photonation <folder>` or `Photonation <photo>` (opens its folder).
         if let Some(target) = std::env::args().nth(1).map(PathBuf::from) {
             let folder = if target.is_dir() {
@@ -226,6 +248,7 @@ impl PhotonationApp {
         self.view.zoom = Zoom::Fit;
         self.view.pan = egui::Vec2::ZERO;
         self.view.disabled.clear();
+        self.view.selected_mask = None;
         self.refresh();
     }
 
@@ -388,11 +411,24 @@ impl PhotonationApp {
     }
 
     /// Asks for a new preview when the settings or the needed size changed.
-    pub fn request_previews(&mut self, viewer_long_edge_px: usize, interacting: bool) {
+    /// `max_texture_side` is the GPU's limit (egui's `max_texture_side`).
+    pub fn request_previews(
+        &mut self,
+        viewer_long_edge_px: usize,
+        interacting: bool,
+        max_texture_side: usize,
+    ) {
         let Some(path) = self.current_path().cloned() else {
             return;
         };
-        let long_edge = self.needed_long_edge(viewer_long_edge_px, interacting);
+        let full_long_edge = self.info.as_ref().map(|i| i.size.0.max(i.size.1));
+        let long_edge = preview_long_edge(
+            viewer_long_edge_px,
+            self.view.zoom,
+            full_long_edge,
+            interacting,
+            max_texture_side,
+        );
         let key = (self.generation, long_edge);
         if self.last_requested != Some(key) {
             self.last_requested = Some(key);
@@ -409,29 +445,10 @@ impl PhotonationApp {
             self.engine.request_preview(PreviewRequest {
                 path,
                 settings: Settings::default(),
-                long_edge: Some(viewer_long_edge_px),
+                long_edge: Some(viewer_long_edge_px.min(max_texture_side.max(1))),
                 generation: self.generation,
                 kind: PreviewKind::Before,
             });
-        }
-    }
-
-    /// Preview resolution: the viewer size when fitted, more when zoomed in.
-    /// While a control is being dragged, stay at fit size for responsiveness.
-    fn needed_long_edge(&self, viewer_long_edge_px: usize, interacting: bool) -> Option<usize> {
-        // Round up so small window resizes don't trigger re-renders.
-        let fit = viewer_long_edge_px.div_ceil(256) * 256;
-        let full = self.info.as_ref().map(|i| i.size.0.max(i.size.1));
-        match (self.view.zoom, full) {
-            (Zoom::Scale(scale), Some(full)) if !interacting => {
-                let wanted = ((full as f32 * scale).ceil() as usize).max(fit);
-                if wanted >= full {
-                    None
-                } else {
-                    Some(wanted.div_ceil(256) * 256)
-                }
-            }
-            _ => Some(fit),
         }
     }
 
@@ -441,18 +458,29 @@ impl PhotonationApp {
 
     fn shortcuts(&mut self, ctx: &egui::Context) {
         use egui::{Key, Modifiers};
-        let (undo, redo, prev, next, compare, export, open, reset_zoom) = ctx.input_mut(|i| {
-            (
-                i.consume_key(Modifiers::COMMAND, Key::Z),
-                i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z),
-                i.consume_key(Modifiers::NONE, Key::ArrowLeft),
-                i.consume_key(Modifiers::NONE, Key::ArrowRight),
-                i.consume_key(Modifiers::NONE, Key::Backslash),
-                i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::E),
-                i.consume_key(Modifiers::COMMAND, Key::O),
-                i.consume_key(Modifiers::COMMAND, Key::Num0),
-            )
-        });
+        // Plain keys belong to a focused text field (e.g. a mask's name).
+        let typing = ctx.egui_wants_keyboard_input();
+        let (undo, redo, prev, next, compare, masks, export, open, reset_zoom) =
+            ctx.input_mut(|i| {
+                let mut plain = |key| !typing && i.consume_key(Modifiers::NONE, key);
+                let (prev, next, compare, masks) = (
+                    plain(Key::ArrowLeft),
+                    plain(Key::ArrowRight),
+                    plain(Key::Backslash),
+                    plain(Key::M),
+                );
+                (
+                    i.consume_key(Modifiers::COMMAND, Key::Z),
+                    i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z),
+                    prev,
+                    next,
+                    compare,
+                    masks,
+                    i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::E),
+                    i.consume_key(Modifiers::COMMAND, Key::O),
+                    i.consume_key(Modifiers::COMMAND, Key::Num0),
+                )
+            });
         if redo {
             self.redo();
         } else if undo {
@@ -468,6 +496,9 @@ impl PhotonationApp {
         }
         if compare {
             self.view.compare = !self.view.compare;
+        }
+        if masks && self.current.is_some() {
+            self.view.show_masks = !self.view.show_masks;
         }
         if export && self.current.is_some() {
             self.view.show_export = true;
@@ -491,6 +522,38 @@ impl PhotonationApp {
     }
 }
 
+/// Preview resolution: the viewer size when fitted, more when zoomed in,
+/// never more than the GPU can hold in one texture (a larger upload fails
+/// and takes the app down). While a control is being dragged, stay at fit
+/// size for responsiveness. `None` means full resolution.
+fn preview_long_edge(
+    viewer_long_edge_px: usize,
+    zoom: Zoom,
+    full_long_edge: Option<usize>,
+    interacting: bool,
+    max_texture_side: usize,
+) -> Option<usize> {
+    // Round up so small window resizes don't trigger re-renders.
+    let fit = viewer_long_edge_px.div_ceil(256) * 256;
+    let wanted = match (zoom, full_long_edge) {
+        (Zoom::Scale(scale), Some(full)) if !interacting => {
+            let wanted = ((full as f32 * scale).ceil() as usize).max(fit);
+            if wanted >= full {
+                None
+            } else {
+                Some(wanted.div_ceil(256) * 256)
+            }
+        }
+        _ => Some(fit),
+    };
+    let limit = max_texture_side.max(1);
+    match wanted {
+        Some(edge) if edge > limit => Some(limit),
+        None if full_long_edge.is_some_and(|full| full > limit) => Some(limit),
+        other => other,
+    }
+}
+
 impl eframe::App for PhotonationApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
@@ -508,6 +571,17 @@ impl eframe::App for PhotonationApp {
             panels::adjustments::show(self, ui);
         }
         panels::viewer::show(self, ui);
+        if self.view.show_masks && self.current.is_some() {
+            panels::masks::show(self, &ctx);
+        }
+        // Undo or "Reset All" can remove the selected mask.
+        if self
+            .view
+            .selected_mask
+            .is_some_and(|index| index >= self.settings.masks.len())
+        {
+            self.view.selected_mask = None;
+        }
         if self.view.show_export {
             panels::export::show(self, &ctx);
         }
@@ -541,5 +615,54 @@ impl eframe::App for PhotonationApp {
 
     fn on_exit(&mut self) {
         self.save_now();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const GPU_LIMIT: usize = 8192;
+
+    #[test]
+    fn fitted_previews_follow_the_viewer() {
+        assert_eq!(
+            preview_long_edge(1500, Zoom::Fit, Some(6000), false, GPU_LIMIT),
+            Some(1536)
+        );
+    }
+
+    #[test]
+    fn zoomed_previews_use_full_resolution_unless_dragging() {
+        assert_eq!(
+            preview_long_edge(1500, Zoom::Scale(1.0), Some(6000), false, GPU_LIMIT),
+            None
+        );
+        assert_eq!(
+            preview_long_edge(1500, Zoom::Scale(0.5), Some(6000), false, GPU_LIMIT),
+            Some(3072)
+        );
+        assert_eq!(
+            preview_long_edge(1500, Zoom::Scale(1.0), Some(6000), true, GPU_LIMIT),
+            Some(1536)
+        );
+    }
+
+    #[test]
+    fn previews_never_exceed_the_gpu_texture_limit() {
+        // A 61 MP Sony (9504 px) at 1:1 would need a texture the GPU lacks.
+        assert_eq!(
+            preview_long_edge(1500, Zoom::Scale(1.0), Some(9504), false, GPU_LIMIT),
+            Some(GPU_LIMIT)
+        );
+        assert_eq!(
+            preview_long_edge(1500, Zoom::Scale(0.95), Some(9504), false, GPU_LIMIT),
+            Some(GPU_LIMIT)
+        );
+        // A tiny software rasterizer limit caps even fitted previews.
+        assert_eq!(
+            preview_long_edge(3000, Zoom::Fit, Some(6000), false, 2048),
+            Some(2048)
+        );
     }
 }

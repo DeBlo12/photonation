@@ -124,14 +124,15 @@ fn set_membership(
     }
 }
 
-/// Slider bound to a [`Control`] spec.
-fn control_slider(
+/// Slider bound to a [`Control`] spec of the photo's settings or a mask's
+/// local adjustments.
+pub fn control_slider<Target>(
     ui: &mut Ui,
-    settings: &mut Settings,
-    control: &Control,
+    target: &mut Target,
+    control: &Control<Target>,
     style: &SliderStyle,
 ) -> egui::Response {
-    let value = control.get_mut(settings);
+    let value = control.get_mut(target);
     adjustment_slider(
         ui,
         control.label,
@@ -148,9 +149,9 @@ fn control_sliders(ui: &mut Ui, settings: &mut Settings, controls: &[Control]) {
     }
 }
 
-fn style_for(id: &str) -> SliderStyle {
+pub fn style_for(id: &str) -> SliderStyle {
     match id {
-        "exposure" => SliderStyle {
+        "exposure" | "local-exposure" => SliderStyle {
             format: |v| format!("{v:+.2}").replace("+0.00", "0.00"),
             ..SliderStyle::default()
         },
@@ -162,8 +163,34 @@ fn style_for(id: &str) -> SliderStyle {
             format: |v| format!("{v:.0}"),
             ..SliderStyle::default()
         },
+        "local-temperature" => SliderStyle {
+            track: temperature_track(),
+            ..SliderStyle::default()
+        },
+        "local-tint" => SliderStyle {
+            track: tint_track(),
+            ..SliderStyle::default()
+        },
         _ => SliderStyle::default(),
     }
+}
+
+/// Blue → white → amber, for temperature sliders.
+fn temperature_track() -> Track {
+    Track::Gradient(vec![
+        Color32::from_rgb(70, 120, 230),
+        Color32::from_rgb(200, 210, 230),
+        Color32::from_rgb(240, 200, 90),
+    ])
+}
+
+/// Green → grey → magenta, for tint sliders.
+fn tint_track() -> Track {
+    Track::Gradient(vec![
+        Color32::from_rgb(70, 190, 90),
+        Color32::from_rgb(210, 210, 210),
+        Color32::from_rgb(210, 80, 200),
+    ])
 }
 
 fn white_balance(ui: &mut Ui, settings: &mut Settings, view: &mut ViewState, as_shot: (f64, f64)) {
@@ -209,19 +236,11 @@ fn white_balance(ui: &mut Ui, settings: &mut Settings, view: &mut ViewState, as_
     let mut temperature_value = temperature as f32;
     let mut tint_value = tint as f32;
     let temperature_style = SliderStyle {
-        track: Track::Gradient(vec![
-            Color32::from_rgb(70, 120, 230),
-            Color32::from_rgb(200, 210, 230),
-            Color32::from_rgb(240, 200, 90),
-        ]),
+        track: temperature_track(),
         format: |v| format!("{v:.0} K"),
     };
     let tint_style = SliderStyle {
-        track: Track::Gradient(vec![
-            Color32::from_rgb(70, 190, 90),
-            Color32::from_rgb(210, 210, 210),
-            Color32::from_rgb(210, 80, 200),
-        ]),
+        track: tint_track(),
         ..SliderStyle::default()
     };
     let changed_temperature = adjustment_slider(

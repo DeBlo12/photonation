@@ -23,6 +23,10 @@ pub const ACCENT: Color32 = Color32::from_rgb(0x0a, 0x84, 0xff);
 /// Accent at 25 % opacity (premultiplied).
 pub const ACCENT_SOFT: Color32 = Color32::from_rgba_premultiplied(0x03, 0x21, 0x40, 0x40);
 pub const KNOB: Color32 = Color32::from_rgb(0xf5, 0xf5, 0xf7);
+/// Tint over the area the selected mask affects (premultiplied).
+pub const MASK_OVERLAY: Color32 = Color32::from_rgba_premultiplied(0x8c, 0x14, 0x1e, 0x8c);
+/// Under mask lines and handles, so they stay visible on bright photos.
+pub const HANDLE_SHADOW: Color32 = Color32::from_black_alpha(140);
 
 pub const CARD_RADIUS: u8 = 10;
 pub const CONTROL_RADIUS: u8 = 6;

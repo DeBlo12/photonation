@@ -6,7 +6,9 @@
 //! Layout and control flow are described in docs/DESKTOP.md.
 
 mod app;
+mod gpu;
 mod panels;
+mod photo_frame;
 mod screenshot;
 mod theme;
 mod widgets;
@@ -21,6 +23,11 @@ fn main() -> eframe::Result {
         .with_titlebar_shown(false);
     let options = eframe::NativeOptions {
         viewport,
+        renderer: eframe::Renderer::Wgpu,
+        wgpu_options: gpu::wgpu_configuration(gpu::GpuPreference::from_env()),
+        // The mask overlay's pipeline assumes neither (gpu/mask_overlay.rs).
+        multisampling: 0,
+        depth_buffer: 0,
         ..Default::default()
     };
     eframe::run_native(

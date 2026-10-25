@@ -3072,6 +3072,7 @@ name = "photonation-desktop"
 version = "0.1.0"
 dependencies = [
  "eframe",
+ "naga",
  "photonation-color",
  "photonation-develop",
  "photonation-engine",

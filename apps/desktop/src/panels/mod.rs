@@ -2,11 +2,13 @@
 // Copyright (C) 2026 The Photonation contributors
 
 //! The window's regions: toolbar (top), filmstrip (bottom), adjustments
-//! sidebar (right), viewer (centre) and the export sheet.
+//! sidebar (right), viewer (centre), the mask window and the export sheet.
 
 pub mod adjustments;
 pub mod export;
 pub mod filmstrip;
+pub mod mask_handles;
+pub mod masks;
 pub mod toolbar;
 pub mod viewer;
 

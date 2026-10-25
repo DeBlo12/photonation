@@ -1,11 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 The Photonation contributors
 
-//! The image canvas: fit/zoom/pan, before/after split, eyedropper.
+//! The image canvas: fit/zoom/pan, before/after split, eyedropper, and
+//! mask editing (handles and the GPU overlay) while the mask window is open.
 
 use crate::app::{PhotonationApp, Preview, ViewState, Zoom};
+use crate::gpu::mask_overlay::MaskOverlay;
+use crate::panels::mask_handles;
+use crate::photo_frame::PhotoFrame;
 use crate::theme;
 use eframe::egui::{self, Align2, Color32, CursorIcon, Rect, Sense, Stroke, Vec2, pos2, vec2};
+use photonation_develop::MaskSpace;
+use photonation_image::NormRect;
+use photonation_pipeline::masks::ShapeWeight;
 
 const MARGIN: f32 = 28.0;
 const MIN_SCALE: f32 = 0.05;
@@ -29,7 +36,8 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
             let interacting = ui.ctx().input(|i| i.pointer.any_down());
             let viewer_long_edge =
                 (available.width().max(available.height()) * pixels_per_point) as usize;
-            app.request_previews(viewer_long_edge, interacting);
+            let max_texture_side = ui.ctx().input(|i| i.max_texture_side);
+            app.request_previews(viewer_long_edge, interacting, max_texture_side);
 
             let Some(image_size) = full_resolution_size(app) else {
                 loading(ui, canvas);
@@ -61,7 +69,28 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
                 Zoom::Scale(scale) => scale / pixels_per_point,
             };
             let displayed = image_size * points_per_image_pixel;
-            if response.dragged() && app.view.zoom != Zoom::Fit && !app.view.eyedropper {
+            let editing_masks = app.view.show_masks && !app.view.eyedropper;
+            // A drag that grabs a mask handle edits the mask instead of panning.
+            let mut dragging_mask = false;
+            if editing_masks
+                && let Some(frame) = photo_frame(
+                    app,
+                    Rect::from_center_size(canvas.center() + app.view.pan, displayed),
+                )
+            {
+                dragging_mask = mask_handles::interact(
+                    &mut app.settings.masks,
+                    &mut app.view.selected_mask,
+                    ui,
+                    &response,
+                    &frame,
+                );
+            }
+            if response.dragged()
+                && app.view.zoom != Zoom::Fit
+                && !app.view.eyedropper
+                && !dragging_mask
+            {
                 app.view.pan += response.drag_delta();
             }
             app.view.pan = clamp_pan(app.view.pan, displayed, canvas.size());
@@ -81,6 +110,15 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
             {
                 compare_overlay(&mut app.view, ui, &response, &painter, before, image_rect);
             }
+            if editing_masks && let Some(frame) = photo_frame(app, image_rect) {
+                selected_mask_overlay(app, &painter, &frame);
+                mask_handles::paint(
+                    &app.settings.masks,
+                    app.view.selected_mask,
+                    &painter,
+                    &frame,
+                );
+            }
             if app.is_rendering() {
                 let spinner = Rect::from_center_size(
                     pos2(canvas.right() - 22.0, canvas.top() + 22.0),
@@ -93,7 +131,7 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
             }
             eyedropper(app, ui, &response, image_rect);
 
-            if response.double_clicked() && !app.view.eyedropper {
+            if response.double_clicked() && !app.view.eyedropper && !dragging_mask {
                 app.view.zoom = if app.view.zoom == Zoom::Fit {
                     Zoom::Scale(1.0)
                 } else {
@@ -154,6 +192,39 @@ fn full_resolution_size(app: &PhotonationApp) -> Option<Vec2> {
         .as_ref()
         .map_or(preview_size.max_elem(), |i| i.size.0.max(i.size.1) as f32);
     Some(preview_size * (full_long_edge / preview_size.max_elem()))
+}
+
+/// Where the photo is on screen, for mask editing (once its size is known).
+fn photo_frame(app: &PhotonationApp, image_rect: Rect) -> Option<PhotoFrame> {
+    let info = app.info.as_ref()?;
+    Some(PhotoFrame {
+        image_rect,
+        crop: app.settings.crop.map_or(NormRect::FULL, NormRect::clamped),
+        space: MaskSpace::new(info.size.0 as f64, info.size.1 as f64),
+    })
+}
+
+/// Tints where the selected mask applies, computed per pixel on the GPU.
+fn selected_mask_overlay(app: &PhotonationApp, painter: &egui::Painter, frame: &PhotoFrame) {
+    if !(app.mask_overlay_ready && app.view.mask_overlay) {
+        return;
+    }
+    let Some(mask) = app
+        .view
+        .selected_mask
+        .and_then(|index| app.settings.masks.get(index))
+    else {
+        return;
+    };
+    // The render sanitizes masks, so the overlay shows the sanitized shape.
+    let mask = mask.sanitized();
+    MaskOverlay {
+        frame: *frame,
+        shape: ShapeWeight::new(&mask.shape, frame.space),
+        invert: mask.invert,
+        color: theme::MASK_OVERLAY,
+    }
+    .paint(painter);
 }
 
 fn paint(painter: &egui::Painter, preview: &Preview, rect: Rect, clip: Rect) {

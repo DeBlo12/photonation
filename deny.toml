@@ -1,0 +1,63 @@
+# cargo-deny configuration: licence compliance (GPL-3.0-or-later compatible
+# only), security advisories, and dependency sources.
+# Run locally with `cargo deny check`.
+
+[graph]
+targets = [
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+    "x86_64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+    "wasm32-unknown-unknown",
+]
+all-features = false
+
+[advisories]
+version = 2
+yanked = "deny"
+# Flag unmaintained crates we depend on directly; transitive ones (e.g. via
+# egui) are tracked upstream. Vulnerabilities always fail.
+unmaintained = "workspace"
+
+[licenses]
+version = 2
+confidence-threshold = 0.9
+# Every licence here is compatible with GPL-3.0-or-later. Add new ones only
+# after checking https://www.gnu.org/licenses/license-list.html.
+allow = [
+    "LGPL-2.1-only",
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "0BSD",
+    "Unlicense",
+    "Unicode-3.0",
+    "BSL-1.0",
+    "IJG",
+    # Fonts embedded by egui; the licences permit bundling with any software.
+    "OFL-1.1",
+    "Ubuntu-font-1.0",
+]
+
+# rawler declares the deprecated SPDX id "LGPL-2.1"; it means LGPL-2.1-only.
+[[licenses.clarify]]
+crate = "rawler"
+expression = "LGPL-2.1-only"
+license-files = []
+
+# Our own (unpublished) crates are GPL-3.0-or-later.
+[licenses.private]
+ignore = true
+
+[bans]
+multiple-versions = "allow"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

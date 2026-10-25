@@ -58,7 +58,11 @@ pub fn icc_profile(space: ColorSpace) -> Vec<u8> {
     profile.encode().unwrap_or_default()
 }
 
-/// Writes `img` to `path` atomically (temporary file, then rename).
+/// Writes `img` to `path` atomically: it is encoded into a new temporary
+/// file beside `path` (created exclusively under a random name, so a file
+/// or symlink planted in a shared folder is never written through),
+/// flushed to disk, then renamed over `path`. A failed export leaves
+/// nothing behind.
 pub fn write(path: &Path, img: &OutputImage, format: Format) -> Result<(), ExportError> {
     if !format.supports(img.bit_depth()) {
         return Err(ExportError::Depth {
@@ -66,22 +70,33 @@ pub fn write(path: &Path, img: &OutputImage, format: Format) -> Result<(), Expor
             depth: img.bit_depth(),
         });
     }
-    let mut tmp_name = path.file_name().unwrap_or_default().to_os_string();
-    tmp_name.push(".partial");
-    let tmp = path.with_file_name(tmp_name);
-    let result = encode_to(&tmp, img, format).and_then(|()| {
-        std::fs::rename(&tmp, path).map_err(|source| ExportError::Io {
-            path: path.into(),
-            source,
-        })
-    });
-    if result.is_err() {
-        std::fs::remove_file(&tmp).ok();
-    }
-    result
+    let io_error = |source| ExportError::Io {
+        path: path.into(),
+        source,
+    };
+    let directory = path
+        .parent()
+        .filter(|dir| !dir.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let mut temporary = tempfile::Builder::new();
+    temporary.prefix(".photonation-").suffix(".partial");
+    // Same permissions a plain create would give (0o666 minus umask), so
+    // exports stay readable as before, instead of tempfile's owner-only default.
+    #[cfg(unix)]
+    temporary.permissions(std::os::unix::fs::PermissionsExt::from_mode(0o666));
+    let mut file = temporary.tempfile_in(directory).map_err(io_error)?;
+    encode_to(file.as_file_mut(), path, img, format)?;
+    file.persist(path).map_err(|e| io_error(e.error))?;
+    Ok(())
 }
 
-fn encode_to(path: &Path, img: &OutputImage, format: Format) -> Result<(), ExportError> {
+/// Encodes into `file`; `path` (the final destination) names errors.
+fn encode_to(
+    file: &mut File,
+    path: &Path,
+    img: &OutputImage,
+    format: Format,
+) -> Result<(), ExportError> {
     let io_error = |source| ExportError::Io {
         path: path.into(),
         source,
@@ -91,7 +106,7 @@ fn encode_to(path: &Path, img: &OutputImage, format: Format) -> Result<(), Expor
         message: e.to_string(),
     };
     let icc = icc_profile(img.color_space);
-    let mut out = BufWriter::new(File::create(path).map_err(io_error)?);
+    let mut out = BufWriter::new(file);
 
     match (format, &img.pixels) {
         (Format::Jpeg { quality }, Pixels::U8(px)) => {
@@ -210,8 +225,8 @@ mod tests {
 
     #[test]
     fn writes_every_format() {
-        let dir = std::env::temp_dir().join(format!("photonation-export-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).expect("mkdir");
+        let temp = tempfile::tempdir().expect("temp dir");
+        let dir = temp.path();
         for (format, depth) in [
             (Format::Jpeg { quality: 90 }, BitDepth::Eight),
             (Format::Png, BitDepth::Eight),
@@ -230,6 +245,47 @@ mod tests {
             ),
             Err(ExportError::Depth { .. })
         ));
-        std::fs::remove_dir_all(&dir).ok();
+        // Only the finished files remain; no temporary files are left over.
+        assert_eq!(std::fs::read_dir(dir).expect("list").count(), 4);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn never_writes_through_planted_symlinks() {
+        // Older builds encoded into the predictable `<name>.partial`; a link
+        // planted there (or at the target) must not redirect the write.
+        let temp = tempfile::tempdir().expect("temp dir");
+        let victim = temp.path().join("victim.txt");
+        std::fs::write(&victim, "precious").expect("write victim");
+        let target = temp.path().join("out.png");
+        std::os::unix::fs::symlink(&victim, &target).expect("symlink");
+        std::os::unix::fs::symlink(&victim, temp.path().join("out.png.partial")).expect("symlink");
+        write(&target, &tiny(BitDepth::Eight), Format::Png).expect("write");
+        assert_eq!(
+            std::fs::read_to_string(&victim).expect("read victim"),
+            "precious"
+        );
+        assert!(
+            !std::fs::symlink_metadata(&target)
+                .expect("stat")
+                .is_symlink()
+        );
+    }
+
+    #[test]
+    fn failed_export_leaves_no_temporary_file() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let too_wide = OutputImage {
+            width: 70_000,
+            height: 1,
+            color_space: ColorSpace::Srgb,
+            pixels: Pixels::U8(vec![0; 70_000 * 3]),
+        };
+        let target = temp.path().join("wide.jpg");
+        assert!(matches!(
+            write(&target, &too_wide, Format::Jpeg { quality: 90 }),
+            Err(ExportError::Encode { .. })
+        ));
+        assert_eq!(std::fs::read_dir(temp.path()).expect("list").count(), 0);
     }
 }

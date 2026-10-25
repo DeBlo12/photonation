@@ -117,17 +117,17 @@ fn convert(
         }
     };
 
-    let full = Rect::new(0, 0, raw.width, raw.height);
+    let (width, height) = (raw.width, raw.height);
+    let full = Rect::new(0, 0, width, height);
     let to_rect = |r: &rawler::imgop::Rect| Rect::new(r.p.x, r.p.y, r.d.w, r.d.h);
     let crop = raw
         .crop_area
         .as_ref()
         .or(raw.active_area.as_ref())
         .map(to_rect)
-        .filter(|r| r.w > 0 && r.h > 0 && r.x + r.w <= raw.width && r.y + r.h <= raw.height)
+        .filter(|r| crop_fits(*r, width, height))
         .unwrap_or(full);
 
-    let black = black_per_channel(&raw, &layout);
     let white = raw
         .whitelevel
         .0
@@ -135,6 +135,9 @@ fn convert(
         .copied()
         .min()
         .unwrap_or(u16::MAX as u32) as f32;
+    // Levels come straight from the file; keep them finite and below white
+    // so normalization never divides by zero or produces NaN.
+    let black = black_per_channel(&raw, &layout).map(|level| sane_black_level(level, white));
     let color = camera_color(&raw);
     // Some formats (e.g. Canon CR3) only record orientation in EXIF.
     let orientation = meta
@@ -142,7 +145,6 @@ fn convert(
         .map(Orientation::from_exif)
         .unwrap_or_else(|| Orientation::from_exif(raw.orientation.to_u16()));
     let info = camera_info(&raw, meta);
-    let (width, height) = (raw.width, raw.height);
 
     let (data, black, white) = match raw.data {
         rawler::RawImageData::Integer(samples) => (samples, black, white),
@@ -156,10 +158,10 @@ fn convert(
             (data, black.map(|b| b * scale), u16::MAX as f32)
         }
     };
-    if data.len() != width * height * layout.samples_per_pixel() {
+    if let Err(message) = check_dimensions(width, height, layout.samples_per_pixel(), data.len()) {
         return Err(RawError::Decode {
             path: path.into(),
-            message: "sample count does not match dimensions".into(),
+            message,
         });
     }
 
@@ -176,6 +178,46 @@ fn convert(
         baseline_exposure: 0.0,
         info,
     })
+}
+
+/// Largest sensor accepted, in pixels. Medium-format backs reach ~150 MP
+/// (400 MP in pixel-shift modes); anything far beyond is a corrupt header.
+const MAX_SENSOR_PIXELS: usize = 1 << 30;
+
+/// Dimensions read from a file are untrusted: products are checked so a
+/// crafted header cannot wrap around and pass the sample-count check.
+fn check_dimensions(
+    width: usize,
+    height: usize,
+    samples_per_pixel: usize,
+    sample_count: usize,
+) -> Result<(), String> {
+    let pixels = width
+        .checked_mul(height)
+        .filter(|&pixels| pixels > 0 && pixels <= MAX_SENSOR_PIXELS)
+        .ok_or_else(|| format!("implausible sensor size {width}×{height}"))?;
+    match pixels.checked_mul(samples_per_pixel) {
+        Some(expected) if expected == sample_count => Ok(()),
+        _ => Err("sample count does not match dimensions".into()),
+    }
+}
+
+/// A black level from the file, made finite and kept below `white` (which
+/// may itself be bogus, even 0) so normalization never divides by zero.
+fn sane_black_level(level: f32, white: f32) -> f32 {
+    if level.is_finite() {
+        level.clamp(0.0, (white - 1.0).max(0.0))
+    } else {
+        0.0
+    }
+}
+
+/// Whether a crop rectangle from the file is non-empty and inside the image.
+fn crop_fits(crop: Rect, width: usize, height: usize) -> bool {
+    let inside = |start: usize, len: usize, limit: usize| {
+        len > 0 && start.checked_add(len).is_some_and(|end| end <= limit)
+    };
+    inside(crop.x, crop.w, width) && inside(crop.y, crop.h, height)
 }
 
 fn cfa_pattern(config: &rawler::rawimage::CFAConfig) -> Option<CfaPattern> {
@@ -307,5 +349,48 @@ fn camera_info(raw: &RawImage, meta: Option<&RawMetadata>) -> CameraInfo {
         f_number: exif.and_then(|e| rational(&e.fnumber)),
         focal_length: exif.and_then(|e| rational(&e.focal_length)),
         date_time: exif.and_then(|e| e.date_time_original.clone()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dimension_products_cannot_wrap() {
+        assert!(check_dimensions(6000, 4000, 1, 24_000_000).is_ok());
+        assert!(check_dimensions(10, 10, 3, 300).is_ok());
+        assert!(check_dimensions(10, 10, 3, 100).is_err());
+        assert!(check_dimensions(0, 4000, 1, 0).is_err());
+        // 2^32 × 2^32 wraps to 0 in unchecked 64-bit arithmetic.
+        assert!(check_dimensions(1 << 32, 1 << 32, 1, 0).is_err());
+        assert!(check_dimensions(usize::MAX, 2, 1, usize::MAX - 1).is_err());
+    }
+
+    #[test]
+    fn crops_must_fit_without_overflow() {
+        assert!(crop_fits(Rect::new(0, 0, 100, 50), 100, 50));
+        assert!(crop_fits(Rect::new(10, 5, 80, 40), 100, 50));
+        assert!(!crop_fits(Rect::new(10, 5, 91, 40), 100, 50));
+        assert!(!crop_fits(Rect::new(0, 0, 0, 50), 100, 50));
+        assert!(!crop_fits(Rect::new(usize::MAX, 0, 2, 50), 100, 50));
+    }
+
+    #[test]
+    fn black_levels_are_finite_and_below_white() {
+        assert_eq!(sane_black_level(512.0, 15000.0), 512.0);
+        assert_eq!(sane_black_level(f32::NAN, 15000.0), 0.0);
+        assert_eq!(sane_black_level(-3.0, 15000.0), 0.0);
+        assert_eq!(sane_black_level(20000.0, 15000.0), 14999.0);
+        // A zero white level must not make the clamp range inverted (a panic).
+        assert_eq!(sane_black_level(512.0, 0.0), 0.0);
+    }
+
+    #[test]
+    fn extensions_are_matched_case_insensitively() {
+        assert!(is_supported(Path::new("/photos/IMG_0001.CR3")));
+        assert!(is_supported(Path::new("img_0001.cr3")));
+        assert!(!is_supported(Path::new("notes.txt")));
+        assert!(!is_supported(Path::new("no-extension")));
     }
 }

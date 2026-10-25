@@ -2,48 +2,10 @@
 // Copyright (C) 2026 The Photonation contributors
 
 use super::*;
-use photonation_color::Mat3;
-use photonation_image::{
-    CalibrationMatrix, CameraColor, CameraInfo, CfaColor, CfaPattern, Orientation, SensorLayout,
-};
+use photonation_image::{CfaColor, CfaPattern, Orientation, SensorLayout};
 
-/// Deterministic synthetic mosaic: smooth gradients plus pseudo-random noise.
 fn synthetic(w: usize, h: usize, orientation: Orientation) -> SensorImage {
-    let mut state = 0x2545_f491_4f6c_dd1du64;
-    let mut data = Vec::with_capacity(w * h);
-    for y in 0..h {
-        for x in 0..w {
-            state ^= state << 13;
-            state ^= state >> 7;
-            state ^= state << 17;
-            let noise = (state % 400) as f32;
-            let base = 600.0 + 9000.0 * (x as f32 / w as f32) * (0.5 + 0.5 * (y as f32 / h as f32));
-            data.push((base + noise).min(15000.0) as u16);
-        }
-    }
-    SensorImage {
-        width: w,
-        height: h,
-        data,
-        layout: SensorLayout::Cfa(CfaPattern::rggb()),
-        black: [512.0; 3],
-        white: 15000.0,
-        crop: Rect::new(2, 2, w - 4, h - 4),
-        orientation,
-        color: CameraColor {
-            as_shot_neutral: Some([0.55, 1.0, 0.63]),
-            matrices: vec![CalibrationMatrix {
-                temperature: 6504.0,
-                xyz_to_camera: Mat3([
-                    [0.9079, -0.1923, -0.1236],
-                    [-0.4677, 1.2454, 0.2492],
-                    [-0.0922, 0.2319, 0.5565],
-                ]),
-            }],
-        },
-        baseline_exposure: 0.0,
-        info: CameraInfo::default(),
-    }
+    SensorImage::test_pattern(w, h, orientation)
 }
 
 fn render_with(

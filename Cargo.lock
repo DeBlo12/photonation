@@ -3089,6 +3089,7 @@ dependencies = [
  "photonation-image",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror 2.0.21",
 ]
 
@@ -3114,6 +3115,7 @@ dependencies = [
  "photonation-color",
  "photonation-image",
  "png",
+ "tempfile",
  "thiserror 2.0.21",
  "tiff",
 ]

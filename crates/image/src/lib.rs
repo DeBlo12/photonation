@@ -8,6 +8,8 @@
 mod geometry;
 mod output;
 mod sensor;
+#[cfg(any(test, feature = "test-util"))]
+mod test_util;
 
 pub use geometry::{NormRect, Orientation, Rect};
 pub use output::{BitDepth, OutputImage, Pixels};

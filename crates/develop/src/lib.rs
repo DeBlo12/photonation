@@ -23,4 +23,4 @@ pub use settings::{
     ColorGrading, ColorMixer, GradingWheel, HslAdjustment, ParametricCurve, PointCurve,
     ProcessVersion, Settings, Sharpening, ToneCurve, WhiteBalance,
 };
-pub use sidecar::{SIDECAR_EXTENSION, SidecarError, sidecar_path};
+pub use sidecar::{MAX_SIDECAR_BYTES, SIDECAR_EXTENSION, SidecarError, sidecar_path};

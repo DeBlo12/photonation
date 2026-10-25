@@ -4,10 +4,22 @@
 # Local renders, screenshots and test exports
 /out
 
-# Develop sidecars written next to test photos
+# Develop sidecars written next to test photos, and the temporary files
+# atomic writes use (older builds used the last two patterns)
 *.photonation.json
+.photonation-*.tmp
+.photonation-*.partial
 *.json.tmp
 *.partial
+
+# Local environment and secrets. Photonation reads no .env file; settings
+# such as PHOTONATION_GPU come from the real environment (see
+# docs/DEVELOPMENT.md). Keep any local env files out of the repository.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
 
 # Raw test images (copyrighted personal photos must not be committed)
 *.CR2

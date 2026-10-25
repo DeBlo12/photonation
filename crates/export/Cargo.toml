@@ -17,6 +17,7 @@ jpeg-encoder.workspace = true
 png.workspace = true
 tiff.workspace = true
 moxcms.workspace = true
+tempfile.workspace = true
 thiserror.workspace = true
 
 [lints]

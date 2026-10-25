@@ -1,21 +1,32 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 The Photonation contributors
 
-use crate::Settings;
+use crate::{LocalAdjustments, Settings};
 
-/// Description of one slider.
-#[derive(Clone, Copy, Debug)]
-pub struct Control {
+/// Description of one slider over a `Target`: the photo's [`Settings`]
+/// or a mask's [`LocalAdjustments`].
+#[derive(Debug)]
+pub struct Control<Target = Settings> {
     /// Stable id used by the CLI, sidecars and UIs.
     pub id: &'static str,
     pub label: &'static str,
     pub min: f32,
     pub max: f32,
     pub default: f32,
-    accessor: fn(&mut Settings) -> &mut f32,
+    accessor: fn(&mut Target) -> &mut f32,
 }
 
-impl Control {
+// Manual impls: a derive would require `Target: Copy`, but only the
+// function pointer is copied.
+impl<Target> Clone for Control<Target> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<Target> Copy for Control<Target> {}
+
+impl<Target> Control<Target> {
     pub fn clamp(&self, v: f32) -> f32 {
         if v.is_finite() {
             v.clamp(self.min, self.max)
@@ -24,17 +35,21 @@ impl Control {
         }
     }
 
-    pub fn get_mut<'a>(&self, s: &'a mut Settings) -> &'a mut f32 {
-        (self.accessor)(s)
+    pub fn get_mut<'a>(&self, target: &'a mut Target) -> &'a mut f32 {
+        (self.accessor)(target)
     }
+}
 
-    pub fn get(&self, s: &Settings) -> f32 {
+impl<Target: Clone> Control<Target> {
+    pub fn get(&self, target: &Target) -> f32 {
         // The accessor needs `&mut`; reading through a copy keeps `get` usable
-        // on shared settings. Settings are small, so this is cheap.
-        let mut copy = s.clone();
+        // on shared values. Both targets are small, so this is cheap.
+        let mut copy = target.clone();
         *(self.accessor)(&mut copy)
     }
+}
 
+impl Control {
     pub fn find(id: &str) -> Option<&'static Control> {
         all_controls().find(|c| c.id == id)
     }
@@ -208,6 +223,39 @@ pub static DETAIL_CONTROLS: &[Control] = &[
     control!("sharpen-radius", "Radius", 0.5, 3.0, 1.0, sharpening.radius),
 ];
 
+/// A mask's local adjustments, in the order the mask editor shows them.
+pub static LOCAL_CONTROLS: &[Control<LocalAdjustments>] = &[
+    control!(
+        "local-temperature",
+        "Temperature",
+        -100.0,
+        100.0,
+        0.0,
+        temperature
+    ),
+    control!("local-tint", "Tint", -100.0, 100.0, 0.0, tint),
+    control!("local-exposure", "Exposure", -4.0, 4.0, 0.0, exposure),
+    control!("local-contrast", "Contrast", -100.0, 100.0, 0.0, contrast),
+    control!(
+        "local-highlights",
+        "Highlights",
+        -100.0,
+        100.0,
+        0.0,
+        highlights
+    ),
+    control!("local-shadows", "Shadows", -100.0, 100.0, 0.0, shadows),
+    control!("local-dehaze", "Dehaze", -100.0, 100.0, 0.0, dehaze),
+    control!(
+        "local-saturation",
+        "Saturation",
+        -100.0,
+        100.0,
+        0.0,
+        saturation
+    ),
+];
+
 /// Every slider, in panel order.
 pub fn all_controls() -> impl Iterator<Item = &'static Control> {
     BASIC_CONTROLS
@@ -232,8 +280,19 @@ mod tests {
     }
 
     #[test]
+    fn local_defaults_match_local_adjustments_default() {
+        let adjustments = LocalAdjustments::default();
+        for c in LOCAL_CONTROLS {
+            assert_eq!(c.get(&adjustments), c.default, "{}", c.id);
+        }
+    }
+
+    #[test]
     fn ids_are_unique() {
-        let ids: Vec<&str> = all_controls().map(|c| c.id).collect();
+        let ids: Vec<&str> = all_controls()
+            .map(|c| c.id)
+            .chain(LOCAL_CONTROLS.iter().map(|c| c.id))
+            .collect();
         for (i, id) in ids.iter().enumerate() {
             assert!(!ids[i + 1..].contains(id), "{id}");
         }

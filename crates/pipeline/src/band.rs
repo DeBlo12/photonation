@@ -66,7 +66,10 @@ pub trait Stage: Send + Sync {
 
 /// A per-pixel stage; adapts to [`Stage`] and runs in place.
 pub trait PointOp: Send + Sync {
-    fn apply(&self, px: &mut [f32]);
+    /// Processes row `y` (interleaved RGB; pixel `x` is `row[3x..3x + 3]`).
+    /// The position lets masks vary the operation across the image; most
+    /// operations ignore it.
+    fn apply(&self, y: usize, row: &mut [f32]);
 }
 
 pub struct Point<P>(pub P);
@@ -81,7 +84,9 @@ impl<P: PointOp> Stage for Point<P> {
     }
 
     fn process(&self, mut input: Band, _: Range<usize>) -> Band {
-        self.0.apply(&mut input.data);
+        for y in input.row_range() {
+            self.0.apply(y, input.row_mut(y));
+        }
         input
     }
 }

@@ -21,6 +21,8 @@ const GRADING_HUE_OFFSET: f32 = 25.0;
 const MAX_GRADING_CHROMA: f32 = 0.06;
 /// Lightness offset of a grading wheel at ±100.
 const MAX_GRADING_LIGHTNESS: f32 = 0.15;
+/// Saturation Dehaze restores per unit (washed-out colour comes back with the contrast).
+pub const DEHAZE_SATURATION: f32 = 0.3;
 
 #[inline(always)]
 pub fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
@@ -125,7 +127,7 @@ impl ColorAdjust {
         let mixer = (!s.color_mixer.is_neutral()).then(|| s.color_mixer.bands());
         let grading = (!s.color_grading.is_neutral()).then(|| Grading::new(&s.color_grading));
         // Dehaze also restores the saturation haze washes out.
-        let saturation = s.saturation / 100.0 + 0.3 * s.dehaze / 100.0;
+        let saturation = s.saturation / 100.0 + DEHAZE_SATURATION * s.dehaze / 100.0;
         let vibrance = s.vibrance / 100.0;
         if mixer.is_none() && grading.is_none() && saturation == 0.0 && vibrance == 0.0 {
             return None;

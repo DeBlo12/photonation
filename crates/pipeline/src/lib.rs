@@ -18,6 +18,7 @@ pub mod curve;
 mod develop;
 mod encode;
 mod local_contrast;
+pub mod masks;
 mod resize;
 mod sharpen;
 mod source;
@@ -177,14 +178,23 @@ fn build_graph<'a>(
     let demosaic = Demosaic::choose(&sensor.layout, half_size_is_enough);
     let camera = CameraModel::new(sensor, &settings.white_balance);
     let source = source::SensorSource::new(sensor, region, camera.wb_multipliers, demosaic);
+    let source_region = source.region();
 
     let mut graph = Graph::new(Box::new(source));
-    graph.push(Box::new(Point(develop::Develop::new(
-        settings,
-        &camera.camera_to_working,
-        sensor.baseline_exposure,
-        opts.color_space,
-    ))));
+    let local = masks::LocalAdjust::new(
+        &settings.masks,
+        sensor,
+        masks::PixelToMask::new(sensor, source_region, graph.size()),
+    );
+    graph.push(Box::new(Point(
+        develop::Develop::new(
+            settings,
+            &camera.camera_to_working,
+            sensor.baseline_exposure,
+            opts.color_space,
+        )
+        .with_local_adjustments(local),
+    )));
     if let Some(local) =
         local_contrast::LocalContrast::new(settings.clarity, settings.texture, graph.size())
     {

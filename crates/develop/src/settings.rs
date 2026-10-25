@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 The Photonation contributors
 
+use crate::{MAX_MASKS, Mask};
 use photonation_image::NormRect;
 use serde::{Deserialize, Serialize};
 
@@ -294,6 +295,8 @@ pub struct Settings {
     pub sharpening: Sharpening,
     /// Crop on the displayed (oriented) image, inside the camera's default crop.
     pub crop: Option<NormRect>,
+    /// Local adjustments, applied in order on top of the global ones.
+    pub masks: Vec<Mask>,
 }
 
 impl Default for Settings {
@@ -317,6 +320,7 @@ impl Default for Settings {
             color_grading: ColorGrading::default(),
             sharpening: Sharpening::default(),
             crop: None,
+            masks: Vec::new(),
         }
     }
 }
@@ -371,6 +375,8 @@ impl Settings {
         p.midtone_split = p.midtone_split.clamp(p.shadow_split + 5.0, 90.0);
         p.highlight_split = p.highlight_split.clamp(p.midtone_split + 5.0, 95.0);
         s.crop = s.crop.map(NormRect::clamped);
+        s.masks.truncate(MAX_MASKS);
+        s.masks = s.masks.iter().map(Mask::sanitized).collect();
         s
     }
 }
@@ -419,6 +425,16 @@ mod tests {
         let c = PointCurve(vec![[1.0, 1.0], [0.5, 0.6], [0.5, 0.7], [-1.0, 0.0]]).sanitized();
         assert_eq!(c.0, vec![[0.0, 0.0], [0.5, 0.6], [1.0, 1.0]]);
         assert!(PointCurve::default().is_identity());
+    }
+
+    #[test]
+    fn sanitize_caps_the_number_of_masks() {
+        let s = Settings {
+            masks: vec![Mask::default(); MAX_MASKS * 4],
+            ..Settings::default()
+        }
+        .sanitized();
+        assert_eq!(s.masks.len(), MAX_MASKS);
     }
 
     #[test]

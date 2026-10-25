@@ -1,0 +1,17 @@
+[package]
+name = "photonation-color"
+description = "Colour science for Photonation: matrices, colour spaces, transfer functions, white balance"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,8 @@
+* text=auto eol=lf
+*.rs diff=rust
+*.png binary
+*.jpg binary
+*.tif binary
+*.CR3 binary
+*.DNG binary
+Cargo.lock linguist-generated=true -diff

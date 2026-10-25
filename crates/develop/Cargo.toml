@@ -1,0 +1,20 @@
+[package]
+name = "photonation-develop"
+description = "The non-destructive edit model for Photonation: develop settings, control specs, sidecars"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+photonation-image.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

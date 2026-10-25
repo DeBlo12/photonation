@@ -1,0 +1,23 @@
+[package]
+name = "photonation-export"
+description = "Photonation export: JPEG, PNG and TIFF encoders with embedded ICC profiles"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+photonation-color.workspace = true
+photonation-image.workspace = true
+jpeg-encoder.workspace = true
+png.workspace = true
+tiff.workspace = true
+moxcms.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

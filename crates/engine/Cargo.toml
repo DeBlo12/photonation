@@ -1,0 +1,23 @@
+[package]
+name = "photonation-engine"
+description = "Photonation session services: background rendering, thumbnails, export jobs, history"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+photonation-color.workspace = true
+photonation-image.workspace = true
+photonation-develop.workspace = true
+photonation-raw.workspace = true
+photonation-pipeline.workspace = true
+photonation-export.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

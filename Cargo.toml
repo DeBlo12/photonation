@@ -1,0 +1,66 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "apps/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+rust-version = "1.95"
+repository = "https://github.com/DeBlo12/photonation"
+homepage = "https://github.com/DeBlo12/photonation"
+authors = ["The Photonation contributors"]
+# Not on crates.io yet; flip when the crate APIs stabilize.
+publish = false
+
+[workspace.dependencies]
+# internal
+photonation-color = { path = "crates/color" }
+photonation-image = { path = "crates/image" }
+photonation-develop = { path = "crates/develop" }
+photonation-raw = { path = "crates/raw" }
+photonation-pipeline = { path = "crates/pipeline" }
+photonation-export = { path = "crates/export" }
+photonation-engine = { path = "crates/engine" }
+
+# foundation
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rayon = "1"
+anyhow = "1"
+clap = { version = "4.6", features = ["derive"] }
+
+# raw decoding (LGPL-2.1, GPL-3.0 compatible; see NOTICE)
+rawler = "0.8.0"
+
+# codecs and colour management
+jpeg-encoder = { version = "0.7", default-features = false, features = ["std"] }
+png = "0.18"
+tiff = "0.11"
+moxcms = { version = "0.9", default-features = false }
+
+# desktop app
+eframe = "0.37"
+rfd = "0.17"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+unwrap_used = "warn"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+# Image processing is unusable at opt-level 0; keep dependencies and the
+# per-pixel crates optimized even in dev builds.
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.dev.package.photonation-pipeline]
+opt-level = 3
+
+[profile.dev.package.photonation-color]
+opt-level = 3

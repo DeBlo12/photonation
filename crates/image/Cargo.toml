@@ -1,0 +1,18 @@
+[package]
+name = "photonation-image"
+description = "Image buffers shared across Photonation: sensor mosaics, geometry, display output"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+photonation-color.workspace = true
+serde.workspace = true
+
+[lints]
+workspace = true

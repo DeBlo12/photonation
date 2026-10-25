@@ -1,0 +1,28 @@
+# Build output
+/target
+
+# Local renders, screenshots and test exports
+/out
+
+# Develop sidecars written next to test photos
+*.photonation.json
+*.json.tmp
+*.partial
+
+# Raw test images (copyrighted personal photos must not be committed)
+*.CR2
+*.CR3
+*.NEF
+*.ARW
+*.RAF
+*.DNG
+*.dng
+*.ORF
+*.RW2
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+**/*.rs.bk

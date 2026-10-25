@@ -1,0 +1,30 @@
+[package]
+name = "photonation-cli"
+description = "Command-line raw developer: batch export raw photos to JPEG, PNG and TIFF"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "photonation"
+path = "src/main.rs"
+
+[dependencies]
+photonation-color.workspace = true
+photonation-image.workspace = true
+photonation-develop.workspace = true
+photonation-raw.workspace = true
+photonation-pipeline.workspace = true
+photonation-export.workspace = true
+photonation-engine.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

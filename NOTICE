@@ -1,0 +1,35 @@
+Photonation
+Copyright (C) 2026 The Photonation contributors
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version. See LICENSE for the full text.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE.
+
+Third-party components
+----------------------
+
+Photonation depends on third-party crates that keep their own licences. All of
+them are compatible with GPL-3.0-or-later; `cargo deny check licenses`
+(configured in deny.toml) enforces the allowed set in CI. Notable ones:
+
+rawler (https://github.com/dnglab/dnglab), LGPL-2.1
+  Camera raw decoding, used by crates/raw. LGPL-2.1 section 3 permits applying
+  the GPL (version 2 or later) instead, so it combines with this GPL-3.0 work.
+
+egui default fonts (epaint_default_fonts): Ubuntu Font Licence 1.0 and
+SIL Open Font License 1.1
+  Embedded in the desktop binary as fallback fonts. Both licences explicitly
+  allow bundling the fonts with any software; the fonts remain under their own
+  licences.
+
+jpeg-encoder: (MIT OR Apache-2.0) AND IJG
+  Includes code derived from the Independent JPEG Group's software. This
+  software is based in part on the work of the Independent JPEG Group.
+
+On macOS the desktop app loads the system font at run time; no system fonts
+are distributed with Photonation.

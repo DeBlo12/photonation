@@ -3103,6 +3103,7 @@ dependencies = [
  "photonation-image",
  "photonation-pipeline",
  "photonation-raw",
+ "tempfile",
  "thiserror 2.0.21",
 ]
 

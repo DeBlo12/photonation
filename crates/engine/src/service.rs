@@ -8,11 +8,19 @@
 //!   (latest-wins), so dragging a slider never queues stale renders.
 //! * Thumbnail workers: a small pool decoding and rendering small previews.
 //! * Export worker: one thread running export batches in order.
+//!
+//! Every job runs under [`isolate_panics`]: a decoder or pipeline bug hit
+//! by an unusual file becomes an [`Event::Error`] instead of silently
+//! killing the worker thread for the rest of the session.
 
-use crate::{ExportOptions, Histogram, export_photo, output_path};
+use crate::{
+    Decoder, ExportOptions, Histogram, RawDecoder, export_photo_with, output_path, unused_path,
+};
 use photonation_develop::{Settings, WhiteBalance};
 use photonation_image::{CameraInfo, Pixels, SensorImage};
 use photonation_pipeline::{CameraModel, RenderOptions};
+use std::any::Any;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
@@ -79,6 +87,8 @@ pub enum Event {
         done: usize,
         total: usize,
     },
+    /// A batch finished. Files are written under unused names
+    /// ([`crate::unused_path`]), so nothing in the directory is replaced.
     ExportFinished {
         exported: usize,
         failures: Vec<(PathBuf, String)>,
@@ -135,6 +145,14 @@ pub struct RenderService {
 impl RenderService {
     /// `notify` is called (from worker threads) whenever an event is ready.
     pub fn new(notify: impl Fn() + Send + Sync + 'static) -> RenderService {
+        RenderService::with_decoder(Arc::new(RawDecoder), notify)
+    }
+
+    /// A service that reads photos with `decoder` instead of the raw decoder.
+    pub fn with_decoder(
+        decoder: Arc<dyn Decoder>,
+        notify: impl Fn() + Send + Sync + 'static,
+    ) -> RenderService {
         let (event_sender, events) = channel();
         let sink = EventSink {
             sender: event_sender,
@@ -142,26 +160,27 @@ impl RenderService {
         };
 
         let (previews, preview_jobs) = channel();
-        let preview_sink = sink.clone();
+        let (preview_sink, preview_decoder) = (sink.clone(), decoder.clone());
         std::thread::Builder::new()
             .name("preview".into())
-            .spawn(move || preview_worker(preview_jobs, preview_sink))
+            .spawn(move || preview_worker(preview_jobs, &*preview_decoder, preview_sink))
             .expect("spawning the preview thread");
 
         let (thumbnails, thumbnail_jobs) = channel::<ThumbnailJob>();
         let thumbnail_jobs = Arc::new(Mutex::new(thumbnail_jobs));
         for index in 0..THUMBNAIL_WORKERS {
             let (jobs, thumbnail_sink) = (thumbnail_jobs.clone(), sink.clone());
+            let thumbnail_decoder = decoder.clone();
             std::thread::Builder::new()
                 .name(format!("thumbnail-{index}"))
-                .spawn(move || thumbnail_worker(jobs, thumbnail_sink))
+                .spawn(move || thumbnail_worker(jobs, &*thumbnail_decoder, thumbnail_sink))
                 .expect("spawning a thumbnail thread");
         }
 
         let (exports, export_jobs) = channel();
         std::thread::Builder::new()
             .name("export".into())
-            .spawn(move || export_worker(export_jobs, sink))
+            .spawn(move || export_worker(export_jobs, &*decoder, sink))
             .expect("spawning the export thread");
 
         RenderService {
@@ -213,6 +232,22 @@ impl RenderService {
     }
 }
 
+/// Runs one job, turning a panic into an error message so the worker
+/// survives and keeps serving later jobs. Requires `panic = "unwind"`
+/// (the default; don't switch the release profile to abort).
+fn isolate_panics<T>(job: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+    catch_unwind(AssertUnwindSafe(job)).unwrap_or_else(|payload| Err(panic_message(&*payload)))
+}
+
+fn panic_message(payload: &(dyn Any + Send)) -> String {
+    let detail = payload
+        .downcast_ref::<&str>()
+        .map(|message| message.to_string())
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "unknown cause".into());
+    format!("internal error ({detail}); please report this file")
+}
+
 fn to_rendered(image: photonation_image::OutputImage) -> RenderedImage {
     let rgb = match image.pixels {
         Pixels::U8(rgb) => rgb,
@@ -249,45 +284,38 @@ struct CurrentPhoto {
     sensor: Arc<SensorImage>,
 }
 
+/// The decoded photo at `path`: the cached one, or decoded now (which
+/// announces it with [`Event::PhotoLoaded`]).
 fn load_photo(
     current: &mut Option<CurrentPhoto>,
     path: &Path,
+    decoder: &dyn Decoder,
     sink: &EventSink,
-) -> Option<Arc<SensorImage>> {
+) -> Result<Arc<SensorImage>, String> {
     if let Some(photo) = current.as_ref().filter(|p| p.path == path) {
-        return Some(photo.sensor.clone());
+        return Ok(photo.sensor.clone());
     }
     *current = None; // free the previous mosaic before decoding the next
-    match photonation_raw::decode_file(path) {
-        Ok(sensor) => {
-            let camera = CameraModel::new(&sensor, &WhiteBalance::AsShot);
-            let size = sensor
-                .orientation
-                .display_size(sensor.crop.w, sensor.crop.h);
-            sink.send(Event::PhotoLoaded(PhotoInfo {
-                path: path.into(),
-                camera: sensor.info.clone(),
-                as_shot: (camera.temperature, camera.tint),
-                size,
-            }));
-            let sensor = Arc::new(sensor);
-            *current = Some(CurrentPhoto {
-                path: path.into(),
-                sensor: sensor.clone(),
-            });
-            Some(sensor)
-        }
-        Err(e) => {
-            sink.send(Event::Error {
-                path: Some(path.into()),
-                message: e.to_string(),
-            });
-            None
-        }
-    }
+    let sensor = decoder.decode(path).map_err(|e| e.to_string())?;
+    let camera = CameraModel::new(&sensor, &WhiteBalance::AsShot);
+    let size = sensor
+        .orientation
+        .display_size(sensor.crop.w, sensor.crop.h);
+    sink.send(Event::PhotoLoaded(PhotoInfo {
+        path: path.into(),
+        camera: sensor.info.clone(),
+        as_shot: (camera.temperature, camera.tint),
+        size,
+    }));
+    let sensor = Arc::new(sensor);
+    *current = Some(CurrentPhoto {
+        path: path.into(),
+        sensor: sensor.clone(),
+    });
+    Ok(sensor)
 }
 
-fn preview_worker(jobs: Receiver<PreviewJob>, sink: EventSink) {
+fn preview_worker(jobs: Receiver<PreviewJob>, decoder: &dyn Decoder, sink: EventSink) {
     let mut current: Option<CurrentPhoto> = None;
     while let Ok(first) = jobs.recv() {
         // Collapse the burst: newest render per kind, every eyedropper pick.
@@ -308,24 +336,31 @@ fn preview_worker(jobs: Receiver<PreviewJob>, sink: EventSink) {
             }
         }
         for (path, settings, point) in picks {
-            let Some(sensor) = load_photo(&mut current, &path, &sink) else {
-                continue;
-            };
-            if let Some((temperature, tint)) =
-                photonation_pipeline::white_balance_at(&sensor, &settings, point)
-            {
-                sink.send(Event::WhiteBalancePicked {
+            let picked = isolate_panics(|| {
+                let sensor = load_photo(&mut current, &path, decoder, &sink)?;
+                Ok(photonation_pipeline::white_balance_at(
+                    &sensor, &settings, point,
+                ))
+            });
+            match picked {
+                Ok(Some((temperature, tint))) => sink.send(Event::WhiteBalancePicked {
                     path,
                     temperature,
                     tint,
-                });
+                }),
+                Ok(None) => {} // nothing measurable under the pointer
+                Err(message) => sink.send(Event::Error {
+                    path: Some(path),
+                    message,
+                }),
             }
         }
         for request in [latest_edited, latest_before].into_iter().flatten() {
-            let Some(sensor) = load_photo(&mut current, &request.path, &sink) else {
-                continue;
-            };
-            match render_rgb8(&sensor, &request.settings, request.long_edge, true) {
+            let rendered = isolate_panics(|| {
+                let sensor = load_photo(&mut current, &request.path, decoder, &sink)?;
+                render_rgb8(&sensor, &request.settings, request.long_edge, true)
+            });
+            match rendered {
                 Ok(image) => sink.send(Event::Preview {
                     path: request.path,
                     generation: request.generation,
@@ -341,7 +376,11 @@ fn preview_worker(jobs: Receiver<PreviewJob>, sink: EventSink) {
     }
 }
 
-fn thumbnail_worker(jobs: Arc<Mutex<Receiver<ThumbnailJob>>>, sink: EventSink) {
+fn thumbnail_worker(
+    jobs: Arc<Mutex<Receiver<ThumbnailJob>>>,
+    decoder: &dyn Decoder,
+    sink: EventSink,
+) {
     loop {
         // Hold the lock only while taking a job.
         let job = match jobs.lock() {
@@ -349,11 +388,10 @@ fn thumbnail_worker(jobs: Arc<Mutex<Receiver<ThumbnailJob>>>, sink: EventSink) {
             Err(_) => return,
         };
         let Ok(job) = job else { return };
-        let rendered = photonation_raw::decode_file(&job.path)
-            .map_err(|e| e.to_string())
-            .and_then(|sensor| {
-                render_rgb8(&sensor, &job.settings, Some(THUMBNAIL_LONG_EDGE), false)
-            });
+        let rendered = isolate_panics(|| {
+            let sensor = decoder.decode(&job.path).map_err(|e| e.to_string())?;
+            render_rgb8(&sensor, &job.settings, Some(THUMBNAIL_LONG_EDGE), false)
+        });
         match rendered {
             Ok(image) => sink.send(Event::Thumbnail {
                 path: job.path,
@@ -367,16 +405,27 @@ fn thumbnail_worker(jobs: Arc<Mutex<Receiver<ThumbnailJob>>>, sink: EventSink) {
     }
 }
 
-fn export_worker(jobs: Receiver<ExportJob>, sink: EventSink) {
+fn export_worker(jobs: Receiver<ExportJob>, decoder: &dyn Decoder, sink: EventSink) {
     for job in jobs {
         let total = job.photos.len();
         let mut failures = Vec::new();
         for (done, (path, settings)) in job.photos.iter().enumerate() {
             sink.send(Event::ExportProgress { done, total });
-            let target = output_path(path, &job.directory, job.options.format);
-            if let Err(e) = export_photo(path, &target, settings.as_ref(), &job.options, |_, _| {})
-            {
-                failures.push((path.clone(), e.to_string()));
+            let target = unused_path(&output_path(path, &job.directory, job.options.format));
+            let exported = isolate_panics(|| {
+                export_photo_with(
+                    decoder,
+                    path,
+                    &target,
+                    settings.as_ref(),
+                    &job.options,
+                    |_, _| {},
+                )
+                .map(drop)
+                .map_err(|e| e.to_string())
+            });
+            if let Err(message) = exported {
+                failures.push((path.clone(), message));
             }
         }
         sink.send(Event::ExportFinished {
@@ -385,3 +434,6 @@ fn export_worker(jobs: Receiver<ExportJob>, sink: EventSink) {
         });
     }
 }
+
+#[cfg(test)]
+mod tests;

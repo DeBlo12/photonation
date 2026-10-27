@@ -12,7 +12,8 @@ a Lightroom-style develop module with a Photomator-inspired interface.
 - **Lightroom's light and colour tools**: white balance (presets, eyedropper,
   temperature/tint), exposure, contrast, highlights, shadows, whites, blacks,
   texture, clarity, dehaze, vibrance, saturation, parametric and point tone curves
-  (RGB and per channel), an 8-band colour mixer, colour grading wheels
+  (RGB and per channel), an 8-band colour mixer, point colours (pick a colour in
+  the photo and shift its hue, saturation and luminance), colour grading wheels
   (shadows/midtones/highlights/global with blending and balance), sharpening.
 - **Non-destructive**: originals are never touched; edits live in a JSON sidecar
   next to each photo (`IMG_0001.CR3.photonation.json`), with undo/redo.

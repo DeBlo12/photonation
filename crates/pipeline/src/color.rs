@@ -2,9 +2,10 @@
 // Copyright (C) 2026 The Photonation contributors
 
 //! Colour adjustments in Oklab: colour mixer (HSL), colour grading,
-//! vibrance and saturation. Oklab keeps hue and lightness perceptually
+//! vibrance, saturation and point colours. Oklab keeps hue and lightness perceptually
 //! separate, so each slider does one thing.
 
+use crate::point_color::PointColors;
 use photonation_color::{Oklab, Primaries};
 use photonation_develop::{ColorGrading, GradingWheel, HslAdjustment, Settings};
 
@@ -119,17 +120,30 @@ pub struct ColorAdjust {
     grading: Option<Grading>,
     saturation: f32,
     vibrance: f32,
+    points: Option<PointColors>,
 }
 
 impl ColorAdjust {
     /// `None` when every colour slider is neutral (the stage is skipped).
-    pub fn new(s: &Settings, working: Primaries) -> Option<ColorAdjust> {
+    /// `point_color_overlay` shows that point colour's selection instead
+    /// of the edit.
+    pub fn new(
+        s: &Settings,
+        working: Primaries,
+        point_color_overlay: Option<usize>,
+    ) -> Option<ColorAdjust> {
         let mixer = (!s.color_mixer.is_neutral()).then(|| s.color_mixer.bands());
         let grading = (!s.color_grading.is_neutral()).then(|| Grading::new(&s.color_grading));
         // Dehaze also restores the saturation haze washes out.
         let saturation = s.saturation / 100.0 + DEHAZE_SATURATION * s.dehaze / 100.0;
         let vibrance = s.vibrance / 100.0;
-        if mixer.is_none() && grading.is_none() && saturation == 0.0 && vibrance == 0.0 {
+        let points = PointColors::new(&s.point_colors, point_color_overlay);
+        if mixer.is_none()
+            && grading.is_none()
+            && saturation == 0.0
+            && vibrance == 0.0
+            && points.is_none()
+        {
             return None;
         }
         Some(ColorAdjust {
@@ -138,6 +152,7 @@ impl ColorAdjust {
             grading,
             saturation,
             vibrance,
+            points,
         })
     }
 
@@ -155,8 +170,23 @@ impl ColorAdjust {
             (1.0 + self.saturation) * (1.0 + self.vibrance * (1.0 - smoothstep(0.0, 0.2, chroma)));
         lab[1] *= gain.max(0.0);
         lab[2] *= gain.max(0.0);
+        if let Some(points) = &self.points {
+            points.apply(&mut lab);
+        }
         self.oklab.to_rgb(lab)
     }
+}
+
+/// The mixer band (index into `ColorMixer::bands`) whose centre is
+/// nearest to an Oklab hue in degrees.
+pub fn nearest_mixer_band(hue: f32) -> usize {
+    let distance = |center: f32| {
+        let difference = (hue - center).rem_euclid(360.0);
+        difference.min(360.0 - difference)
+    };
+    (0..BAND_HUES.len())
+        .min_by(|&a, &b| distance(BAND_HUES[a]).total_cmp(&distance(BAND_HUES[b])))
+        .unwrap_or(0)
 }
 
 fn apply_mixer(bands: &[HslAdjustment; 8], lab: &mut [f32; 3]) {
@@ -183,7 +213,7 @@ mod tests {
 
     #[test]
     fn neutral_settings_skip_the_stage() {
-        assert!(ColorAdjust::new(&Settings::default(), WORKING).is_none());
+        assert!(ColorAdjust::new(&Settings::default(), WORKING, None).is_none());
     }
 
     #[test]
@@ -197,10 +227,18 @@ mod tests {
     }
 
     #[test]
+    fn nearest_band_wraps_around_red() {
+        assert_eq!(nearest_mixer_band(25.0), 0);
+        assert_eq!(nearest_mixer_band(10.0), 0);
+        assert_eq!(nearest_mixer_band(345.0), 7);
+        assert_eq!(nearest_mixer_band(250.0), 5);
+    }
+
+    #[test]
     fn mixer_desaturates_only_its_band() {
         let mut s = Settings::default();
         s.color_mixer.blue.saturation = -100.0;
-        let adjust = ColorAdjust::new(&s, WORKING).expect("active");
+        let adjust = ColorAdjust::new(&s, WORKING, None).expect("active");
         let ok = Oklab::new(WORKING);
         let chroma = |rgb| {
             let lab = ok.from_rgb(rgb);
@@ -220,7 +258,7 @@ mod tests {
             saturation: 80.0,
             luminance: 0.0,
         };
-        let adjust = ColorAdjust::new(&s, WORKING).expect("active");
+        let adjust = ColorAdjust::new(&s, WORKING, None).expect("active");
         let ok = Oklab::new(WORKING);
         let shift = |grey: f32| {
             let lab = ok.from_rgb(adjust.apply([grey; 3]));

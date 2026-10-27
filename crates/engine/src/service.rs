@@ -16,7 +16,7 @@
 use crate::{
     Decoder, ExportOptions, Histogram, RawDecoder, export_photo_with, output_path, unused_path,
 };
-use photonation_develop::{Settings, WhiteBalance};
+use photonation_develop::{OklabLch, Settings, WhiteBalance};
 use photonation_image::{CameraInfo, Pixels, SensorImage};
 use photonation_pipeline::{CameraModel, RenderOptions};
 use std::any::Any;
@@ -44,6 +44,9 @@ pub struct PreviewRequest {
     /// Increases with every edit; lets the UI ignore out-of-date results.
     pub generation: u64,
     pub kind: PreviewKind,
+    /// Show this point colour's selection instead of the edit (see
+    /// [`RenderOptions::point_color_overlay`]).
+    pub point_color_overlay: Option<usize>,
 }
 
 /// An 8-bit sRGB render ready for display.
@@ -83,6 +86,11 @@ pub enum Event {
         temperature: f64,
         tint: f64,
     },
+    /// The colour under a colour picker, as point colours see it.
+    ColorPicked {
+        path: PathBuf,
+        color: OklabLch,
+    },
     ExportProgress {
         done: usize,
         total: usize,
@@ -101,11 +109,22 @@ pub enum Event {
 
 enum PreviewJob {
     Render(PreviewRequest),
-    PickWhiteBalance {
-        path: PathBuf,
-        settings: Settings,
-        point: [f64; 2],
-    },
+    Pick(PickJob),
+}
+
+/// What a picker measures at a point of the photo.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PickKind {
+    WhiteBalance,
+    Color,
+}
+
+struct PickJob {
+    path: PathBuf,
+    settings: Settings,
+    /// Normalized display coordinates of the rendered image.
+    point: [f64; 2],
+    kind: PickKind,
 }
 
 struct ThumbnailJob {
@@ -199,14 +218,24 @@ impl RenderService {
         self.thumbnails.send(ThumbnailJob { path, settings }).ok();
     }
 
-    /// Eyedropper: answers with [`Event::WhiteBalancePicked`].
+    /// White balance eyedropper: answers with [`Event::WhiteBalancePicked`].
     pub fn pick_white_balance(&self, path: PathBuf, settings: Settings, point: [f64; 2]) {
+        self.pick(path, settings, point, PickKind::WhiteBalance);
+    }
+
+    /// Colour picker: answers with [`Event::ColorPicked`].
+    pub fn pick_color(&self, path: PathBuf, settings: Settings, point: [f64; 2]) {
+        self.pick(path, settings, point, PickKind::Color);
+    }
+
+    fn pick(&self, path: PathBuf, settings: Settings, point: [f64; 2], kind: PickKind) {
         self.previews
-            .send(PreviewJob::PickWhiteBalance {
+            .send(PreviewJob::Pick(PickJob {
                 path,
                 settings,
                 point,
-            })
+                kind,
+            }))
             .ok();
     }
 
@@ -262,18 +291,13 @@ fn to_rendered(image: photonation_image::OutputImage) -> RenderedImage {
     }
 }
 
+/// Renders 8-bit sRGB; `options` sets size, sharpening and overlays.
 fn render_rgb8(
     sensor: &SensorImage,
     settings: &Settings,
-    long_edge: Option<usize>,
-    sharpen: bool,
+    options: &RenderOptions,
 ) -> Result<RenderedImage, String> {
-    let options = RenderOptions {
-        long_edge,
-        sharpen,
-        ..RenderOptions::default()
-    };
-    photonation_pipeline::render(sensor, settings, &options)
+    photonation_pipeline::render(sensor, settings, options)
         .map(to_rendered)
         .map_err(|e| e.to_string())
 }
@@ -318,7 +342,7 @@ fn load_photo(
 fn preview_worker(jobs: Receiver<PreviewJob>, decoder: &dyn Decoder, sink: EventSink) {
     let mut current: Option<CurrentPhoto> = None;
     while let Ok(first) = jobs.recv() {
-        // Collapse the burst: newest render per kind, every eyedropper pick.
+        // Collapse the burst: newest render per kind, every picker click.
         let mut latest_edited = None;
         let mut latest_before = None;
         let mut picks = Vec::new();
@@ -328,26 +352,17 @@ fn preview_worker(jobs: Receiver<PreviewJob>, decoder: &dyn Decoder, sink: Event
                     latest_edited = Some(r)
                 }
                 PreviewJob::Render(r) => latest_before = Some(r),
-                PreviewJob::PickWhiteBalance {
-                    path,
-                    settings,
-                    point,
-                } => picks.push((path, settings, point)),
+                PreviewJob::Pick(pick) => picks.push(pick),
             }
         }
-        for (path, settings, point) in picks {
+        for pick in picks {
+            let path = pick.path.clone();
             let picked = isolate_panics(|| {
-                let sensor = load_photo(&mut current, &path, decoder, &sink)?;
-                Ok(photonation_pipeline::white_balance_at(
-                    &sensor, &settings, point,
-                ))
+                let sensor = load_photo(&mut current, &pick.path, decoder, &sink)?;
+                Ok(measure(&sensor, pick))
             });
             match picked {
-                Ok(Some((temperature, tint))) => sink.send(Event::WhiteBalancePicked {
-                    path,
-                    temperature,
-                    tint,
-                }),
+                Ok(Some(event)) => sink.send(event),
                 Ok(None) => {} // nothing measurable under the pointer
                 Err(message) => sink.send(Event::Error {
                     path: Some(path),
@@ -358,7 +373,12 @@ fn preview_worker(jobs: Receiver<PreviewJob>, decoder: &dyn Decoder, sink: Event
         for request in [latest_edited, latest_before].into_iter().flatten() {
             let rendered = isolate_panics(|| {
                 let sensor = load_photo(&mut current, &request.path, decoder, &sink)?;
-                render_rgb8(&sensor, &request.settings, request.long_edge, true)
+                let options = RenderOptions {
+                    long_edge: request.long_edge,
+                    point_color_overlay: request.point_color_overlay,
+                    ..RenderOptions::default()
+                };
+                render_rgb8(&sensor, &request.settings, &options)
             });
             match rendered {
                 Ok(image) => sink.send(Event::Preview {
@@ -372,6 +392,28 @@ fn preview_worker(jobs: Receiver<PreviewJob>, decoder: &dyn Decoder, sink: Event
                     message,
                 }),
             }
+        }
+    }
+}
+
+/// Answers one picker click; `None` when there is nothing to measure.
+fn measure(sensor: &SensorImage, pick: PickJob) -> Option<Event> {
+    match pick.kind {
+        PickKind::WhiteBalance => {
+            let (temperature, tint) =
+                photonation_pipeline::white_balance_at(sensor, &pick.settings, pick.point)?;
+            Some(Event::WhiteBalancePicked {
+                path: pick.path,
+                temperature,
+                tint,
+            })
+        }
+        PickKind::Color => {
+            let color = photonation_pipeline::color_at(sensor, &pick.settings, pick.point)?;
+            Some(Event::ColorPicked {
+                path: pick.path,
+                color,
+            })
         }
     }
 }
@@ -390,7 +432,12 @@ fn thumbnail_worker(
         let Ok(job) = job else { return };
         let rendered = isolate_panics(|| {
             let sensor = decoder.decode(&job.path).map_err(|e| e.to_string())?;
-            render_rgb8(&sensor, &job.settings, Some(THUMBNAIL_LONG_EDGE), false)
+            let options = RenderOptions {
+                long_edge: Some(THUMBNAIL_LONG_EDGE),
+                sharpen: false,
+                ..RenderOptions::default()
+            };
+            render_rgb8(&sensor, &job.settings, &options)
         });
         match rendered {
             Ok(image) => sink.send(Event::Thumbnail {

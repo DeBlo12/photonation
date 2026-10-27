@@ -69,7 +69,7 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
                 Zoom::Scale(scale) => scale / pixels_per_point,
             };
             let displayed = image_size * points_per_image_pixel;
-            let editing_masks = app.view.show_masks && !app.view.eyedropper;
+            let editing_masks = app.view.show_masks && app.view.eyedropper.is_none();
             // A drag that grabs a mask handle edits the mask instead of panning.
             let mut dragging_mask = false;
             if editing_masks
@@ -88,7 +88,7 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
             }
             if response.dragged()
                 && app.view.zoom != Zoom::Fit
-                && !app.view.eyedropper
+                && app.view.eyedropper.is_none()
                 && !dragging_mask
             {
                 app.view.pan += response.drag_delta();
@@ -131,7 +131,7 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
             }
             eyedropper(app, ui, &response, image_rect);
 
-            if response.double_clicked() && !app.view.eyedropper && !dragging_mask {
+            if response.double_clicked() && app.view.eyedropper.is_none() && !dragging_mask {
                 app.view.zoom = if app.view.zoom == Zoom::Fit {
                     Zoom::Scale(1.0)
                 } else {
@@ -381,26 +381,24 @@ fn eyedropper(
     response: &egui::Response,
     image_rect: Rect,
 ) {
-    if !app.view.eyedropper {
+    let Some(purpose) = app.view.eyedropper else {
         return;
-    }
+    };
     if response.hover_pos().is_some_and(|p| image_rect.contains(p)) {
         ui.ctx().set_cursor_icon(CursorIcon::Crosshair);
     }
     if response.clicked()
         && let Some(pointer) = response.interact_pointer_pos()
         && image_rect.contains(pointer)
-        && let Some(path) = app.current_path().cloned()
     {
         let point = [
             ((pointer.x - image_rect.left()) / image_rect.width()) as f64,
             ((pointer.y - image_rect.top()) / image_rect.height()) as f64,
         ];
-        app.engine
-            .pick_white_balance(path, app.settings.clone(), point);
-        app.view.eyedropper = false;
+        app.pick_color(point, purpose);
+        app.view.eyedropper = None;
     }
     if ui.ctx().input(|i| i.key_pressed(egui::Key::Escape)) {
-        app.view.eyedropper = false;
+        app.view.eyedropper = None;
     }
 }

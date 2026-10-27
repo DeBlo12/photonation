@@ -22,10 +22,18 @@ All notable changes to this project are documented here. The format follows
 - Masks: linear and radial gradients with invert, and local temperature, tint,
   exposure, contrast, highlights, shadows, dehaze and saturation. The desktop
   editor has a mask window (M), draggable handles and a GPU-drawn overlay.
+- Point colours: pick up to eight colours in the photo and shift the hue,
+  saturation and luminance of everything similar, with adjustable hue,
+  saturation and luminance ranges and a "Visualize range" overlay (the Color
+  Mixer's Point Color tab). The Mixer tab gets a picker that selects the band
+  of a colour clicked in the photo.
 - The desktop editor prefers a discrete GPU, falling back to integrated
   graphics and then software rendering; `PHOTONATION_GPU` overrides the order.
 
 ### Fixed
+
+- Texture and Clarity no longer change by a rounding step depending on how the
+  render is split into bands.
 
 - A panic while decoding or rendering one file no longer stops previews,
   thumbnails or exports for the rest of the session.

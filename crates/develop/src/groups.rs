@@ -65,7 +65,10 @@ impl AdjustmentGroup {
                 s.saturation = defaults.saturation;
             }
             AdjustmentGroup::ToneCurve => s.tone_curve = ToneCurve::default(),
-            AdjustmentGroup::ColorMixer => s.color_mixer = ColorMixer::default(),
+            AdjustmentGroup::ColorMixer => {
+                s.color_mixer = ColorMixer::default();
+                s.point_colors.clear();
+            }
             AdjustmentGroup::ColorGrading => s.color_grading = ColorGrading::default(),
             // Disabling detail turns sharpening off rather than back to its default.
             AdjustmentGroup::Detail => {

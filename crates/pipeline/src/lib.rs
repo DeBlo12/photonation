@@ -19,18 +19,20 @@ mod develop;
 mod encode;
 mod local_contrast;
 pub mod masks;
+pub mod point_color;
 mod resize;
 mod sharpen;
 mod source;
 mod tone;
 
 pub use camera::{CameraModel, WORKING, neutral_to_temp_tint};
+pub use color::nearest_mixer_band;
 pub use source::Demosaic;
 pub use tone::BASELINE_EXPOSURE;
 
-use band::{Graph, Point};
-use photonation_color::ColorSpace;
-use photonation_develop::Settings;
+use band::{Graph, Point, Source};
+use photonation_color::{ColorSpace, Oklab};
+use photonation_develop::{OklabLch, Settings};
 use photonation_image::{BitDepth, NormRect, Orientation, OutputImage, Pixels, Rect, SensorImage};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -43,6 +45,10 @@ pub struct RenderOptions {
     pub sharpen: bool,
     /// Output rows per band; `None` picks a size from the image.
     pub band_rows: Option<usize>,
+    /// Show this point colour's selection instead of the edit (an index
+    /// into `settings.point_colors`): what it selects keeps its colour,
+    /// the rest turns grey.
+    pub point_color_overlay: Option<usize>,
 }
 
 impl Default for RenderOptions {
@@ -53,6 +59,7 @@ impl Default for RenderOptions {
             bit_depth: BitDepth::Eight,
             sharpen: true,
             band_rows: None,
+            point_color_overlay: None,
         }
     }
 }
@@ -94,6 +101,31 @@ fn scaled_size(region: Rect, long_edge: Option<usize>) -> (usize, usize) {
     }
 }
 
+/// Radius, in sensor pixels, of the patch the pickers average.
+const PICK_RADIUS: usize = 4;
+
+/// The sensor patch the pickers average around `point` (normalized
+/// display coordinates of the rendered image), inside `region`. `None` for
+/// an empty region.
+fn pick_patch(sensor: &SensorImage, region: Rect, point: [f64; 2]) -> Option<Rect> {
+    if region.w == 0 || region.h == 0 {
+        return None;
+    }
+    let stored = sensor.orientation.display_rect_to_stored(NormRect {
+        left: point[0],
+        top: point[1],
+        right: point[0],
+        bottom: point[1],
+    });
+    let center_x = region.x + ((stored.left * region.w as f64) as usize).min(region.w - 1);
+    let center_y = region.y + ((stored.top * region.h as f64) as usize).min(region.h - 1);
+    let left = center_x.saturating_sub(PICK_RADIUS).max(region.x);
+    let top = center_y.saturating_sub(PICK_RADIUS).max(region.y);
+    let right = (center_x + PICK_RADIUS).min(region.x + region.w);
+    let bottom = (center_y + PICK_RADIUS).min(region.y + region.h);
+    Some(Rect::new(left, top, right - left, bottom - top))
+}
+
 /// White balance that makes the area around `point` (normalized display
 /// coordinates of the rendered image) neutral: the eyedropper.
 pub fn white_balance_at(
@@ -101,24 +133,11 @@ pub fn white_balance_at(
     settings: &Settings,
     point: [f64; 2],
 ) -> Option<(f64, f64)> {
-    let region = render_region(sensor, settings);
-    let stored = sensor.orientation.display_rect_to_stored(NormRect {
-        left: point[0],
-        top: point[1],
-        right: point[0],
-        bottom: point[1],
-    });
-    const SAMPLE_RADIUS: usize = 4;
-    let center_x = region.x + ((stored.left * region.w as f64) as usize).min(region.w - 1);
-    let center_y = region.y + ((stored.top * region.h as f64) as usize).min(region.h - 1);
+    let patch = pick_patch(sensor, render_region(sensor, settings), point)?;
     let mut sums = [0.0f64; 3];
     let mut counts = [0usize; 3];
-    let rows =
-        center_y.saturating_sub(SAMPLE_RADIUS)..(center_y + SAMPLE_RADIUS).min(sensor.height);
-    for y in rows {
-        for x in
-            center_x.saturating_sub(SAMPLE_RADIUS)..(center_x + SAMPLE_RADIUS).min(sensor.width)
-        {
+    for y in patch.y..patch.y + patch.h {
+        for x in patch.x..patch.x + patch.w {
             for (color, raw) in sensor.samples_at(x, y) {
                 sums[color] += (raw as f64 - sensor.black[color] as f64).max(0.0);
                 counts[color] += 1;
@@ -131,6 +150,55 @@ pub fn white_balance_at(
     }
     let neutral = [means[0] / means[1], 1.0, means[2] / means[1]];
     Some(neutral_to_temp_tint(&sensor.color, neutral))
+}
+
+/// The colour around `point` (normalized display coordinates of the
+/// rendered image) as point colours see it: developed with every setting
+/// except the point colours themselves, before the output conversion.
+/// Spatial stages (Texture, Clarity, sharpening) don't take part.
+pub fn color_at(sensor: &SensorImage, settings: &Settings, point: [f64; 2]) -> Option<OklabLch> {
+    let mut settings = settings.sanitized();
+    settings.point_colors.clear();
+    if !sensor.is_valid() {
+        return None;
+    }
+    let patch = pick_patch(sensor, render_region(sensor, &settings), point)?;
+    let camera = CameraModel::new(sensor, &settings.white_balance);
+    let source = source::SensorSource::new(
+        sensor,
+        patch,
+        camera.wb_multipliers,
+        Demosaic::choose(&sensor.layout, false),
+    );
+    let size = source.size();
+    let local = masks::LocalAdjust::new(
+        &settings.masks,
+        sensor,
+        masks::PixelToMask::new(sensor, source.region(), size),
+    );
+    let develop = develop::Develop::new(
+        &settings,
+        &camera.camera_to_working,
+        sensor.baseline_exposure,
+        ColorSpace::Srgb,
+    )
+    .with_local_adjustments(local);
+    let band = source.render(0..size.1);
+    let mut sum = [0.0f32; 3];
+    for y in band.row_range() {
+        for (x, pixel) in band.row(y).chunks_exact(3).enumerate() {
+            let working = develop.working_at(x, y, [pixel[0], pixel[1], pixel[2]]);
+            for channel in 0..3 {
+                sum[channel] += working[channel];
+            }
+        }
+    }
+    let count = (size.0 * size.1) as f32;
+    if count == 0.0 {
+        return None;
+    }
+    let mean = sum.map(|v| (v / count).max(0.0));
+    Some(OklabLch::from_lab(Oklab::new(WORKING).from_rgb(mean)).sanitized())
 }
 
 pub fn render(
@@ -193,7 +261,8 @@ fn build_graph<'a>(
             sensor.baseline_exposure,
             opts.color_space,
         )
-        .with_local_adjustments(local),
+        .with_local_adjustments(local)
+        .with_point_color_overlay(settings, opts.point_color_overlay),
     )));
     if let Some(local) =
         local_contrast::LocalContrast::new(settings.clarity, settings.texture, graph.size())

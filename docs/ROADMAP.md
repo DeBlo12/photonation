@@ -11,6 +11,9 @@
 - Tone curve: parametric, RGB and per-channel point curves
 - Sharpening; Lanczos resizing; JPEG/PNG/TIFF export with ICC profiles
 - JSON sidecars, process versions, undo/redo
+- Masks: linear and radial gradients combined per mask (add, subtract,
+  intersect), with invert, amount and eight local adjustments; layer panel with
+  live thumbnails, reordering and a GPU overlay
 - Desktop editor (toolbar, viewer with zoom/compare, filmstrip, adjustment cards, export sheet)
 - CLI: info, export, edit
 
@@ -24,8 +27,10 @@
    Lightroom's on high-contrast scenes.
 5. **Noise reduction** (luminance and colour) and **lens corrections**
    (distortion, vignetting, chromatic aberration).
-6. **Masks and local adjustments** (brush, linear and radial gradients, later AI
-   subject and sky masks).
+6. **More masks**: a brush, creating gradients by dragging on the photo, masks
+   in compare mode, and later AI subject and sky masks. Skip masks whose
+   bounds miss a band, and fold local saturation into the colour step's Oklab
+   round trip, to speed up masked renders.
 7. **Better demosaicing**: RCD or AMaZE for Bayer, Markesteijn for X-Trans.
 8. **Presets** and copy/paste of settings across photos.
 9. **EXIF/XMP metadata in exports**; AVIF and JPEG XL export.

@@ -70,16 +70,30 @@ DNG-style, using the file's one or two calibration matrices (XYZ → camera):
    shot white to D65, XYZ → linear Rec.2020. Then scale so that a neutral at clip
    maps to (1, 1, 1).
 
-## 5. Develop: the per-pixel stage (`develop.rs`, `tone.rs`, `color.rs`)
+## 5. Develop: the per-pixel stage (`develop.rs`, `tone.rs`, `color.rs`, `masks.rs`)
+
+**Local adjustments.** When any mask is active, the stage first sums the
+masks' adjustments at the pixel (`LocalAdjust::at`): the pixel maps to a point
+in mask space through an affine map that covers orientation and the
+half-size path (`PixelToMask`). At that point each mask's shapes are combined
+(`MaskWeight::at`, see docs/EDIT-MODEL.md), and the resulting weight times the
+mask's amount scales its adjustments. The sums join the global steps below,
+marked *local*. Without active masks the stage runs a separately compiled copy
+with every local step removed, so unmasked renders cost what they did before
+masks existed.
 
 Each pixel, in this order:
 
 1. **Camera → working** matrix, with exposure folded in:
    `2^(exposure + BASELINE_EXPOSURE + DNG BaselineExposure)`.
+   *Local* exposure, temperature and tint then scale the channels (warmer:
+   more red and less blue; magenta: less green; a neutral keeps its luminance).
 2. **Dehaze**: removes a neutral veil smoothly (`x² / (x + h)`), or adds one
-   for negative values.
+   for negative values. *Local* dehaze adds to the global amount.
 3. **Highlights / Shadows**: an exposure shift weighted by how many stops the
-   pixel's luminance sits above or below mid-grey.
+   pixel's luminance sits above or below mid-grey. *Local* amounts add to the
+   global ones. *Local* contrast then steepens or flattens luminance around
+   mid-grey in log space.
 4. **Tone**: one lookup table per channel (sampled over log2 of scene value)
    holding the composition of
    - the base curve: black point (Blacks) → extended Reinhard shoulder that
@@ -93,6 +107,9 @@ Each pixel, in this order:
    - colour grading: shadows/midtones/highlights weights from Oklab L, with the
      pivot moved by Balance and the transition width set by Blending, plus global;
    - vibrance (boosts muted colours more) and saturation.
+
+   *Local* saturation (plus a little for local dehaze, like the global slider)
+   then scales Oklab chroma.
 6. **Output primaries**: Rec.2020 → output space (with Bradford when the output
    white differs, e.g. ProPhoto's D50). Out-of-gamut colours are pulled toward
    their luminance instead of clipping channels independently, which preserves
@@ -118,6 +135,11 @@ Each pixel, in this order:
 | Full-size render (MHC) | ~170 ms |
 | 1600 px render (half-size path) | ~35 ms |
 | Full-size JPEG encode | ~330 ms |
+
+Masks cost time at every pixel they are evaluated for: two masks covering the
+photo roughly double the full-size render (≈350 ms; ≈100 ms at 1600 px), about
+a quarter of it the Oklab round trip of local saturation. Renders without
+active masks run at the speed above.
 
 Peak memory for a full-size 8-bit export ≈ mosaic (50 MB) + output (72 MB) + a
 few MB of band scratch per thread.

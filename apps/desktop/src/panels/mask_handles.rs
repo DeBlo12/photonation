@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 The Photonation contributors
 
-//! On-canvas mask editing while the mask window is open: the selected
-//! mask's lines or ellipse with draggable handles, and pins that select
-//! the other masks.
+//! On-canvas mask editing while the masks panel is open: the selected
+//! shape's lines or ellipse with draggable handles, hollow pins that select
+//! the selected mask's other shapes, and solid pins that select the other
+//! masks.
 
+use crate::app::MaskSelection;
 use crate::photo_frame::PhotoFrame;
 use crate::theme;
 use eframe::egui::{self, Painter, Pos2, Response, Shape, Stroke, Ui, Vec2};
@@ -14,6 +16,8 @@ const HANDLE_RADIUS: f32 = 5.5;
 /// How close (points) the pointer must be to grab a handle or a pin.
 const GRAB_DISTANCE: f32 = 12.0;
 const PIN_RADIUS: f32 = 6.5;
+/// Pins of the selected mask's other shapes are smaller rings.
+const SHAPE_PIN_RADIUS: f32 = 5.0;
 const ELLIPSE_SEGMENTS: usize = 72;
 /// Smallest radius a drag can set, in long-edge units.
 const MIN_RADIUS: f64 = 0.005;
@@ -33,36 +37,45 @@ enum Handle {
     RadialEdgeY,
 }
 
-/// Handles pointer input on the canvas: drags on the selected mask's
-/// handles, clicks on other masks' pins. Returns whether a handle drag owns
-/// the pointer, so the viewer doesn't also pan.
+/// What a pin on the canvas selects.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Pin {
+    /// Another mask (its first shape's anchor).
+    Mask(usize),
+    /// Another shape of the selected mask.
+    Component(usize),
+}
+
+/// Handles pointer input on the canvas: drags on the selected shape's
+/// handles, clicks on pins. Returns whether a handle drag owns the pointer,
+/// so the viewer doesn't also pan.
 pub fn interact(
     masks: &mut [Mask],
-    selected: &mut Option<usize>,
+    selection: &mut Option<MaskSelection>,
     ui: &Ui,
     response: &Response,
     frame: &PhotoFrame,
 ) -> bool {
     let drag_id = response.id.with("mask-handle");
     let mut active: Option<Handle> = ui.ctx().data(|d| d.get_temp(drag_id));
-    let selected_mask = selected.and_then(|index| masks.get_mut(index));
 
     if response.drag_started() {
         let press = ui.input(|i| i.pointer.press_origin());
-        active = selected_mask
-            .as_deref()
+        active = selected_shape(masks, *selection)
             .zip(press)
-            .and_then(|(mask, press)| handle_at(&mask.shape, frame, press));
+            .and_then(|(shape, press)| handle_at(shape, frame, press));
     }
     if !response.dragged() {
         active = None;
     }
-    if let (Some(handle), Some(pointer), Some(mask)) =
-        (active, response.interact_pointer_pos(), selected_mask)
-    {
+    if let (Some(handle), Some(pointer), Some(shape)) = (
+        active,
+        response.interact_pointer_pos(),
+        selected_shape_mut(masks, *selection),
+    ) {
         let keep_round = ui.input(|i| i.modifiers.shift);
         drag(
-            &mut mask.shape,
+            shape,
             handle,
             pointer,
             response.drag_delta(),
@@ -79,15 +92,20 @@ pub fn interact(
 
     if response.clicked()
         && let Some(pointer) = response.interact_pointer_pos()
-        && let Some(index) = pin_at(masks, *selected, frame, pointer)
+        && let Some(pin) = pin_at(masks, *selection, frame, pointer)
     {
-        *selected = Some(index);
+        *selection = Some(match (pin, *selection) {
+            (Pin::Component(component), Some(current)) => MaskSelection {
+                component,
+                ..current
+            },
+            (Pin::Mask(mask), _) | (Pin::Component(mask), None) => MaskSelection::mask(mask),
+        });
     }
     let hovering_handle = response.hover_pos().is_some_and(|pointer| {
-        selected
-            .and_then(|index| masks.get(index))
-            .is_some_and(|mask| handle_at(&mask.shape, frame, pointer).is_some())
-            || pin_at(masks, *selected, frame, pointer).is_some()
+        selected_shape(masks, *selection)
+            .is_some_and(|shape| handle_at(shape, frame, pointer).is_some())
+            || pin_at(masks, *selection, frame, pointer).is_some()
     });
     if active.is_some() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
@@ -97,30 +115,89 @@ pub fn interact(
     active.is_some()
 }
 
-/// Draws the selected mask's lines and handles, and pins for the others.
-pub fn paint(masks: &[Mask], selected: Option<usize>, painter: &Painter, frame: &PhotoFrame) {
-    let painter = painter.with_clip_rect(frame.image_rect.intersect(painter.clip_rect()));
-    for (index, mask) in masks.iter().enumerate() {
-        if Some(index) == selected {
-            continue;
-        }
-        let pin = frame.to_screen(anchor(&mask.shape));
-        let fill = if mask.enabled {
-            theme::CARD
-        } else {
-            theme::CARD.gamma_multiply(0.5)
-        };
-        painter.circle_filled(pin, PIN_RADIUS + 1.5, theme::HANDLE_SHADOW);
-        painter.circle(pin, PIN_RADIUS, fill, Stroke::new(1.5, theme::KNOB));
+fn selected_shape(masks: &[Mask], selection: Option<MaskSelection>) -> Option<&MaskShape> {
+    let selection = selection?;
+    let mask = masks.get(selection.mask)?;
+    Some(&mask.components.get(selection.component)?.shape)
+}
+
+fn selected_shape_mut(
+    masks: &mut [Mask],
+    selection: Option<MaskSelection>,
+) -> Option<&mut MaskShape> {
+    let selection = selection?;
+    let mask = masks.get_mut(selection.mask)?;
+    Some(&mut mask.components.get_mut(selection.component)?.shape)
+}
+
+/// Every pin on the canvas and where it sits.
+fn pins(masks: &[Mask], selection: Option<MaskSelection>, frame: &PhotoFrame) -> Vec<(Pin, Pos2)> {
+    let selected_mask = selection.map(|s| s.mask);
+    let mut pins: Vec<(Pin, Pos2)> = masks
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| Some(*index) != selected_mask)
+        .filter_map(|(index, mask)| {
+            let first = mask.components.first()?;
+            Some((Pin::Mask(index), frame.to_screen(anchor(&first.shape))))
+        })
+        .collect();
+    if let Some(selection) = selection
+        && let Some(mask) = masks.get(selection.mask)
+    {
+        pins.extend(
+            mask.components
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| *index != selection.component)
+                .map(|(index, component)| {
+                    (
+                        Pin::Component(index),
+                        frame.to_screen(anchor(&component.shape)),
+                    )
+                }),
+        );
     }
-    let Some(mask) = selected.and_then(|index| masks.get(index)) else {
+    pins
+}
+
+/// Draws the selected shape's lines and handles, and the pins.
+pub fn paint(
+    masks: &[Mask],
+    selection: Option<MaskSelection>,
+    painter: &Painter,
+    frame: &PhotoFrame,
+) {
+    let painter = painter.with_clip_rect(frame.image_rect.intersect(painter.clip_rect()));
+    for (pin, position) in pins(masks, selection, frame) {
+        match pin {
+            Pin::Mask(index) => {
+                let fill = if masks[index].enabled {
+                    theme::CARD
+                } else {
+                    theme::CARD.gamma_multiply(0.5)
+                };
+                painter.circle_filled(position, PIN_RADIUS + 1.5, theme::HANDLE_SHADOW);
+                painter.circle(position, PIN_RADIUS, fill, Stroke::new(1.5, theme::KNOB));
+            }
+            Pin::Component(_) => {
+                painter.circle_stroke(
+                    position,
+                    SHAPE_PIN_RADIUS,
+                    Stroke::new(3.5, theme::HANDLE_SHADOW),
+                );
+                painter.circle_stroke(position, SHAPE_PIN_RADIUS, Stroke::new(2.0, theme::ACCENT));
+            }
+        }
+    }
+    let Some(shape) = selected_shape(masks, selection) else {
         return;
     };
-    match &mask.shape {
+    match shape {
         MaskShape::Linear(linear) => paint_linear(&painter, frame, linear),
         MaskShape::Radial(radial) => paint_radial(&painter, frame, radial),
     }
-    for (handle, position) in handles(&mask.shape, frame) {
+    for (handle, position) in handles(shape, frame) {
         let fill = if matches!(handle, Handle::LinearMiddle | Handle::RadialCenter) {
             theme::ACCENT
         } else {
@@ -196,19 +273,17 @@ fn handle_at(shape: &MaskShape, frame: &PhotoFrame, pointer: Pos2) -> Option<Han
         .map(|(handle, _)| handle)
 }
 
-/// The unselected mask whose pin is under `pointer`.
+/// The pin under `pointer`, if any.
 fn pin_at(
     masks: &[Mask],
-    selected: Option<usize>,
+    selection: Option<MaskSelection>,
     frame: &PhotoFrame,
     pointer: Pos2,
-) -> Option<usize> {
-    masks
-        .iter()
-        .enumerate()
-        .filter(|(index, _)| Some(*index) != selected)
-        .find(|(_, mask)| frame.to_screen(anchor(&mask.shape)).distance(pointer) <= GRAB_DISTANCE)
-        .map(|(index, _)| index)
+) -> Option<Pin> {
+    pins(masks, selection, frame)
+        .into_iter()
+        .find(|(_, position)| position.distance(pointer) <= GRAB_DISTANCE)
+        .map(|(pin, _)| pin)
 }
 
 /// Applies one frame of dragging `handle` to `pointer` (moved by `delta`).
@@ -316,7 +391,7 @@ fn paint_radial(painter: &Painter, frame: &PhotoFrame, radial: &RadialGradient) 
 mod tests {
     use super::*;
     use eframe::egui::{Rect, pos2, vec2};
-    use photonation_develop::MaskSpace;
+    use photonation_develop::{CombineMode, MaskComponent, MaskSpace};
     use photonation_image::NormRect;
 
     fn frame() -> PhotoFrame {
@@ -404,13 +479,38 @@ mod tests {
     }
 
     #[test]
-    fn pins_select_other_masks_only() {
-        let masks = vec![
-            Mask::new("A", circle()),
-            Mask::new("B", MaskShape::Linear(LinearGradient::default())),
-        ];
+    fn pins_select_other_masks_and_the_selected_masks_other_shapes() {
+        let linear = MaskShape::Linear(LinearGradient::default());
+        let mut a = Mask::new("A", circle());
+        a.components
+            .push(MaskComponent::new(linear, CombineMode::Subtract));
+        let masks = vec![a, Mask::new("B", linear)];
         let linear_pin = frame().to_screen(midpoint(&LinearGradient::default()));
-        assert_eq!(pin_at(&masks, Some(0), &frame(), linear_pin), Some(1));
-        assert_eq!(pin_at(&masks, Some(1), &frame(), linear_pin), None);
+        let circle_pin = pos2(300.0, 200.0);
+        let on_a = Some(MaskSelection::mask(0));
+        assert_eq!(
+            pin_at(&masks, on_a, &frame(), circle_pin),
+            None,
+            "the selected shape has handles, not a pin"
+        );
+        // B's pin and A's second shape sit at the same place; B comes first.
+        assert_eq!(
+            pin_at(&masks, on_a, &frame(), linear_pin),
+            Some(Pin::Mask(1))
+        );
+        let on_b = Some(MaskSelection::mask(1));
+        assert_eq!(
+            pin_at(&masks, on_b, &frame(), circle_pin),
+            Some(Pin::Mask(0))
+        );
+        let on_a_linear = Some(MaskSelection {
+            mask: 0,
+            component: 1,
+        });
+        let masks = vec![masks[0].clone()];
+        assert_eq!(
+            pin_at(&masks, on_a_linear, &frame(), circle_pin),
+            Some(Pin::Component(0))
+        );
     }
 }

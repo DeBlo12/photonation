@@ -22,8 +22,8 @@ pub use controls::{
 };
 pub use groups::AdjustmentGroup;
 pub use masks::{
-    LinearGradient, LocalAdjustments, MAX_MASK_NAME_CHARS, MAX_MASKS, Mask, MaskShape, MaskSpace,
-    RadialGradient,
+    CombineMode, LinearGradient, LocalAdjustments, MAX_MASK_COMPONENTS, MAX_MASK_NAME_CHARS,
+    MAX_MASKS, Mask, MaskComponent, MaskShape, MaskSpace, RadialGradient,
 };
 pub use settings::{
     ColorGrading, ColorMixer, GradingWheel, HslAdjustment, ParametricCurve, PointCurve,

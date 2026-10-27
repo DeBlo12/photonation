@@ -10,12 +10,17 @@ use crate::photo_frame::PhotoFrame;
 use eframe::egui::{self, Color32, Rgba, pos2};
 use eframe::egui_wgpu::{self, CallbackResources, CallbackTrait, RenderState, ScreenDescriptor};
 use eframe::wgpu;
-use photonation_pipeline::masks::ShapeWeight;
+use photonation_develop::{CombineMode, MAX_MASK_COMPONENTS};
+use photonation_pipeline::masks::{MaskWeight, ShapeWeight};
 use std::num::NonZeroU64;
 
 const SHADER: &str = include_str!("mask_overlay.wgsl");
-/// The shader's `Overlay` uniform: five 16-byte rows of 32-bit words.
-const UNIFORM_WORDS: usize = 20;
+/// Words in the shader's `Overlay` header: three 16-byte rows.
+const HEADER_WORDS: usize = 12;
+/// Words per entry of its `components` array: three 16-byte rows.
+const COMPONENT_WORDS: usize = 12;
+/// The shader's whole `Overlay` uniform, in 32-bit words.
+const UNIFORM_WORDS: usize = HEADER_WORDS + MAX_MASK_COMPONENTS * COMPONENT_WORDS;
 
 /// GPU objects shared by every overlay draw, kept in egui's callback resources.
 struct OverlayPipeline {
@@ -107,8 +112,9 @@ pub fn install(render_state: &RenderState) {
 /// One overlay draw: a mask's weight over the photo, as a tint.
 pub struct MaskOverlay {
     pub frame: PhotoFrame,
-    pub shape: ShapeWeight,
-    pub invert: bool,
+    /// At most [`MAX_MASK_COMPONENTS`] shapes are drawn; sanitized masks
+    /// have no more.
+    pub weight: MaskWeight,
     /// Tint at full weight.
     pub color: Color32,
 }
@@ -128,33 +134,54 @@ impl MaskOverlay {
         let one_pixel = 1.0 / pixels_per_point;
         let next = self.frame.screen_to_metric(pos2(one_pixel, one_pixel));
         let step = [next[0] - origin[0], next[1] - origin[1]];
-        let (kind, fade_start, a, b) = match self.shape {
-            ShapeWeight::Linear { start, ramp } => {
-                (0, 0.0, [start[0], start[1], ramp[0], ramp[1]], [0.0; 4])
-            }
-            ShapeWeight::Radial {
-                center,
-                axis_x,
-                axis_y,
-                fade_start,
-            } => (
-                1,
-                fade_start,
-                [center[0], center[1], 0.0, 0.0],
-                [axis_x[0], axis_x[1], axis_y[0], axis_y[1]],
-            ),
-        };
         let color = if linear_framebuffer {
             Rgba::from(self.color).to_array()
         } else {
             self.color.to_normalized_gamma_f32()
         };
+        let components =
+            &self.weight.components[..self.weight.components.len().min(MAX_MASK_COMPONENTS)];
         let mut words = Vec::with_capacity(UNIFORM_WORDS);
         words.extend([origin[0], origin[1], step[0], step[1]].map(|v| (v as f32).to_bits()));
-        words.extend([kind, u32::from(self.invert), f32::to_bits(fade_start), 0]);
-        words.extend(a.iter().chain(&b).chain(&color).map(|v| v.to_bits()));
+        words.extend([components.len() as u32, u32::from(self.weight.invert), 0, 0]);
+        words.extend(color.map(f32::to_bits));
+        for (shape, mode) in components {
+            words.extend(component_words(shape, *mode));
+        }
+        words.resize(UNIFORM_WORDS, 0);
         words
     }
+}
+
+/// One entry of the shader's `components` array.
+fn component_words(shape: &ShapeWeight, mode: CombineMode) -> [u32; COMPONENT_WORDS] {
+    let (kind, fade_start, a, b) = match *shape {
+        ShapeWeight::Linear { start, ramp } => {
+            (0, 0.0, [start[0], start[1], ramp[0], ramp[1]], [0.0; 4])
+        }
+        ShapeWeight::Radial {
+            center,
+            axis_x,
+            axis_y,
+            fade_start,
+        } => (
+            1,
+            fade_start,
+            [center[0], center[1], 0.0, 0.0],
+            [axis_x[0], axis_x[1], axis_y[0], axis_y[1]],
+        ),
+    };
+    let mode = match mode {
+        CombineMode::Add => 0,
+        CombineMode::Subtract => 1,
+        CombineMode::Intersect => 2,
+    };
+    let mut words = [0; COMPONENT_WORDS];
+    for (word, value) in words.iter_mut().zip(a.iter().chain(&b)) {
+        *word = value.to_bits();
+    }
+    words[8..].copy_from_slice(&[kind, mode, fade_start.to_bits(), 0]);
+    words
 }
 
 impl CallbackTrait for MaskOverlay {
@@ -192,7 +219,9 @@ impl CallbackTrait for MaskOverlay {
 mod tests {
     use super::*;
     use eframe::egui::{Rect, vec2};
-    use photonation_develop::{LinearGradient, MaskShape, MaskSpace, RadialGradient};
+    use photonation_develop::{
+        LinearGradient, Mask, MaskComponent, MaskShape, MaskSpace, RadialGradient,
+    };
     use photonation_image::NormRect;
 
     #[test]
@@ -222,20 +251,36 @@ mod tests {
             let t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
             t * t * (3.0 - 2.0 * t)
         };
-        let offset = [point[0] - f(8), point[1] - f(9)];
-        let w = if words[4] == 0 {
-            1.0 - ramp(0.0, 1.0, offset[0] * f(10) + offset[1] * f(11))
-        } else {
-            let x = offset[0] * f(12) + offset[1] * f(13);
-            let y = offset[0] * f(14) + offset[1] * f(15);
-            let distance = (x * x + y * y).sqrt();
-            if f(6) >= 1.0 {
-                f32::from(distance <= 1.0)
+        let count = (words[4] as usize).min(MAX_MASK_COMPONENTS);
+        let mut selected = 0.0;
+        for index in 0..count {
+            let base = HEADER_WORDS + index * COMPONENT_WORDS;
+            let c = |offset: usize| f(base + offset);
+            let offset = [point[0] - c(0), point[1] - c(1)];
+            let w = if words[base + 8] == 0 {
+                1.0 - ramp(0.0, 1.0, offset[0] * c(2) + offset[1] * c(3))
             } else {
-                1.0 - ramp(f(6), 1.0, distance)
-            }
-        };
-        if words[5] != 0 { 1.0 - w } else { w }
+                let x = offset[0] * c(4) + offset[1] * c(5);
+                let y = offset[0] * c(6) + offset[1] * c(7);
+                let distance = (x * x + y * y).sqrt();
+                if c(10) >= 1.0 {
+                    f32::from(distance <= 1.0)
+                } else {
+                    1.0 - ramp(c(10), 1.0, distance)
+                }
+            };
+            selected = match (index, words[base + 9]) {
+                (0, _) => w,
+                (_, 0) => f32::max(selected, w),
+                (_, 1) => f32::min(selected, 1.0 - w),
+                _ => f32::min(selected, w),
+            };
+        }
+        if words[5] != 0 {
+            1.0 - selected
+        } else {
+            selected
+        }
     }
 
     #[test]
@@ -252,38 +297,46 @@ mod tests {
             space,
         };
         let pixels_per_point = 2.0;
-        let shapes = [
-            MaskShape::Linear(LinearGradient {
-                start: [0.3, 0.2],
-                end: [0.6, 0.7],
-            }),
-            MaskShape::Radial(RadialGradient {
-                center: [0.45, 0.55],
-                radius: [0.25, 0.1],
-                rotation: 30.0,
-                feather: 40.0,
-            }),
-        ];
-        for shape in shapes {
+        let linear = MaskShape::Linear(LinearGradient {
+            start: [0.3, 0.2],
+            end: [0.6, 0.7],
+        });
+        let radial = MaskShape::Radial(RadialGradient {
+            center: [0.45, 0.55],
+            radius: [0.25, 0.1],
+            rotation: 30.0,
+            feather: 40.0,
+        });
+        let mut masks = vec![Mask::new("Linear", linear), Mask::new("Radial", radial)];
+        for mode in CombineMode::ALL {
+            let mut combined = Mask::new("Combined", radial);
+            combined.components.push(MaskComponent::new(linear, mode));
+            masks.push(combined);
+        }
+        for mut mask in masks {
             for invert in [false, true] {
+                mask.invert = invert;
                 let overlay = MaskOverlay {
                     frame,
-                    shape: ShapeWeight::new(&shape, space),
-                    invert,
+                    weight: MaskWeight::new(&mask, space),
                     color: Color32::RED,
                 };
                 let words = overlay.uniform_words(pixels_per_point, false);
                 assert_eq!(words.len(), UNIFORM_WORDS);
-                for pixel in [[100.0, 80.0], [640.5, 470.5], [1200.0, 820.0]] {
+                for pixel in [
+                    [100.0, 80.0],
+                    [500.5, 520.5],
+                    [640.5, 470.5],
+                    [1200.0, 820.0],
+                ] {
                     let centre = [pixel[0] + 0.5, pixel[1] + 0.5];
                     let screen = pos2(centre[0] / pixels_per_point, centre[1] / pixels_per_point);
                     let metric = frame.screen_to_metric(screen).map(|v| v as f32);
-                    let expected = overlay.shape.at(metric);
-                    let expected = if invert { 1.0 - expected } else { expected };
+                    let expected = overlay.weight.at(metric);
                     let got = shader_twin(&words, centre);
                     assert!(
                         (got - expected).abs() < 1e-3,
-                        "{shape:?} {pixel:?}: {got} vs {expected}"
+                        "{mask:?} {pixel:?}: {got} vs {expected}"
                     );
                 }
             }

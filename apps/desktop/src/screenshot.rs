@@ -6,7 +6,7 @@
 //! then quits. Used to check the UI and to produce documentation images.
 //! `PHOTONATION_SCREENSHOT_PANELS=Curves,Color Grading` chooses which
 //! adjustment cards are open; `PHOTONATION_SCREENSHOT_MASKS=1` opens the
-//! mask window with the first mask selected.
+//! masks panel with the first mask selected.
 
 use eframe::egui;
 use std::path::PathBuf;
@@ -35,7 +35,7 @@ impl Screenshot {
     pub fn prepare(&self, view: &mut crate::app::ViewState) {
         if std::env::var_os("PHOTONATION_SCREENSHOT_MASKS").is_some() {
             view.show_masks = true;
-            view.selected_mask = Some(0);
+            view.selected_mask = Some(crate::app::MaskSelection::mask(0));
         }
         let Ok(panels) = std::env::var("PHOTONATION_SCREENSHOT_PANELS") else {
             return;

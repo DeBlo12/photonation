@@ -2,7 +2,7 @@
 // Copyright (C) 2026 The Photonation contributors
 
 //! The image canvas: fit/zoom/pan, before/after split, eyedropper, and
-//! mask editing (handles and the GPU overlay) while the mask window is open.
+//! mask editing (handles and the GPU overlay) while the masks panel is open.
 
 use crate::app::{PhotonationApp, Preview, ViewState, Zoom};
 use crate::gpu::mask_overlay::MaskOverlay;
@@ -12,7 +12,7 @@ use crate::theme;
 use eframe::egui::{self, Align2, Color32, CursorIcon, Rect, Sense, Stroke, Vec2, pos2, vec2};
 use photonation_develop::MaskSpace;
 use photonation_image::NormRect;
-use photonation_pipeline::masks::ShapeWeight;
+use photonation_pipeline::masks::MaskWeight;
 
 const MARGIN: f32 = 28.0;
 const MIN_SCALE: f32 = 0.05;
@@ -195,7 +195,7 @@ fn full_resolution_size(app: &PhotonationApp) -> Option<Vec2> {
 }
 
 /// Where the photo is on screen, for mask editing (once its size is known).
-fn photo_frame(app: &PhotonationApp, image_rect: Rect) -> Option<PhotoFrame> {
+pub fn photo_frame(app: &PhotonationApp, image_rect: Rect) -> Option<PhotoFrame> {
     let info = app.info.as_ref()?;
     Some(PhotoFrame {
         image_rect,
@@ -212,7 +212,7 @@ fn selected_mask_overlay(app: &PhotonationApp, painter: &egui::Painter, frame: &
     let Some(mask) = app
         .view
         .selected_mask
-        .and_then(|index| app.settings.masks.get(index))
+        .and_then(|selection| app.settings.masks.get(selection.mask))
     else {
         return;
     };
@@ -220,8 +220,7 @@ fn selected_mask_overlay(app: &PhotonationApp, painter: &egui::Painter, frame: &
     let mask = mask.sanitized();
     MaskOverlay {
         frame: *frame,
-        shape: ShapeWeight::new(&mask.shape, frame.space),
-        invert: mask.invert,
+        weight: MaskWeight::new(&mask, frame.space),
         color: theme::MASK_OVERLAY,
     }
     .paint(painter);

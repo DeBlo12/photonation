@@ -32,7 +32,10 @@ pub const CARD_RADIUS: u8 = 10;
 pub const CONTROL_RADIUS: u8 = 6;
 pub const SIDEBAR_WIDTH: f32 = 320.0;
 pub const TOOLBAR_HEIGHT: f32 = 46.0;
+/// The filmstrip while the pointer is on it.
 pub const FILMSTRIP_HEIGHT: f32 = 104.0;
+/// The filmstrip at rest: a thin row of tiny thumbnails.
+pub const FILMSTRIP_RESTING_HEIGHT: f32 = 26.0;
 /// Room for the macOS traffic lights in the transparent title bar.
 pub const TRAFFIC_LIGHT_INSET: f32 = 78.0;
 

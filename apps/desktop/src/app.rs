@@ -63,6 +63,7 @@ pub struct ViewState {
     pub selected_mask: Option<usize>,
     /// Tint the area the selected mask affects.
     pub mask_overlay: bool,
+    pub filmstrip: panels::filmstrip::FilmstripReveal,
 }
 
 impl Default for ViewState {
@@ -89,6 +90,7 @@ impl Default for ViewState {
             show_masks: false,
             selected_mask: None,
             mask_overlay: true,
+            filmstrip: Default::default(),
         }
     }
 }

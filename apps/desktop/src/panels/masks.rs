@@ -40,7 +40,7 @@ fn contents(masks: &mut Vec<Mask>, view: &mut ViewState, ui: &mut Ui) {
         ui.add_enabled_ui(room, |ui| {
             if tool_button(
                 ui,
-                "＋ Linear",
+                "+ Linear",
                 false,
                 "Linear gradient: full effect up to the first line, fading out by the last",
             )
@@ -50,7 +50,7 @@ fn contents(masks: &mut Vec<Mask>, view: &mut ViewState, ui: &mut Ui) {
             }
             if tool_button(
                 ui,
-                "＋ Radial",
+                "+ Radial",
                 false,
                 "Radial gradient: full effect inside the ellipse, fading out at its edge",
             )
@@ -122,7 +122,7 @@ fn mask_list(masks: &mut Vec<Mask>, view: &mut ViewState, ui: &mut Ui) {
                 view.selected_mask = (!selected).then_some(index);
             }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if tool_button(ui, "✕", false, "Delete mask").clicked() {
+                if tool_button(ui, "×", false, "Delete mask").clicked() {
                     delete = Some(index);
                 }
             });

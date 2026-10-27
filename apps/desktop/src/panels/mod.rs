@@ -11,6 +11,7 @@ pub mod filmstrip;
 pub mod mask_handles;
 pub mod mask_thumbnails;
 pub mod masks;
+pub mod point_colors;
 pub mod toolbar;
 pub mod viewer;
 

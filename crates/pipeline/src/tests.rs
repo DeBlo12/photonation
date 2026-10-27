@@ -2,7 +2,7 @@
 // Copyright (C) 2026 The Photonation contributors
 
 use super::*;
-use photonation_image::{CfaColor, CfaPattern, Orientation, SensorLayout};
+use photonation_image::{CfaColor, CfaPattern, Orientation, Pixels, SensorLayout};
 
 fn synthetic(w: usize, h: usize, orientation: Orientation) -> SensorImage {
     SensorImage::test_pattern(w, h, orientation)
@@ -36,6 +36,15 @@ fn band_size_does_not_change_output() {
     };
     s.color_mixer.orange.hue = 20.0;
     s.color_grading.shadows.saturation = 30.0;
+    s.point_colors.push(photonation_develop::PointColor {
+        hue: 40.0,
+        saturation: -30.0,
+        ..photonation_develop::PointColor::new(photonation_develop::OklabLch {
+            lightness: 0.5,
+            chroma: 0.05,
+            hue: 60.0,
+        })
+    });
     for long_edge in [None, Some(60), Some(30)] {
         let whole = render_with(&img, &s, long_edge, 10_000);
         for band_rows in [1, 3, 7, 16] {
@@ -188,6 +197,22 @@ fn a_tiny_angle_matches_the_straight_crop() {
 }
 
 #[test]
+fn pickers_sample_under_the_pointer_on_turned_crops() {
+    // A point of the turned output and the same photo point picked on the
+    // whole photo read the same sensor patch.
+    let img = synthetic(204, 104, Orientation::Rotate90);
+    let s = rotated(-9.0);
+    let (width, height) = img.orientation.display_size(img.crop.w, img.crop.h);
+    let frame = crop_frame([width as f64, height as f64], s.crop, s.crop_angle);
+    let output_point = [0.3, 0.6];
+    let photo_point = frame.to_photo(output_point);
+    assert_eq!(
+        pick_patch(&img, &s, output_point),
+        pick_patch(&img, &Settings::default(), photo_point)
+    );
+}
+
+#[test]
 fn rotating_without_a_crop_fills_the_frame() {
     // No crop: the largest frame of the photo's aspect that fits the angle.
     let img = synthetic(204, 104, Orientation::Normal);
@@ -242,9 +267,9 @@ fn sixteen_bit_matches_eight_bit() {
     }
 }
 
-#[test]
-fn eyedropper_on_neutral_patch_returns_as_shot() {
-    // A flat patch whose raw values equal the as-shot neutral is grey under as-shot WB.
+/// A flat 32 × 32 patch: the as-shot neutral scaled by `tint` per channel
+/// (all ones: grey under as-shot white balance).
+fn flat_patch(tint: [f64; 3]) -> SensorImage {
     let mut img = synthetic(32, 32, Orientation::Normal);
     let neutral = img.color.as_shot_neutral.expect("neutral");
     for y in 0..32 {
@@ -253,9 +278,30 @@ fn eyedropper_on_neutral_patch_returns_as_shot() {
                 SensorLayout::Cfa(pattern) => pattern.color_at(y, x) as usize,
                 SensorLayout::LinearRgb => unreachable!(),
             };
-            img.data[y * 32 + x] = (512.0 + 4000.0 * neutral[color]) as u16;
+            img.data[y * 32 + x] = (512.0 + 4000.0 * neutral[color] * tint[color]) as u16;
         }
     }
+    img
+}
+
+/// The rendered pixel at the centre (8-bit display values).
+fn centre_pixel(img: &SensorImage, s: &Settings, opts: &RenderOptions) -> [u8; 3] {
+    let out = render(img, s, opts).expect("render");
+    let Pixels::U8(pixels) = &out.pixels else {
+        panic!("8-bit")
+    };
+    let offset = (out.height / 2 * out.width + out.width / 2) * 3;
+    [pixels[offset], pixels[offset + 1], pixels[offset + 2]]
+}
+
+fn channel_spread(rgb: [u8; 3]) -> u8 {
+    rgb.iter().max().unwrap_or(&0) - rgb.iter().min().unwrap_or(&0)
+}
+
+#[test]
+fn eyedropper_on_neutral_patch_returns_as_shot() {
+    // A flat patch whose raw values equal the as-shot neutral is grey under as-shot WB.
+    let img = flat_patch([1.0; 3]);
     let (temp, tint) = white_balance_at(&img, &Settings::default(), [0.5, 0.5]).expect("sample");
     let shot = CameraModel::new(&img, &photonation_develop::WhiteBalance::AsShot);
     assert!(
@@ -264,6 +310,61 @@ fn eyedropper_on_neutral_patch_returns_as_shot() {
         shot.temperature
     );
     assert!((tint - shot.tint).abs() < 2.0);
+}
+
+#[test]
+fn color_picker_sees_grey_as_grey_and_red_as_red() {
+    let grey = color_at(&flat_patch([1.0; 3]), &Settings::default(), [0.5, 0.5]).expect("grey");
+    assert!(grey.chroma < 0.01, "{grey:?}");
+    let red = color_at(
+        &flat_patch([1.6, 0.8, 0.7]),
+        &Settings::default(),
+        [0.5, 0.5],
+    )
+    .expect("red");
+    assert!(red.chroma > 0.05, "{red:?}");
+    assert!(red.hue < 60.0 || red.hue > 340.0, "{red:?}");
+}
+
+#[test]
+fn sampled_point_color_edits_the_sampled_area() {
+    let img = flat_patch([1.6, 0.8, 0.7]);
+    let target = color_at(&img, &Settings::default(), [0.5, 0.5]).expect("sample");
+    let opts = RenderOptions::default();
+    assert!(channel_spread(centre_pixel(&img, &Settings::default(), &opts)) > 30);
+    let desaturated = Settings {
+        point_colors: vec![photonation_develop::PointColor {
+            saturation: -100.0,
+            ..photonation_develop::PointColor::new(target)
+        }],
+        ..Settings::default()
+    };
+    assert!(channel_spread(centre_pixel(&img, &desaturated, &opts)) <= 2);
+}
+
+#[test]
+fn point_color_overlay_greys_out_what_it_does_not_select() {
+    let img = flat_patch([1.6, 0.8, 0.7]);
+    let elsewhere = Settings {
+        point_colors: vec![photonation_develop::PointColor::new(
+            photonation_develop::OklabLch {
+                lightness: 0.6,
+                chroma: 0.1,
+                hue: 240.0,
+            },
+        )],
+        ..Settings::default()
+    };
+    let overlay = RenderOptions {
+        point_color_overlay: Some(0),
+        ..RenderOptions::default()
+    };
+    assert!(channel_spread(centre_pixel(&img, &elsewhere, &overlay)) <= 2);
+    // Without the overlay, an untouched point colour changes nothing.
+    assert_eq!(
+        centre_pixel(&img, &elsewhere, &RenderOptions::default()),
+        centre_pixel(&img, &Settings::default(), &RenderOptions::default())
+    );
 }
 
 fn xtrans() -> CfaPattern {

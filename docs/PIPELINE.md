@@ -110,7 +110,20 @@ Each pixel, in this order:
      chroma scale and lightness change (lightness only for coloured pixels);
    - colour grading: shadows/midtones/highlights weights from Oklab L, with the
      pivot moved by Balance and the transition width set by Blending, plus global;
-   - vibrance (boosts muted colours more) and saturation.
+   - vibrance (boosts muted colours more) and saturation;
+   - point colours (`point_color.rs`): each active one selects colours by
+     their distance to its target in lightness, chroma and hue (hue as the
+     shorter way round the circle). Each distance has a reach set by its range
+     slider (`HUE_REACH`, `CHROMA_REACH`, `LIGHTNESS_REACH`); the selection is
+     full up to 35 % of the reach and fades smoothly to none at it, and the
+     three are multiplied. Below chroma 0.02 a hue is noise: grey pixels drop
+     out of colour targets, and a grey target ignores hue. Selections are
+     measured on the colour before any point colour applies, and the shifts
+     (hue up to ±60°, chroma × (1 + saturation), lightness up to ±0.3) add
+     up, so their order doesn't matter.
+     With `RenderOptions::point_color_overlay` the stage instead multiplies
+     chroma by one point colour's selection: what it selects keeps its
+     colour, the rest turns grey (the editor's "Visualize range").
 
    *Local* saturation (plus a little for local dehaze, like the global slider)
    then scales Oklab chroma.
@@ -119,12 +132,24 @@ Each pixel, in this order:
    their luminance instead of clipping channels independently, which preserves
    hue.
 
+## 5a. Colour picker (`lib.rs: color_at`)
+
+The Point Color eyedropper measures what the point colour step sees: the
+settings without their point colours, a ≈8 × 8 sensor-pixel patch around the
+click (`pick_patch`, shared with the white balance eyedropper) run through the
+source and the develop stage including masks (`Develop::working_at`), averaged
+in the working space and converted to Oklab LCh. Texture, Clarity and
+sharpening don't take part.
+
 ## 6. Spatial stages
 
 - **Local contrast** (`local_contrast.rs`): detail = √luma − blur(√luma), added
   back at a large radius (Clarity, midtone-weighted) and a small one (Texture).
-  The blur is three running-sum box passes (≈ Gaussian, O(1) per pixel). Radii
-  are fractions of the image's long edge, so previews and exports match.
+  The blur is three running-sum box passes (≈ Gaussian, O(1) per pixel). The
+  sums run in fixed point (2⁻³⁰ steps), where adding and removing samples is
+  exact; a floating-point running sum would round differently depending on
+  where a band starts, which breaks band-size invariance. Radii are fractions
+  of the image's long edge, so previews and exports match.
 - **Straighten** (`straighten.rs`): resamples along the turned frame with a
   Catmull–Rom kernel, at the source's scale (half size after half-size
   demosaicing). Output pixel → output displayed → photo displayed → photo stored
@@ -152,6 +177,10 @@ Masks cost time at every pixel they are evaluated for: two masks covering the
 photo roughly double the full-size render (≈350 ms; ≈100 ms at 1600 px), about
 a quarter of it the Oklab round trip of local saturation. Renders without
 active masks run at the speed above.
+
+The colour step's Oklab round trip runs only when a colour control is set; it
+takes a full-size render to ≈600 ms. Point colours ride on the same round
+trip: one point colour on its own costs about what one mixer slider does.
 
 Peak memory for a full-size 8-bit export ≈ mosaic (50 MB) + output (72 MB) + a
 few MB of band scratch per thread.

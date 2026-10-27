@@ -5,7 +5,7 @@
 //! [`AdjustmentGroup`], in Lightroom's order (or, while masking or
 //! cropping, the masks or crop panel).
 
-use crate::app::{PhotonationApp, ViewState};
+use crate::app::{Eyedropper, MIXER_TABS, POINT_COLOR_TAB, PhotonationApp, ViewState};
 use crate::theme;
 use crate::widgets::{self, CurveChannel, SectionAction, SliderStyle, Track, adjustment_slider};
 use eframe::egui::{self, Color32, RichText, Ui};
@@ -231,15 +231,7 @@ fn white_balance(ui: &mut Ui, settings: &mut Settings, view: &mut ViewState, as_
                     }
                 }
             });
-        let picker = crate::panels::tool_button(
-            ui,
-            "⌖",
-            view.eyedropper,
-            "Pick a neutral grey in the photo",
-        );
-        if picker.clicked() {
-            view.eyedropper = !view.eyedropper;
-        }
+        eyedropper_button(ui, view, Eyedropper::WhiteBalance);
     });
     ui.add_space(4.0);
     let mut temperature_value = temperature as f32;
@@ -322,7 +314,38 @@ fn curves(ui: &mut Ui, settings: &mut Settings, view: &mut ViewState) {
     }
 }
 
+/// Toggles a picker; the viewer measures the next click on the photo.
+fn eyedropper_button(ui: &mut Ui, view: &mut ViewState, purpose: Eyedropper) {
+    let active = view.eyedropper == Some(purpose);
+    if crate::panels::tool_button(ui, "⌖", active, purpose.tooltip()).clicked() {
+        view.eyedropper = (!active).then_some(purpose);
+    }
+}
+
+/// The Color Mixer card: the eight-band mixer, or the point colours.
 fn color_mixer(ui: &mut Ui, settings: &mut Settings, view: &mut ViewState) {
+    ui.horizontal(|ui| {
+        let picker_width = 36.0;
+        ui.allocate_ui(
+            egui::vec2(ui.available_width() - picker_width, 26.0),
+            |ui| widgets::segmented(ui, &MIXER_TABS, &mut view.mixer_tab),
+        );
+        let purpose = if view.mixer_tab == POINT_COLOR_TAB {
+            Eyedropper::PointColor
+        } else {
+            Eyedropper::MixerBand
+        };
+        eyedropper_button(ui, view, purpose);
+    });
+    ui.add_space(6.0);
+    if view.mixer_tab == POINT_COLOR_TAB {
+        crate::panels::point_colors::show(ui, settings, view);
+    } else {
+        mixer_bands(ui, settings, view);
+    }
+}
+
+fn mixer_bands(ui: &mut Ui, settings: &mut Settings, view: &mut ViewState) {
     ui.horizontal(|ui| {
         let spacing = 6.0;
         ui.spacing_mut().item_spacing.x = spacing;

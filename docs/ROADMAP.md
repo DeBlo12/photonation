@@ -7,7 +7,7 @@
 - DNG-style colour model (dual-illuminant interpolation, temperature/tint, eyedropper)
 - Light: exposure, contrast, highlights, shadows, whites, blacks
 - Presence: texture, clarity, dehaze
-- Colour: vibrance, saturation, 8-band colour mixer, colour grading wheels
+- Colour: vibrance, saturation, 8-band colour mixer with a band picker, point colours, colour grading wheels
 - Tone curve: parametric, RGB and per-channel point curves
 - Sharpening; Lanczos resizing; JPEG/PNG/TIFF export with ICC profiles
 - JSON sidecars, process versions, undo/redo

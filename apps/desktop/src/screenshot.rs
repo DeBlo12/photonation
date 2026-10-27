@@ -7,7 +7,9 @@
 //! `PHOTONATION_SCREENSHOT_PANELS=Curves,Color Grading` chooses which
 //! adjustment cards are open; `PHOTONATION_SCREENSHOT_MASKS=1` opens the
 //! masks panel with the first mask selected; `PHOTONATION_SCREENSHOT_CROP=1`
-//! opens the crop tool.
+//! opens the crop tool; `PHOTONATION_SCREENSHOT_POINT_COLOR=1` opens the
+//! Color Mixer's Point Color tab (`=range` also shows the first point
+//! colour's range).
 
 use eframe::egui;
 use std::path::PathBuf;
@@ -40,6 +42,12 @@ impl Screenshot {
         if std::env::var_os("PHOTONATION_SCREENSHOT_MASKS").is_some() {
             view.show_masks = true;
             view.selected_mask = Some(crate::app::MaskSelection::mask(0));
+        }
+        if let Some(point_color) = std::env::var_os("PHOTONATION_SCREENSHOT_POINT_COLOR") {
+            view.mixer_tab = crate::app::POINT_COLOR_TAB;
+            view.expanded
+                .insert(photonation_develop::AdjustmentGroup::ColorMixer);
+            view.point_color_overlay = point_color == "range";
         }
         let Ok(panels) = std::env::var("PHOTONATION_SCREENSHOT_PANELS") else {
             return;

@@ -15,7 +15,7 @@ balance.
 | Presence | `texture`, `clarity`, `dehaze` |
 | Color | `vibrance`, `saturation` |
 | Curves | `tone_curve`: `parametric` (highlights, lights, darks, shadows + three splits), point curves `master`, `red`, `green`, `blue` |
-| Color Mixer | `color_mixer`: hue/saturation/luminance for red, orange, yellow, green, aqua, blue, purple, magenta |
+| Color Mixer | `color_mixer`: hue/saturation/luminance for red, orange, yellow, green, aqua, blue, purple, magenta; `point_colors` (see below) |
 | Color Grading | `color_grading`: `shadows`, `midtones`, `highlights`, `global` wheels (hue, saturation, luminance), `blending`, `balance` |
 | Detail | `sharpening`: amount, radius |
 | — | `crop` and `crop_angle` (see below), `masks` (see below), `process` |
@@ -76,6 +76,23 @@ names them when the photo opens. Values go through `Settings::sanitized`; DTDs
 are refused (no entity expansion) and the file is capped at
 `MAX_SIDECAR_BYTES`. Sliders share Lightroom's scales, but the rendering differs,
 so imported photos look similar rather than identical.
+
+## Point colours (`point_colors.rs`)
+
+`settings.point_colors` holds colours picked in the photo, at most
+`MAX_POINT_COLORS` (8), each edited on its own (Lightroom's Point Color). A
+`PointColor`:
+
+| Field | Meaning |
+|---|---|
+| `target` | The picked colour as `OklabLch`: `lightness` 0..1, `chroma` 0..`MAX_SAMPLED_CHROMA`, `hue` in degrees |
+| `hue`, `saturation`, `luminance` | Shifts, −100..100 |
+| `hue_range`, `saturation_range`, `luminance_range` | How far a colour may sit from the target and still be affected, 0..100 (default 50) |
+
+The sliders are `POINT_COLOR_CONTROLS`. A point colour is *active* when any
+shift is non-zero. Sanitizing caps the count, clamps the sliders and the target,
+and repairs non-finite numbers. The Color Mixer group's reset also clears the
+point colours. How colours are selected and shifted: docs/PIPELINE.md §5.
 
 ## Masks (`masks.rs`)
 

@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 The Photonation contributors
 
-//! The window's regions: toolbar (top), filmstrip (bottom), adjustments
-//! or masks sidebar (right), viewer (centre) and the export sheet.
+//! The window's regions: toolbar (top), filmstrip (bottom), adjustments,
+//! masks or crop sidebar (right), viewer (centre) and the export sheet.
 
 pub mod adjustments;
+pub mod crop;
 pub mod export;
 pub mod filmstrip;
 pub mod mask_handles;

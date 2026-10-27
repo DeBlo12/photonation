@@ -102,6 +102,130 @@ fn long_edge_and_crop_set_size() {
     assert_eq!((out.width, out.height), (50, 25));
 }
 
+/// A crop of the synthetic 204 × 104 photo (its default crop is 200 × 100)
+/// on whole pixels: 120 × 70 starting at (20, 20).
+const PIXEL_ALIGNED_CROP: NormRect = NormRect {
+    left: 0.1,
+    top: 0.2,
+    right: 0.7,
+    bottom: 0.9,
+};
+
+fn rotated(angle: f32) -> Settings {
+    Settings {
+        crop: Some(PIXEL_ALIGNED_CROP),
+        crop_angle: angle,
+        ..Settings::default()
+    }
+}
+
+fn samples(image: &OutputImage) -> &[u8] {
+    match &image.pixels {
+        Pixels::U8(samples) => samples,
+        Pixels::U16(_) => panic!("8-bit"),
+    }
+}
+
+#[test]
+fn rotated_crops_render_at_the_frame_size() {
+    let img = synthetic(204, 104, Orientation::Normal);
+    let s = rotated(5.0);
+    let frame = CropFrame::new([200.0, 100.0], PIXEL_ALIGNED_CROP, 5.0);
+    let expected = frame.size().map(|side| side.round() as usize);
+    assert_eq!(output_size(&img, &s, None), (expected[0], expected[1]));
+    let out = render_with(&img, &s, None, 16);
+    assert_eq!([out.width, out.height], expected);
+    // Portrait photos: the frame is given on the displayed image.
+    let portrait = synthetic(104, 204, Orientation::Rotate90);
+    assert_eq!(output_size(&portrait, &s, None), (expected[0], expected[1]));
+}
+
+#[test]
+fn rotated_band_size_does_not_change_output() {
+    for orientation in [
+        Orientation::Normal,
+        Orientation::Rotate270,
+        Orientation::FlipH,
+    ] {
+        let img = synthetic(97, 71, orientation);
+        let s = Settings {
+            clarity: 40.0,
+            ..rotated(-12.0)
+        };
+        for long_edge in [None, Some(40)] {
+            let whole = render_with(&img, &s, long_edge, 10_000);
+            for band_rows in [1, 5, 16] {
+                assert_eq!(
+                    whole,
+                    render_with(&img, &s, long_edge, band_rows),
+                    "{orientation:?} long_edge {long_edge:?} band {band_rows}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn a_tiny_angle_matches_the_straight_crop() {
+    // At (nearly) zero angle the rotated path samples exactly on pixel
+    // centres, so it must agree with the straight path…
+    let img = synthetic(204, 104, Orientation::Normal);
+    let straight = render_with(&img, &rotated(0.0), None, 16);
+    let tilted = render_with(&img, &rotated(1e-6), None, 16);
+    assert_eq!(
+        (straight.width, straight.height),
+        (tilted.width, tilted.height)
+    );
+    // Except at the edges: the straight path mirrors the mosaic there,
+    // while the rotated one reads the pixels just outside the crop.
+    const EDGE: usize = 2;
+    let width = straight.width;
+    let interior = |image: &OutputImage| -> Vec<u8> {
+        samples(image)
+            .chunks_exact(width * 3)
+            .skip(EDGE)
+            .take(straight.height - 2 * EDGE)
+            .flat_map(|row| row[EDGE * 3..(width - EDGE) * 3].to_vec())
+            .collect()
+    };
+    let largest_difference = interior(&straight)
+        .iter()
+        .zip(&interior(&tilted))
+        .map(|(a, b)| a.abs_diff(*b))
+        .max();
+    assert!(largest_difference <= Some(1), "{largest_difference:?}");
+}
+
+#[test]
+fn pickers_sample_under_the_pointer_on_turned_crops() {
+    // A point of the turned output and the same photo point picked on the
+    // whole photo read the same sensor patch.
+    let img = synthetic(204, 104, Orientation::Rotate90);
+    let s = rotated(-9.0);
+    let (width, height) = img.orientation.display_size(img.crop.w, img.crop.h);
+    let frame = crop_frame([width as f64, height as f64], s.crop, s.crop_angle);
+    let output_point = [0.3, 0.6];
+    let photo_point = frame.to_photo(output_point);
+    assert_eq!(
+        pick_patch(&img, &s, output_point),
+        pick_patch(&img, &Settings::default(), photo_point)
+    );
+}
+
+#[test]
+fn rotating_without_a_crop_fills_the_frame() {
+    // No crop: the largest frame of the photo's aspect that fits the angle.
+    let img = synthetic(204, 104, Orientation::Normal);
+    let s = Settings {
+        crop_angle: 8.0,
+        ..Settings::default()
+    };
+    let frame = CropFrame::largest([200.0, 100.0], 2.0, 8.0);
+    let [width, height] = frame.size().map(|side| side.round() as usize);
+    assert_eq!(output_size(&img, &s, None), (width, height));
+    assert!(width < 200 && height < 100);
+}
+
 #[test]
 fn exposure_brightens() {
     let img = synthetic(64, 48, Orientation::Normal);

@@ -130,10 +130,16 @@ impl MaskOverlay {
     fn uniform_words(&self, pixels_per_point: f32, linear_framebuffer: bool) -> Vec<u32> {
         // Framebuffer pixel p (with its centre at p + 0.5, as the shader
         // sees it) is screen point p / pixels_per_point.
+        // The mapping is affine (a straightened crop turns it), so the
+        // origin and one step along each axis describe it.
         let origin = self.frame.screen_to_metric(pos2(0.0, 0.0));
         let one_pixel = 1.0 / pixels_per_point;
-        let next = self.frame.screen_to_metric(pos2(one_pixel, one_pixel));
-        let step = [next[0] - origin[0], next[1] - origin[1]];
+        let step_along = |screen| {
+            let next = self.frame.screen_to_metric(screen);
+            [next[0] - origin[0], next[1] - origin[1]]
+        };
+        let step_x = step_along(pos2(one_pixel, 0.0));
+        let step_y = step_along(pos2(0.0, one_pixel));
         let color = if linear_framebuffer {
             Rgba::from(self.color).to_array()
         } else {
@@ -142,8 +148,9 @@ impl MaskOverlay {
         let components =
             &self.weight.components[..self.weight.components.len().min(MAX_MASK_COMPONENTS)];
         let mut words = Vec::with_capacity(UNIFORM_WORDS);
-        words.extend([origin[0], origin[1], step[0], step[1]].map(|v| (v as f32).to_bits()));
-        words.extend([components.len() as u32, u32::from(self.weight.invert), 0, 0]);
+        words.extend([origin[0], origin[1], step_x[0], step_x[1]].map(|v| (v as f32).to_bits()));
+        words.extend([step_y[0], step_y[1]].map(|v| (v as f32).to_bits()));
+        words.extend([components.len() as u32, u32::from(self.weight.invert)]);
         words.extend(color.map(f32::to_bits));
         for (shape, mode) in components {
             words.extend(component_words(shape, *mode));
@@ -222,7 +229,7 @@ mod tests {
     use photonation_develop::{
         LinearGradient, Mask, MaskComponent, MaskShape, MaskSpace, RadialGradient,
     };
-    use photonation_image::NormRect;
+    use photonation_image::{CropFrame, NormRect};
 
     #[test]
     fn shader_compiles_and_validates() {
@@ -246,12 +253,15 @@ mod tests {
     /// that the packing and the pixel mapping reproduce the pipeline's weights.
     fn shader_twin(words: &[u32], pixel_centre: [f32; 2]) -> f32 {
         let f = |index: usize| f32::from_bits(words[index]);
-        let point = [f(0) + pixel_centre[0] * f(2), f(1) + pixel_centre[1] * f(3)];
+        let point = [
+            f(0) + pixel_centre[0] * f(2) + pixel_centre[1] * f(4),
+            f(1) + pixel_centre[0] * f(3) + pixel_centre[1] * f(5),
+        ];
         let ramp = |edge0: f32, edge1: f32, x: f32| {
             let t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
             t * t * (3.0 - 2.0 * t)
         };
-        let count = (words[4] as usize).min(MAX_MASK_COMPONENTS);
+        let count = (words[6] as usize).min(MAX_MASK_COMPONENTS);
         let mut selected = 0.0;
         for index in 0..count {
             let base = HEADER_WORDS + index * COMPONENT_WORDS;
@@ -276,7 +286,7 @@ mod tests {
                 _ => f32::min(selected, w),
             };
         }
-        if words[5] != 0 {
+        if words[7] != 0 {
             1.0 - selected
         } else {
             selected
@@ -286,16 +296,28 @@ mod tests {
     #[test]
     fn packed_uniforms_reproduce_the_pipeline_weights() {
         let space = MaskSpace::new(6000.0, 4000.0);
-        let frame = PhotoFrame {
-            image_rect: Rect::from_min_size(pos2(40.0, 30.0), vec2(600.0, 400.0)),
-            crop: NormRect {
+        let cropped = CropFrame::new(
+            [6000.0, 4000.0],
+            NormRect {
                 left: 0.1,
                 top: 0.0,
                 right: 0.9,
                 bottom: 1.0,
             },
-            space,
-        };
+            0.0,
+        );
+        let straightened = CropFrame::largest([6000.0, 4000.0], 1.5, -8.0);
+        for crop in [cropped, straightened] {
+            packed_uniforms_match(PhotoFrame {
+                image_rect: Rect::from_min_size(pos2(40.0, 30.0), vec2(600.0, 400.0)),
+                crop,
+                space,
+            });
+        }
+    }
+
+    fn packed_uniforms_match(frame: PhotoFrame) {
+        let space = frame.space;
         let pixels_per_point = 2.0;
         let linear = MaskShape::Linear(LinearGradient {
             start: [0.3, 0.2],

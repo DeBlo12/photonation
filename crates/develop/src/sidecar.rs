@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 The Photonation contributors
 
-use crate::Settings;
+use crate::{Settings, import_lightroom_xmp, lightroom_xmp_path};
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -28,6 +28,76 @@ pub enum SidecarError {
     Format { path: PathBuf, found: String },
     #[error("{path}: sidecar is larger than {MAX_SIDECAR_BYTES} bytes")]
     TooLarge { path: PathBuf },
+    #[error("{path}: unreadable Lightroom sidecar: {source}")]
+    Xmp {
+        path: PathBuf,
+        source: crate::XmpError,
+    },
+}
+
+/// Where a photo's settings were read from.
+#[derive(Clone, Debug, PartialEq)]
+pub enum SettingsOrigin {
+    /// Its Photonation sidecar.
+    Photonation,
+    /// Imported from Lightroom's XMP sidecar, leaving out `not_imported`.
+    Lightroom { not_imported: Vec<&'static str> },
+}
+
+/// A photo's develop settings and where they came from.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PhotoSettings {
+    pub settings: Settings,
+    pub origin: SettingsOrigin,
+}
+
+/// The settings a photo opens with: its Photonation sidecar, else the edits
+/// in a Lightroom XMP sidecar next to it; `Ok(None)` when it has neither.
+/// Once the photo is edited here, the Photonation sidecar takes over.
+pub fn load_photo_settings(original: &Path) -> Result<Option<PhotoSettings>, SidecarError> {
+    if let Some(settings) = Settings::load(&sidecar_path(original))? {
+        return Ok(Some(PhotoSettings {
+            settings,
+            origin: SettingsOrigin::Photonation,
+        }));
+    }
+    let xmp = lightroom_xmp_path(original);
+    let Some(text) = read_capped(&xmp)? else {
+        return Ok(None);
+    };
+    let imported = import_lightroom_xmp(&text).map_err(|source| SidecarError::Xmp {
+        path: xmp.clone(),
+        source,
+    })?;
+    Ok(imported.map(|imported| PhotoSettings {
+        settings: imported.settings,
+        origin: SettingsOrigin::Lightroom {
+            not_imported: imported.not_imported,
+        },
+    }))
+}
+
+/// A sidecar's text; `Ok(None)` when it doesn't exist. Reads at most
+/// [`MAX_SIDECAR_BYTES`].
+fn read_capped(path: &Path) -> Result<Option<String>, SidecarError> {
+    let io = |source| SidecarError::Io {
+        path: path.into(),
+        source,
+    };
+    let file = match std::fs::File::open(path) {
+        Ok(file) => file,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(source) => return Err(io(source)),
+    };
+    // Read one byte past the limit to tell "at the limit" from "over it".
+    let mut text = String::new();
+    file.take(MAX_SIDECAR_BYTES + 1)
+        .read_to_string(&mut text)
+        .map_err(io)?;
+    if text.len() as u64 > MAX_SIDECAR_BYTES {
+        return Err(SidecarError::TooLarge { path: path.into() });
+    }
+    Ok(Some(text))
 }
 
 #[derive(Serialize, Deserialize)]
@@ -47,23 +117,9 @@ pub fn sidecar_path(original: &Path) -> PathBuf {
 impl Settings {
     /// Reads settings from a sidecar file; `Ok(None)` when it doesn't exist.
     pub fn load(path: &Path) -> Result<Option<Settings>, SidecarError> {
-        let io = |source| SidecarError::Io {
-            path: path.into(),
-            source,
+        let Some(text) = read_capped(path)? else {
+            return Ok(None);
         };
-        let file = match std::fs::File::open(path) {
-            Ok(file) => file,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(source) => return Err(io(source)),
-        };
-        // Read one byte past the limit to tell "at the limit" from "over it".
-        let mut text = String::new();
-        file.take(MAX_SIDECAR_BYTES + 1)
-            .read_to_string(&mut text)
-            .map_err(io)?;
-        if text.len() as u64 > MAX_SIDECAR_BYTES {
-            return Err(SidecarError::TooLarge { path: path.into() });
-        }
         let sidecar: Sidecar =
             serde_json::from_str(&text).map_err(|source| SidecarError::Parse {
                 path: path.into(),
@@ -156,6 +212,34 @@ mod tests {
             Settings::load(&path),
             Err(SidecarError::TooLarge { .. })
         ));
+    }
+
+    #[test]
+    fn photonation_sidecars_take_precedence_over_lightroom() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let photo = dir.path().join("IMG_0001.CR3");
+        assert_eq!(load_photo_settings(&photo).expect("load"), None);
+        std::fs::write(
+            lightroom_xmp_path(&photo),
+            r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+               <rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+                crs:ProcessVersion="15.4" crs:Exposure2012="+0.70"/></rdf:RDF></x:xmpmeta>"#,
+        )
+        .expect("write xmp");
+        let imported = load_photo_settings(&photo)
+            .expect("load")
+            .expect("imported");
+        assert_eq!(imported.settings.exposure, 0.7);
+        assert!(matches!(imported.origin, SettingsOrigin::Lightroom { .. }));
+
+        let edited = Settings {
+            exposure: -1.0,
+            ..Settings::default()
+        };
+        edited.save(&sidecar_path(&photo)).expect("save");
+        let loaded = load_photo_settings(&photo).expect("load").expect("ours");
+        assert_eq!(loaded.settings, edited);
+        assert_eq!(loaded.origin, SettingsOrigin::Photonation);
     }
 
     #[cfg(unix)]

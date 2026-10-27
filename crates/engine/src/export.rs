@@ -3,7 +3,7 @@
 
 use crate::{Decoder, RawDecoder};
 use photonation_color::ColorSpace;
-use photonation_develop::{Settings, sidecar_path};
+use photonation_develop::{Settings, load_photo_settings};
 use photonation_export::Format;
 use photonation_image::BitDepth;
 use photonation_pipeline::RenderOptions;
@@ -75,7 +75,7 @@ pub fn unused_path(target: &Path) -> PathBuf {
 }
 
 /// Decodes, develops and writes one photo. `settings` overrides the
-/// sidecar; `adjust` runs on the settings after decoding (CLI overrides).
+/// sidecar (or the edits imported from Lightroom's); `adjust` runs on the settings after decoding (CLI overrides).
 pub fn export_photo(
     original: &Path,
     target: &Path,
@@ -101,7 +101,9 @@ pub fn export_photo_with(
 
     let mut settings = match settings {
         Some(s) => s.clone(),
-        None => Settings::load(&sidecar_path(original))?.unwrap_or_default(),
+        None => load_photo_settings(original)?
+            .map(|loaded| loaded.settings)
+            .unwrap_or_default(),
     };
     adjust(&mut settings, &sensor);
 

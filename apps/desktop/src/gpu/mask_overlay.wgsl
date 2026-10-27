@@ -25,13 +25,14 @@ struct Component {
 };
 
 struct Overlay {
-    // Metric mask point of framebuffer pixel p: origin + p * step.
+    // Metric mask point of framebuffer pixel p:
+    // origin + p.x * step_x + p.y * step_y (a straightened crop turns it).
     origin: vec2<f32>,
-    step: vec2<f32>,
+    step_x: vec2<f32>,
+    step_y: vec2<f32>,
     // How many entries of `components` are in use.
     count: u32,
     invert: u32,
-    _padding: vec2<u32>,
     // Premultiplied colour at full weight.
     color: vec4<f32>,
     components: array<Component, MAX_COMPONENTS>,
@@ -87,5 +88,6 @@ fn weight(point: vec2<f32>) -> f32 {
 
 @fragment
 fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
-    return overlay.color * weight(overlay.origin + position.xy * overlay.step);
+    let point = overlay.origin + position.x * overlay.step_x + position.y * overlay.step_y;
+    return overlay.color * weight(point);
 }

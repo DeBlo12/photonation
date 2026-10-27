@@ -392,12 +392,12 @@ mod tests {
     use super::*;
     use eframe::egui::{Rect, pos2, vec2};
     use photonation_develop::{CombineMode, MaskComponent, MaskSpace};
-    use photonation_image::NormRect;
+    use photonation_image::CropFrame;
 
     fn frame() -> PhotoFrame {
         PhotoFrame {
             image_rect: Rect::from_min_size(pos2(0.0, 0.0), vec2(600.0, 400.0)),
-            crop: NormRect::FULL,
+            crop: CropFrame::full([6000.0, 4000.0]),
             space: MaskSpace::new(6000.0, 4000.0),
         }
     }

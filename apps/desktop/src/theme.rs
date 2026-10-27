@@ -156,8 +156,9 @@ mod tests {
     /// font fallback. Each was checked in a screenshot on macOS; some
     /// symbols come out as stacked bars instead (the fullwidth `＋` and
     /// `✕` did), so a new one goes here only after it was seen drawn.
-    const SYSTEM_FONT_ICONS: &[char] =
-        &['↶', '↷', '↺', '⇔', '⇧', '⌖', '⌘', '▤', '◎', '◐', '◯', '📁'];
+    const SYSTEM_FONT_ICONS: &[char] = &[
+        '↶', '↷', '↺', '⇔', '⇧', '⌖', '⌘', '▤', '◎', '◐', '◯', '⛶', '📁',
+    ];
 
     /// A label or icon character in neither egui's bundled fonts nor
     /// [`SYSTEM_FONT_ICONS`] may draw as an empty box or as garbage.

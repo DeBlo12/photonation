@@ -8,11 +8,13 @@ use crate::theme;
 use crate::widgets::CurveChannel;
 use eframe::egui::{self, TextureHandle, TextureOptions};
 use photonation_develop::{
-    AdjustmentGroup, MAX_POINT_COLORS, OklabLch, PointColor, Settings, sidecar_path,
+    AdjustmentGroup, MAX_POINT_COLORS, OklabLch, PointColor, Settings, SettingsOrigin,
+    lightroom_xmp_path, load_photo_settings, sidecar_path,
 };
 use photonation_engine::{
     Event, ExportOptions, Histogram, History, PhotoInfo, PreviewKind, PreviewRequest, RenderService,
 };
+use photonation_image::NormRect;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -128,6 +130,10 @@ pub struct ViewState {
     pub selected_mask: Option<MaskSelection>,
     /// Tint the area the selected mask affects.
     pub mask_overlay: bool,
+    /// The crop tool: the whole photo with the crop frame over it, and the
+    /// crop card in place of the adjustments.
+    pub cropping: bool,
+    pub crop_tool: panels::crop::CropTool,
     pub filmstrip: panels::filmstrip::FilmstripReveal,
     pub mask_thumbnails: panels::mask_thumbnails::MaskThumbnails,
 }
@@ -159,6 +165,8 @@ impl Default for ViewState {
             show_masks: false,
             selected_mask: None,
             mask_overlay: true,
+            cropping: false,
+            crop_tool: Default::default(),
             filmstrip: Default::default(),
             mask_thumbnails: Default::default(),
         }
@@ -170,10 +178,23 @@ impl ViewState {
         self.curve_mode.checked_sub(1).map(|i| CurveChannel::ALL[i])
     }
 
+    /// Opens or closes the masks panel; it replaces the crop tool.
+    pub fn toggle_masks(&mut self) {
+        self.show_masks = !self.show_masks;
+        self.cropping &= !self.show_masks;
+    }
+
+    /// Opens or closes the crop tool; it replaces the masks panel.
+    pub fn toggle_cropping(&mut self) {
+        self.cropping = !self.cropping;
+        self.show_masks &= !self.cropping;
+    }
+
     /// The point colour whose range the viewer shows, if any: only while
     /// its tab is open and the colour mixer is switched on.
     pub fn point_color_overlay(&self, settings: &Settings) -> Option<usize> {
         let tab_visible = !self.show_masks
+            && !self.cropping
             && self.mixer_tab == POINT_COLOR_TAB
             && self.expanded.contains(&AdjustmentGroup::ColorMixer)
             && !self.disabled.contains(&AdjustmentGroup::ColorMixer);
@@ -203,10 +224,13 @@ pub struct PhotonationApp {
     last_requested: Option<(u64, Option<usize>, Option<usize>)>,
     /// What the colour picker in flight was for.
     pending_color_pick: Option<Eyedropper>,
-    before_requested: bool,
+    /// The crop the "before" preview was requested with, if any.
+    before_requested: Option<(Option<NormRect>, f32)>,
     pending_save: Option<Instant>,
     /// Latest message for the user and when it was posted.
     pub status: Option<(String, Instant)>,
+    /// The status message is about the photo shown and goes when it does.
+    status_is_about_photo: bool,
     pub export_progress: Option<(usize, usize)>,
     thumbnails_by_path: HashMap<PathBuf, usize>,
     screenshot: Option<crate::screenshot::Screenshot>,
@@ -236,9 +260,10 @@ impl PhotonationApp {
             rendered_generation: 0,
             last_requested: None,
             pending_color_pick: None,
-            before_requested: false,
+            before_requested: None,
             pending_save: None,
             status: None,
+            status_is_about_photo: false,
             export_progress: None,
             thumbnails_by_path: HashMap::new(),
             screenshot: crate::screenshot::Screenshot::from_env(),
@@ -284,7 +309,7 @@ impl PhotonationApp {
                             .unwrap_or_default()
                             .to_string_lossy()
                             .into_owned(),
-                        has_edits: sidecar_path(&path).exists(),
+                        has_edits: false,
                         thumbnail: None,
                         unsupported: false,
                         path,
@@ -296,11 +321,13 @@ impl PhotonationApp {
                     .enumerate()
                     .map(|(i, p)| (p.path.clone(), i))
                     .collect();
-                for photo in &self.photos {
-                    let settings = Settings::load(&sidecar_path(&photo.path))
+                for photo in &mut self.photos {
+                    let settings = load_photo_settings(&photo.path)
                         .ok()
                         .flatten()
+                        .map(|loaded| loaded.settings)
                         .unwrap_or_default();
+                    photo.has_edits = settings != Settings::default();
                     self.engine.request_thumbnail(photo.path.clone(), settings);
                 }
                 if self.photos.is_empty() {
@@ -319,10 +346,20 @@ impl PhotonationApp {
             return;
         }
         self.save_now();
+        if self.status_is_about_photo {
+            self.status = None;
+        }
         self.current = Some(index);
         let path = &self.photos[index].path;
-        self.settings = match Settings::load(&sidecar_path(path)) {
-            Ok(settings) => settings.unwrap_or_default(),
+        self.settings = match load_photo_settings(path) {
+            Ok(Some(loaded)) => {
+                if let SettingsOrigin::Lightroom { not_imported } = loaded.origin {
+                    self.notify(lightroom_notice(&not_imported));
+                    self.status_is_about_photo = true;
+                }
+                loaded.settings
+            }
+            Ok(None) => Settings::default(),
             Err(e) => {
                 self.notify(e.to_string());
                 Settings::default()
@@ -333,7 +370,7 @@ impl PhotonationApp {
         self.preview = None;
         self.before = None;
         self.histogram = None;
-        self.before_requested = false;
+        self.before_requested = None;
         self.view.zoom = Zoom::Fit;
         self.view.pan = egui::Vec2::ZERO;
         self.view.disabled.clear();
@@ -346,6 +383,7 @@ impl PhotonationApp {
 
     pub fn notify(&mut self, message: impl Into<String>) {
         self.status = Some((message.into(), Instant::now()));
+        self.status_is_about_photo = false;
     }
 
     pub fn current_path(&self) -> Option<&PathBuf> {
@@ -355,6 +393,12 @@ impl PhotonationApp {
     /// Call after any change to `settings`: re-render and save the sidecar.
     pub fn edited(&mut self) {
         self.refresh();
+        self.mark_unsaved();
+    }
+
+    /// Save the sidecar soon, without re-rendering (the change doesn't
+    /// show, like a crop edit while the crop tool shows the whole photo).
+    fn mark_unsaved(&mut self) {
         self.pending_save = Some(Instant::now());
     }
 
@@ -369,15 +413,23 @@ impl PhotonationApp {
         let Some(path) = self.current_path().cloned() else {
             return;
         };
+        // `point` is on the photo as shown: whole while the crop tool is open.
+        let as_shown = |settings: Settings| {
+            if self.view.cropping {
+                panels::crop::uncropped(settings)
+            } else {
+                settings
+            }
+        };
         match purpose {
             Eyedropper::WhiteBalance => {
-                self.engine
-                    .pick_white_balance(path, self.settings.clone(), point)
+                let settings = as_shown(self.settings.clone());
+                self.engine.pick_white_balance(path, settings, point)
             }
             Eyedropper::PointColor | Eyedropper::MixerBand => {
                 self.pending_color_pick = Some(purpose);
-                self.engine
-                    .pick_color(path, self.effective_settings(), point);
+                let settings = as_shown(self.effective_settings());
+                self.engine.pick_color(path, settings, point);
             }
         }
     }
@@ -411,6 +463,16 @@ impl PhotonationApp {
         AdjustmentGroup::apply_disabled(&self.settings, &self.view.disabled)
     }
 
+    /// What the viewer shows: the crop tool shows the whole photo.
+    fn preview_settings(&self) -> Settings {
+        let settings = self.effective_settings();
+        if self.view.cropping {
+            panels::crop::uncropped(settings)
+        } else {
+            settings
+        }
+    }
+
     pub fn undo(&mut self) {
         if let Some(previous) = self.history.undo() {
             self.settings = previous;
@@ -430,7 +492,9 @@ impl PhotonationApp {
             return;
         };
         let sidecar = sidecar_path(&path);
-        let result = if self.settings == Settings::default() {
+        // Without a sidecar, Lightroom's edits would come back next time.
+        let resets_lightroom_edits = lightroom_xmp_path(&path).exists();
+        let result = if self.settings == Settings::default() && !resets_lightroom_edits {
             // Nothing to remember: don't leave empty sidecars around.
             match std::fs::remove_file(&sidecar) {
                 Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.to_string()),
@@ -580,18 +644,28 @@ impl PhotonationApp {
             self.last_requested = Some((self.generation, long_edge, point_color_overlay));
             self.engine.request_preview(PreviewRequest {
                 path: path.clone(),
-                settings: self.effective_settings(),
+                settings: self.preview_settings(),
                 long_edge,
                 generation: self.generation,
                 kind: PreviewKind::Edited,
                 point_color_overlay,
             });
         }
-        if self.view.compare && !self.before_requested {
-            self.before_requested = true;
+        // The original, framed like the edit so the two line up.
+        let (crop, crop_angle) = if self.view.cropping {
+            (None, 0.0)
+        } else {
+            (self.settings.crop, self.settings.crop_angle)
+        };
+        if self.view.compare && self.before_requested != Some((crop, crop_angle)) {
+            self.before_requested = Some((crop, crop_angle));
             self.engine.request_preview(PreviewRequest {
                 path,
-                settings: Settings::default(),
+                settings: Settings {
+                    crop,
+                    crop_angle,
+                    ..Settings::default()
+                },
                 long_edge: Some(viewer_long_edge_px.min(max_texture_side.max(1))),
                 generation: self.generation,
                 kind: PreviewKind::Before,
@@ -608,15 +682,17 @@ impl PhotonationApp {
         use egui::{Key, Modifiers};
         // Plain keys belong to a focused text field (e.g. a mask's name).
         let typing = ctx.egui_wants_keyboard_input();
-        let (undo, redo, prev, next, compare, masks, export, open, reset_zoom) =
+        let (undo, redo, prev, next, compare, masks, crop, leave_crop, export, open, reset_zoom) =
             ctx.input_mut(|i| {
                 let mut plain = |key| !typing && i.consume_key(Modifiers::NONE, key);
-                let (prev, next, compare, masks) = (
+                let (prev, next, compare, masks, crop) = (
                     plain(Key::ArrowLeft),
                     plain(Key::ArrowRight),
                     plain(Key::Backslash),
                     plain(Key::M),
+                    plain(Key::R),
                 );
+                let leave_crop = self.view.cropping && (plain(Key::Enter) || plain(Key::Escape));
                 (
                     i.consume_key(Modifiers::COMMAND, Key::Z),
                     i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z),
@@ -624,6 +700,8 @@ impl PhotonationApp {
                     next,
                     compare,
                     masks,
+                    crop,
+                    leave_crop,
                     i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::E),
                     i.consume_key(Modifiers::COMMAND, Key::O),
                     i.consume_key(Modifiers::COMMAND, Key::Num0),
@@ -646,7 +724,10 @@ impl PhotonationApp {
             self.view.compare = !self.view.compare;
         }
         if masks && self.current.is_some() {
-            self.view.show_masks = !self.view.show_masks;
+            self.view.toggle_masks();
+        }
+        if (crop && self.current.is_some()) || leave_crop {
+            self.view.toggle_cropping();
         }
         if export && self.current.is_some() {
             self.view.show_export = true;
@@ -667,6 +748,19 @@ impl PhotonationApp {
         {
             self.open_folder(folder);
         }
+    }
+}
+
+/// Tells the user a photo opened with its Lightroom edits, and which of
+/// them Photonation could not bring along.
+fn lightroom_notice(not_imported: &[&str]) -> String {
+    match not_imported {
+        [] => "Opened with its Lightroom edits".into(),
+        [only] => format!("Opened with its Lightroom edits, without {only}"),
+        [first @ .., last] => format!(
+            "Opened with its Lightroom edits, without {} and {last}",
+            first.join(", ")
+        ),
     }
 }
 
@@ -710,6 +804,7 @@ impl eframe::App for PhotonationApp {
 
         let settings_before = self.settings.clone();
         let disabled_before = self.view.disabled.clone();
+        let cropping_before = self.view.cropping;
 
         panels::toolbar::show(self, ui);
         if !self.photos.is_empty() {
@@ -725,8 +820,17 @@ impl eframe::App for PhotonationApp {
             panels::export::show(self, &ctx);
         }
 
-        if self.settings != settings_before || self.view.disabled != disabled_before {
+        if self.view.disabled != disabled_before
+            || (self.settings != settings_before
+                && !(self.view.cropping
+                    && panels::crop::only_crop_differs(&self.settings, &settings_before)))
+        {
             self.edited();
+        } else if self.settings != settings_before {
+            self.mark_unsaved();
+        }
+        if self.view.cropping != cropping_before {
+            self.refresh();
         }
         // One undo step per interaction: commit once the pointer is released.
         if !ctx.input(|i| i.pointer.any_down()) {
@@ -762,6 +866,15 @@ mod tests {
     use super::*;
 
     const GPU_LIMIT: usize = 8192;
+
+    #[test]
+    fn lightroom_notices_list_what_was_left_out() {
+        assert_eq!(lightroom_notice(&[]), "Opened with its Lightroom edits");
+        assert_eq!(
+            lightroom_notice(&["masks", "noise reduction", "effects"]),
+            "Opened with its Lightroom edits, without masks, noise reduction and effects"
+        );
+    }
 
     #[test]
     fn fitted_previews_follow_the_viewer() {

@@ -223,6 +223,16 @@ pub static DETAIL_CONTROLS: &[Control] = &[
     control!("sharpen-radius", "Radius", 0.5, 3.0, 1.0, sharpening.radius),
 ];
 
+/// The crop tool's straighten angle.
+pub static CROP_CONTROLS: &[Control] = &[control!(
+    "crop-angle",
+    "Angle",
+    -45.0,
+    45.0,
+    0.0,
+    crop_angle
+)];
+
 /// A mask's local adjustments, in the order the mask editor shows them.
 pub static LOCAL_CONTROLS: &[Control<LocalAdjustments>] = &[
     control!(
@@ -304,6 +314,7 @@ pub fn all_controls() -> impl Iterator<Item = &'static Control> {
         .chain(GRADING_CONTROLS.iter().flatten())
         .chain(GRADING_BLEND_CONTROLS)
         .chain(DETAIL_CONTROLS)
+        .chain(CROP_CONTROLS)
 }
 
 #[cfg(test)]

@@ -22,6 +22,13 @@ All notable changes to this project are documented here. The format follows
 - Masks: linear and radial gradients with invert, and local temperature, tint,
   exposure, contrast, highlights, shadows, dehaze and saturation. The desktop
   editor has a mask window (M), draggable handles and a GPU-drawn overlay.
+- Crop and straighten: a crop tool (R) with aspect ratios, an angle slider and
+  dragging outside the frame to turn it. Turned crops render with bicubic
+  resampling; masks, the overlay and the eyedropper follow them.
+- Photos edited in Lightroom open with their edits: white balance, light,
+  presence, colour, curves, colour mixer, colour grading, sharpening and crop
+  are read from the `.xmp` sidecar (never written). The editor names edits it
+  could not bring along, such as masks.
 - Point colours: pick up to eight colours in the photo and shift the hue,
   saturation and luminance of everything similar, with adjustable hue,
   saturation and luminance ranges and a "Visualize range" overlay (the Color
@@ -32,6 +39,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Compare (◐) shows the original with the edit's crop, so the two line up.
 - Texture and Clarity no longer change by a rounding step depending on how the
   render is split into bands.
 

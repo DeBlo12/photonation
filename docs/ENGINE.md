@@ -39,7 +39,7 @@ loop:
 
 ## Export (`export.rs: export_photo`)
 
-`decode → settings (explicit, or the sidecar) → optional adjust hook → render →
+`decode → settings (explicit, or the sidecar, or Lightroom's) → optional adjust hook → render →
 encode → atomic write`. The CLI and the desktop export sheet both use it; the
 CLI's slider overrides arrive through the adjust hook.
 

@@ -6,10 +6,13 @@ display-ready image. This document follows that call from start to finish.
 ## 1. Setup (`lib.rs: render`, `build_graph`)
 
 1. **Sanitize** the settings (clamp every control to its range).
-2. **Region**: the camera's recommended crop, narrowed by the user's crop. The
-   user crop is given on the *displayed* (oriented) image and mapped back to
-   sensor coordinates (`Orientation::display_rect_to_stored`).
-3. **Target size**: the region scaled so its long edge fits `long_edge`.
+2. **Framing** (`Framing`): the part of the sensor to read. Without an angle,
+   the camera's recommended crop narrowed by the user's crop, which is given on
+   the *displayed* (oriented) image and mapped back to sensor coordinates
+   (`Orientation::display_rect_to_stored`); the output is that region. With an
+   angle, the bounding box of the turned frame (`crop_frame`, see EDIT-MODEL.md)
+   plus a 3-pixel margin; the output is the frame's size.
+3. **Target size**: the output scaled so its long edge fits `long_edge`.
 4. **Demosaic method** (`Demosaic::choose`):
    - Bayer, output ≤ half size → `HalfSize` (one pixel per 2×2 quad: 4× fewer pixels, no interpolation).
    - Bayer, larger output → `Mhc` (Malvar–He–Cutler).
@@ -24,6 +27,7 @@ display-ready image. This document follows that call from start to finish.
 | `SensorSource` | source | 2 (MHC, neighbour average), 0 otherwise | always |
 | `Develop` | point | 0 | always |
 | `LocalContrast` | spatial | 3 × box radius | Texture or Clarity ≠ 0 |
+| `Straighten` (bicubic) | spatial | the frame's tilt across the band, + 2 | crop angle ≠ 0 |
 | `Resize` (Lanczos-3) | spatial | filter support | output smaller than source |
 | `Encode` (OETF) | point | 0 | always |
 | `Sharpen` (unsharp mask) | spatial | 3σ | sharpening > 0 |
@@ -146,6 +150,13 @@ sharpening don't take part.
   exact; a floating-point running sum would round differently depending on
   where a band starts, which breaks band-size invariance. Radii are fractions
   of the image's long edge, so previews and exports match.
+- **Straighten** (`straighten.rs`): resamples along the turned frame with a
+  Catmull–Rom kernel, at the source's scale (half size after half-size
+  demosaicing). Output pixel → output displayed → photo displayed → photo stored
+  → sensor → input is affine, so it is precomputed as an origin and two steps.
+  A band reads the input rows its corners reach, which overlap the next band's
+  by the tilt; turned renders therefore use one band per thread. Masks and local
+  contrast run before it, on the upright sensor region, so they need no change.
 - **Resize** (`resize.rs`): separable Lanczos-3 in linear light, widened when
   shrinking to avoid aliasing. Weights are precomputed per output row and column.
 - **Encode** (`encode.rs`): the output space's transfer curve from a 65 536-entry table.
@@ -158,6 +169,7 @@ sharpening don't take part.
 |---|---|
 | Decode (rawler) | ~130 ms |
 | Full-size render (MHC) | ~170 ms |
+| Full-size render, straightened 3° (5205 × 3470) | ~250 ms |
 | 1600 px render (half-size path) | ~35 ms |
 | Full-size JPEG encode | ~330 ms |
 

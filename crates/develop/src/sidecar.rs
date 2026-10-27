@@ -3,10 +3,14 @@
 
 use crate::Settings;
 use serde::{Deserialize, Serialize};
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 pub const SIDECAR_EXTENSION: &str = "photonation.json";
 const FORMAT: &str = "photonation.develop";
+/// Largest sidecar read. Real ones are a few kilobytes; the limit keeps a
+/// corrupt or hostile file from exhausting memory when a folder opens.
+pub const MAX_SIDECAR_BYTES: u64 = 4 * 1024 * 1024;
 
 #[derive(Debug, thiserror::Error)]
 pub enum SidecarError {
@@ -22,6 +26,8 @@ pub enum SidecarError {
     },
     #[error("{path}: not a Photonation sidecar (format {found:?})")]
     Format { path: PathBuf, found: String },
+    #[error("{path}: sidecar is larger than {MAX_SIDECAR_BYTES} bytes")]
+    TooLarge { path: PathBuf },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -41,16 +47,23 @@ pub fn sidecar_path(original: &Path) -> PathBuf {
 impl Settings {
     /// Reads settings from a sidecar file; `Ok(None)` when it doesn't exist.
     pub fn load(path: &Path) -> Result<Option<Settings>, SidecarError> {
-        let text = match std::fs::read_to_string(path) {
-            Ok(t) => t,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(source) => {
-                return Err(SidecarError::Io {
-                    path: path.into(),
-                    source,
-                });
-            }
+        let io = |source| SidecarError::Io {
+            path: path.into(),
+            source,
         };
+        let file = match std::fs::File::open(path) {
+            Ok(file) => file,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(source) => return Err(io(source)),
+        };
+        // Read one byte past the limit to tell "at the limit" from "over it".
+        let mut text = String::new();
+        file.take(MAX_SIDECAR_BYTES + 1)
+            .read_to_string(&mut text)
+            .map_err(io)?;
+        if text.len() as u64 > MAX_SIDECAR_BYTES {
+            return Err(SidecarError::TooLarge { path: path.into() });
+        }
         let sidecar: Sidecar =
             serde_json::from_str(&text).map_err(|source| SidecarError::Parse {
                 path: path.into(),
@@ -65,8 +78,11 @@ impl Settings {
         Ok(Some(sidecar.settings))
     }
 
-    /// Writes settings atomically (temp file + rename) so a crash never
-    /// leaves a truncated sidecar.
+    /// Writes settings atomically so a crash never leaves a truncated
+    /// sidecar: the text goes to a new temporary file beside it (created
+    /// exclusively under a random name, so a file or symlink planted in a
+    /// shared folder is never written through), is flushed to disk, then
+    /// renamed over the sidecar.
     pub fn save(&self, path: &Path) -> Result<(), SidecarError> {
         let sidecar = Sidecar {
             format: FORMAT.into(),
@@ -78,13 +94,25 @@ impl Settings {
                 source,
             })?;
         text.push('\n');
-        let tmp = path.with_extension("json.tmp");
         let io = |source| SidecarError::Io {
             path: path.into(),
             source,
         };
-        std::fs::write(&tmp, text).map_err(io)?;
-        std::fs::rename(&tmp, path).map_err(io)
+        let directory = path
+            .parent()
+            .filter(|dir| !dir.as_os_str().is_empty())
+            .unwrap_or(Path::new("."));
+        let mut temporary = tempfile::Builder::new();
+        temporary.prefix(".photonation-").suffix(".tmp");
+        // Same permissions a plain create would give (0o666 minus umask)
+        // instead of tempfile's owner-only default.
+        #[cfg(unix)]
+        temporary.permissions(std::os::unix::fs::PermissionsExt::from_mode(0o666));
+        let mut file = temporary.tempfile_in(directory).map_err(io)?;
+        file.write_all(text.as_bytes()).map_err(io)?;
+        file.as_file().sync_all().map_err(io)?;
+        file.persist(path).map_err(|e| io(e.error))?;
+        Ok(())
     }
 }
 
@@ -102,9 +130,8 @@ mod tests {
 
     #[test]
     fn save_and_load() {
-        let dir = std::env::temp_dir().join(format!("photonation-sidecar-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).expect("mkdir");
-        let path = dir.join("x.photonation.json");
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("x.photonation.json");
         let s = Settings {
             exposure: 1.25,
             ..Settings::default()
@@ -112,9 +139,42 @@ mod tests {
         s.save(&path).expect("save");
         assert_eq!(Settings::load(&path).expect("load"), Some(s));
         assert_eq!(
-            Settings::load(&dir.join("missing.json")).expect("load"),
+            Settings::load(&dir.path().join("missing.json")).expect("load"),
             None
         );
-        std::fs::remove_dir_all(&dir).ok();
+        // Only the sidecar remains: the temporary file was renamed.
+        assert_eq!(std::fs::read_dir(dir.path()).expect("list").count(), 1);
+    }
+
+    #[test]
+    fn oversized_sidecar_is_rejected() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("big.photonation.json");
+        let file = std::fs::File::create(&path).expect("create");
+        file.set_len(MAX_SIDECAR_BYTES + 1).expect("grow");
+        assert!(matches!(
+            Settings::load(&path),
+            Err(SidecarError::TooLarge { .. })
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn save_never_writes_through_planted_symlinks() {
+        // In a shared folder another user could point the sidecar path, or
+        // the predictable temporary name older builds used, at one of the
+        // victim's files. Saving must replace links, never follow them.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let victim = dir.path().join("victim.txt");
+        std::fs::write(&victim, "precious").expect("write victim");
+        let path = dir.path().join("x.photonation.json");
+        std::os::unix::fs::symlink(&victim, &path).expect("symlink");
+        std::os::unix::fs::symlink(&victim, path.with_extension("json.tmp")).expect("symlink");
+        Settings::default().save(&path).expect("save");
+        assert_eq!(
+            std::fs::read_to_string(&victim).expect("read victim"),
+            "precious"
+        );
+        assert!(!std::fs::symlink_metadata(&path).expect("stat").is_symlink());
     }
 }

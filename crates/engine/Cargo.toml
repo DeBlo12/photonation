@@ -19,5 +19,9 @@ photonation-pipeline.workspace = true
 photonation-export.workspace = true
 thiserror.workspace = true
 
+[dev-dependencies]
+photonation-image = { workspace = true, features = ["test-util"] }
+tempfile.workspace = true
+
 [lints]
 workspace = true

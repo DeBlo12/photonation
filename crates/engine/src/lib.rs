@@ -6,13 +6,18 @@
 //! jobs, folder scanning, undo history and histograms. Nothing here knows
 //! about a UI toolkit; results arrive as [`Event`]s.
 
+mod decoder;
 mod export;
 mod histogram;
 mod history;
 mod library;
 mod service;
 
-pub use export::{ExportError, ExportOptions, ExportReport, export_photo, output_path};
+pub use decoder::{Decoder, RawDecoder};
+pub use export::{
+    ExportError, ExportOptions, ExportReport, export_photo, export_photo_with, output_path,
+    unused_path,
+};
 pub use histogram::Histogram;
 pub use history::History;
 pub use library::scan_folder;

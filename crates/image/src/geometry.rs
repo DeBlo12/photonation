@@ -141,6 +141,21 @@ impl Orientation {
         }
     }
 
+    /// Display-space normalized point for a stored-space normalized point
+    /// (the inverse of [`Self::to_stored_norm`]).
+    pub fn to_display_norm(self, u: f64, v: f64) -> (f64, f64) {
+        match self {
+            Orientation::Normal => (u, v),
+            Orientation::FlipH => (1.0 - u, v),
+            Orientation::Rotate180 => (1.0 - u, 1.0 - v),
+            Orientation::FlipV => (u, 1.0 - v),
+            Orientation::Transpose => (v, u),
+            Orientation::Rotate90 => (1.0 - v, u),
+            Orientation::Transverse => (1.0 - v, 1.0 - u),
+            Orientation::Rotate270 => (v, 1.0 - u),
+        }
+    }
+
     /// Maps a crop drawn on the displayed image to stored coordinates.
     pub fn display_rect_to_stored(self, r: NormRect) -> NormRect {
         let (a0, a1) = self.to_stored_norm(r.left, r.top);
@@ -206,6 +221,33 @@ mod tests {
                     let (dx, dy) = o.to_display(x, y, w, h);
                     assert!(dx < dw / 2 && dy < dh / 2, "{o:?} ({x},{y}) -> ({dx},{dy})");
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn display_norm_inverts_stored_norm() {
+        for o in ALL {
+            for (u, v) in [(0.0, 0.0), (0.25, 0.75), (1.0, 0.5)] {
+                let (su, sv) = o.to_stored_norm(u, v);
+                let (du, dv) = o.to_display_norm(su, sv);
+                assert!((du - u).abs() < 1e-12 && (dv - v).abs() < 1e-12, "{o:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn display_norm_agrees_with_pixel_mapping() {
+        // Pixel centres must land on the same display position either way.
+        let (w, h) = (8, 4);
+        for o in ALL {
+            let (dw, dh) = o.display_size(w, h);
+            for (x, y) in [(0, 0), (7, 0), (3, 2), (7, 3)] {
+                let (dx, dy) = o.to_display(x, y, w, h);
+                let (u, v) =
+                    o.to_display_norm((x as f64 + 0.5) / w as f64, (y as f64 + 0.5) / h as f64);
+                assert!((u * dw as f64 - (dx as f64 + 0.5)).abs() < 1e-9, "{o:?}");
+                assert!((v * dh as f64 - (dy as f64 + 0.5)).abs() < 1e-9, "{o:?}");
             }
         }
     }

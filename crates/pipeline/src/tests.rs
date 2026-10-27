@@ -2,48 +2,10 @@
 // Copyright (C) 2026 The Photonation contributors
 
 use super::*;
-use photonation_color::Mat3;
-use photonation_image::{
-    CalibrationMatrix, CameraColor, CameraInfo, CfaColor, CfaPattern, Orientation, SensorLayout,
-};
+use photonation_image::{CfaColor, CfaPattern, Orientation, SensorLayout};
 
-/// Deterministic synthetic mosaic: smooth gradients plus pseudo-random noise.
 fn synthetic(w: usize, h: usize, orientation: Orientation) -> SensorImage {
-    let mut state = 0x2545_f491_4f6c_dd1du64;
-    let mut data = Vec::with_capacity(w * h);
-    for y in 0..h {
-        for x in 0..w {
-            state ^= state << 13;
-            state ^= state >> 7;
-            state ^= state << 17;
-            let noise = (state % 400) as f32;
-            let base = 600.0 + 9000.0 * (x as f32 / w as f32) * (0.5 + 0.5 * (y as f32 / h as f32));
-            data.push((base + noise).min(15000.0) as u16);
-        }
-    }
-    SensorImage {
-        width: w,
-        height: h,
-        data,
-        layout: SensorLayout::Cfa(CfaPattern::rggb()),
-        black: [512.0; 3],
-        white: 15000.0,
-        crop: Rect::new(2, 2, w - 4, h - 4),
-        orientation,
-        color: CameraColor {
-            as_shot_neutral: Some([0.55, 1.0, 0.63]),
-            matrices: vec![CalibrationMatrix {
-                temperature: 6504.0,
-                xyz_to_camera: Mat3([
-                    [0.9079, -0.1923, -0.1236],
-                    [-0.4677, 1.2454, 0.2492],
-                    [-0.0922, 0.2319, 0.5565],
-                ]),
-            }],
-        },
-        baseline_exposure: 0.0,
-        info: CameraInfo::default(),
-    }
+    SensorImage::test_pattern(w, h, orientation)
 }
 
 fn render_with(
@@ -239,4 +201,212 @@ fn linear_rgb_renders_neutral_grey_as_grey() {
             .all(|&v| (v as i32 - center[1] as i32).abs() <= 2),
         "{center:?}"
     );
+}
+
+mod masks {
+    use super::*;
+    use photonation_develop::{LinearGradient, Mask, MaskShape, RadialGradient};
+    use std::ops::Range;
+
+    fn radial_mask(feather: f32) -> Mask {
+        Mask::new(
+            "Centre",
+            MaskShape::Radial(RadialGradient {
+                center: [0.5, 0.5],
+                radius: [0.15, 0.15],
+                rotation: 0.0,
+                feather,
+            }),
+        )
+    }
+
+    /// Mean of the 8-bit samples in display rows `rows`, columns `columns`.
+    fn mean(image: &OutputImage, rows: Range<usize>, columns: Range<usize>) -> f64 {
+        let Pixels::U8(samples) = &image.pixels else {
+            panic!("8-bit")
+        };
+        let mut sum = 0.0;
+        let mut count = 0;
+        for y in rows {
+            for x in columns.clone() {
+                for channel in 0..3 {
+                    sum += samples[(y * image.width + x) * 3 + channel] as f64;
+                    count += 1;
+                }
+            }
+        }
+        sum / count as f64
+    }
+
+    #[test]
+    fn masks_keep_band_size_invariance() {
+        let img = synthetic(97, 71, Orientation::Rotate90);
+        let mut sky = Mask::new("Sky", MaskShape::Linear(LinearGradient::default()));
+        sky.adjustments.exposure = -0.8;
+        sky.adjustments.temperature = -30.0;
+        sky.adjustments.saturation = 40.0;
+        let mut subject = radial_mask(60.0);
+        subject.invert = true;
+        subject.adjustments.contrast = 30.0;
+        subject.adjustments.shadows = 50.0;
+        subject.adjustments.dehaze = 20.0;
+        let s = Settings {
+            masks: vec![sky, subject],
+            ..Settings::default()
+        };
+        // Full size (MHC) and the half-size path, whose pixels are quads.
+        for long_edge in [None, Some(40)] {
+            let whole = render_with(&img, &s, long_edge, 10_000);
+            for band_rows in [1, 5, 16] {
+                assert_eq!(
+                    whole,
+                    render_with(&img, &s, long_edge, band_rows),
+                    "long_edge {long_edge:?} band {band_rows}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn masks_without_effect_change_nothing() {
+        let img = synthetic(64, 48, Orientation::Normal);
+        let plain = render_with(&img, &Settings::default(), None, 16);
+        let mut disabled = radial_mask(50.0);
+        disabled.adjustments.exposure = 2.0;
+        disabled.enabled = false;
+        let mut inverted_neutral = radial_mask(0.0);
+        inverted_neutral.invert = true;
+        let s = Settings {
+            masks: vec![disabled, inverted_neutral, Mask::default()],
+            ..Settings::default()
+        };
+        assert_eq!(plain, render_with(&img, &s, None, 16));
+    }
+
+    #[test]
+    fn radial_exposure_brightens_only_inside() {
+        let img = synthetic(104, 104, Orientation::Normal);
+        let plain = render_with(&img, &Settings::default(), None, 16);
+        let mut mask = radial_mask(0.0);
+        mask.adjustments.exposure = 1.5;
+        let masked = render_with(
+            &img,
+            &Settings {
+                masks: vec![mask.clone()],
+                ..Settings::default()
+            },
+            None,
+            16,
+        );
+        let centre = (45..55, 45..55);
+        let corner = (0..10, 0..10);
+        assert!(
+            mean(&masked, centre.0.clone(), centre.1.clone())
+                > mean(&plain, centre.0.clone(), centre.1.clone()) + 15.0
+        );
+        assert_eq!(
+            mean(&masked, corner.0.clone(), corner.1.clone()),
+            mean(&plain, corner.0.clone(), corner.1.clone())
+        );
+
+        mask.invert = true;
+        let inverted = render_with(
+            &img,
+            &Settings {
+                masks: vec![mask],
+                ..Settings::default()
+            },
+            None,
+            16,
+        );
+        assert_eq!(
+            mean(&inverted, centre.0.clone(), centre.1.clone()),
+            mean(&plain, centre.0.clone(), centre.1)
+        );
+        assert!(
+            mean(&inverted, corner.0.clone(), corner.1.clone())
+                > mean(&plain, corner.0, corner.1) + 15.0
+        );
+    }
+
+    #[test]
+    fn masks_are_placed_on_the_displayed_photo() {
+        // A rotated camera: the gradient across the displayed top must
+        // brighten the displayed top rows, whatever the stored layout.
+        let img = synthetic(84, 64, Orientation::Rotate90);
+        let plain = render_with(&img, &Settings::default(), None, 16);
+        let (width, height) = (plain.width, plain.height);
+        assert!(height > width, "portrait after rotation");
+        let mut top = Mask::new(
+            "Top",
+            MaskShape::Linear(LinearGradient {
+                start: [0.5, 0.2],
+                end: [0.5, 0.3],
+            }),
+        );
+        top.adjustments.exposure = 2.0;
+        let masked = render_with(
+            &img,
+            &Settings {
+                masks: vec![top],
+                ..Settings::default()
+            },
+            None,
+            16,
+        );
+        let top_rows = 0..height / 6;
+        let bottom_rows = height * 2 / 3..height;
+        assert!(
+            mean(&masked, top_rows.clone(), 0..width) > mean(&plain, top_rows, 0..width) + 20.0
+        );
+        assert_eq!(
+            mean(&masked, bottom_rows.clone(), 0..width),
+            mean(&plain, bottom_rows, 0..width)
+        );
+    }
+
+    #[test]
+    fn masks_stay_on_the_content_when_cropping() {
+        // The radial mask sits on the photo's centre; cropping to the left
+        // half moves that centre to the crop's right edge.
+        let img = synthetic(104, 104, Orientation::Normal);
+        let mut mask = radial_mask(0.0);
+        mask.adjustments.exposure = 1.5;
+        let crop = Some(NormRect {
+            left: 0.0,
+            top: 0.0,
+            right: 0.5,
+            bottom: 1.0,
+        });
+        let plain = render_with(
+            &img,
+            &Settings {
+                crop,
+                ..Settings::default()
+            },
+            None,
+            16,
+        );
+        let masked = render_with(
+            &img,
+            &Settings {
+                crop,
+                masks: vec![mask],
+                ..Settings::default()
+            },
+            None,
+            16,
+        );
+        let (width, height) = (masked.width, masked.height);
+        let right_middle = (height / 2 - 3..height / 2 + 3, width - 6..width);
+        let left_middle = (height / 2 - 3..height / 2 + 3, 0..6);
+        assert!(
+            mean(&masked, right_middle.0.clone(), right_middle.1.clone())
+                > mean(&plain, right_middle.0, right_middle.1) + 15.0
+        );
+        assert_eq!(
+            mean(&masked, left_middle.0.clone(), left_middle.1.clone()),
+            mean(&plain, left_middle.0, left_middle.1)
+        );
+    }
 }

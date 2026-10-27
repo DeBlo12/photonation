@@ -72,6 +72,15 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
                     {
                         app.view.compare = !app.view.compare;
                     }
+                    if ui
+                        .add_enabled_ui(has_photo, |ui| {
+                            tool_button(ui, "◎", app.view.show_masks, "Masks (M)")
+                        })
+                        .inner
+                        .clicked()
+                    {
+                        app.view.show_masks = !app.view.show_masks;
+                    }
                     ui.add_space(8.0);
                     if ui
                         .add_enabled(app.history.can_redo(), tool_button_widget("↷"))

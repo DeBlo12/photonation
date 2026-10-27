@@ -3072,6 +3072,7 @@ name = "photonation-desktop"
 version = "0.1.0"
 dependencies = [
  "eframe",
+ "naga",
  "photonation-color",
  "photonation-develop",
  "photonation-engine",
@@ -3089,6 +3090,7 @@ dependencies = [
  "photonation-image",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror 2.0.21",
 ]
 
@@ -3102,6 +3104,7 @@ dependencies = [
  "photonation-image",
  "photonation-pipeline",
  "photonation-raw",
+ "tempfile",
  "thiserror 2.0.21",
 ]
 
@@ -3114,6 +3117,7 @@ dependencies = [
  "photonation-color",
  "photonation-image",
  "png",
+ "tempfile",
  "thiserror 2.0.21",
  "tiff",
 ]

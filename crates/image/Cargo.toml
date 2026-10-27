@@ -14,5 +14,9 @@ publish.workspace = true
 photonation-color.workspace = true
 serde.workspace = true
 
+[features]
+# `SensorImage::test_pattern` for tests in downstream crates.
+test-util = []
+
 [lints]
 workspace = true

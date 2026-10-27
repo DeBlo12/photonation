@@ -99,6 +99,12 @@ impl<'a> SensorSource<'a> {
         }
     }
 
+    /// The sensor area this source reads: the requested region, shrunk to
+    /// whole 2×2 quads for half-size demosaicing.
+    pub fn region(&self) -> Rect {
+        self.region
+    }
+
     fn pattern(&self) -> &CfaPattern {
         match &self.sensor.layout {
             SensorLayout::Cfa(pattern) => pattern,

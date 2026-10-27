@@ -23,7 +23,7 @@ impl Encode {
 }
 
 impl PointOp for Encode {
-    fn apply(&self, values: &mut [f32]) {
+    fn apply(&self, _y: usize, values: &mut [f32]) {
         for value in values {
             let position = value.clamp(0.0, 1.0) * LUT_SIZE as f32;
             let index = (position as usize).min(LUT_SIZE - 1);
@@ -41,7 +41,7 @@ mod tests {
     fn matches_transfer_function() {
         let encode = Encode::new(ColorSpace::Srgb);
         let mut values = [0.0, 0.001, 0.18, 0.5, 1.0, 2.0];
-        encode.apply(&mut values);
+        encode.apply(0, &mut values);
         let transfer = ColorSpace::Srgb.transfer();
         for (got, linear) in values.iter().zip([0.0, 0.001, 0.18, 0.5, 1.0, 1.0]) {
             assert!((*got as f64 - transfer.encode(linear)).abs() < 1e-4);

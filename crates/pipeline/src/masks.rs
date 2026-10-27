@@ -1,16 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 The Photonation contributors
 
-//! Masks and local adjustments (docs/PIPELINE.md §5). Each enabled mask's
-//! weight at a pixel scales its adjustments; the weighted adjustments of all
+//! Masks and local adjustments (docs/PIPELINE.md §5). A mask's weight at a
+//! pixel combines its shapes' weights in order ([`MaskWeight`]); it scales
+//! the mask's adjustments times its amount. The weighted adjustments of all
 //! masks add up, and the develop stage applies the sum with the global ones.
 //!
-//! [`ShapeWeight::at`] is the reference for the mask overlay the desktop
+//! [`MaskWeight::at`] is the reference for the mask overlay the desktop
 //! editor draws on the GPU (`apps/desktop/src/gpu/mask_overlay.wgsl`);
 //! keep the two in step.
 
 use crate::color::smoothstep;
-use photonation_develop::{LocalAdjustments, Mask, MaskShape, MaskSpace};
+use photonation_develop::{CombineMode, LocalAdjustments, Mask, MaskShape, MaskSpace};
 use photonation_image::{Rect, SensorImage};
 
 /// The mask space of a photo: its default crop in display orientation.
@@ -203,9 +204,45 @@ impl PixelToMask {
     }
 }
 
+/// A mask's selection, prepared for evaluation at metric points of its
+/// [`MaskSpace`]: its shapes combined in order, then optionally inverted.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MaskWeight {
+    pub components: Vec<(ShapeWeight, CombineMode)>,
+    pub invert: bool,
+}
+
+impl MaskWeight {
+    pub fn new(mask: &Mask, space: MaskSpace) -> MaskWeight {
+        MaskWeight {
+            components: mask
+                .components
+                .iter()
+                .map(|component| (ShapeWeight::new(&component.shape, space), component.mode))
+                .collect(),
+            invert: mask.invert,
+        }
+    }
+
+    /// Selection strength, 0..1, at a metric point. A mask without shapes
+    /// selects nothing (everything, inverted).
+    #[inline]
+    pub fn at(&self, point: [f32; 2]) -> f32 {
+        let mut components = self.components.iter();
+        let mut selected = components.next().map_or(0.0, |(shape, _)| shape.at(point));
+        for (shape, mode) in components {
+            selected = mode.combine(selected, shape.at(point));
+        }
+        if self.invert {
+            1.0 - selected
+        } else {
+            selected
+        }
+    }
+}
+
 struct WeightedMask {
-    shape: ShapeWeight,
-    invert: bool,
+    weight: MaskWeight,
     amounts: LocalAmounts,
 }
 
@@ -227,10 +264,14 @@ impl LocalAdjust {
         let masks: Vec<WeightedMask> = masks
             .iter()
             .filter(|mask| mask.is_active())
-            .map(|mask| WeightedMask {
-                shape: ShapeWeight::new(&mask.shape, space),
-                invert: mask.invert,
-                amounts: LocalAmounts::from_adjustments(&mask.adjustments),
+            .map(|mask| {
+                let full = LocalAmounts::from_adjustments(&mask.adjustments);
+                let mut amounts = LocalAmounts::NONE;
+                amounts.add_weighted(&full, mask.amount / 100.0);
+                WeightedMask {
+                    weight: MaskWeight::new(mask, space),
+                    amounts,
+                }
             })
             .collect();
         (!masks.is_empty()).then_some(LocalAdjust { masks, positions })
@@ -242,8 +283,7 @@ impl LocalAdjust {
         let point = self.positions.at(x, y);
         let mut amounts = LocalAmounts::NONE;
         for mask in &self.masks {
-            let weight = mask.shape.at(point);
-            let weight = if mask.invert { 1.0 - weight } else { weight };
+            let weight = mask.weight.at(point);
             if weight > 0.0 {
                 amounts.add_weighted(&mask.amounts, weight);
             }
@@ -402,5 +442,63 @@ mod tests {
 
         let idle = Mask::new("Nothing to do", MaskShape::default());
         assert!(LocalAdjust::new(&[idle], &sensor, positions).is_none());
+    }
+
+    fn hard_circle(center: [f64; 2], radius: f64) -> MaskShape {
+        MaskShape::Radial(RadialGradient {
+            center,
+            radius: [radius, radius],
+            rotation: 0.0,
+            feather: 0.0,
+        })
+    }
+
+    #[test]
+    fn mask_weight_combines_shapes_in_order() {
+        use photonation_develop::MaskComponent;
+        let mut ring = Mask::new("Ring", hard_circle([0.5, 0.5], 0.3));
+        ring.components.push(MaskComponent::new(
+            hard_circle([0.5, 0.5], 0.1),
+            CombineMode::Subtract,
+        ));
+        let weight = MaskWeight::new(&ring, square());
+        assert_eq!(weight.at([0.5, 0.5]), 0.0, "the hole");
+        assert_eq!(weight.at([0.7, 0.5]), 1.0, "the ring");
+        assert_eq!(weight.at([0.95, 0.5]), 0.0, "outside");
+
+        let mut lens = Mask::new("Lens", hard_circle([0.4, 0.5], 0.2));
+        lens.components.push(MaskComponent::new(
+            hard_circle([0.6, 0.5], 0.2),
+            CombineMode::Intersect,
+        ));
+        let weight = MaskWeight::new(&lens, square());
+        assert_eq!(weight.at([0.5, 0.5]), 1.0, "in both");
+        assert_eq!(weight.at([0.25, 0.5]), 0.0, "in the first only");
+
+        let mut pair = lens.clone();
+        pair.components[1].mode = CombineMode::Add;
+        pair.invert = true;
+        let weight = MaskWeight::new(&pair, square());
+        assert_eq!(weight.at([0.25, 0.5]), 0.0, "in either, inverted");
+        assert_eq!(weight.at([0.05, 0.05]), 1.0, "in neither, inverted");
+
+        let empty = Mask {
+            components: Vec::new(),
+            ..Mask::default()
+        };
+        assert_eq!(MaskWeight::new(&empty, square()).at([0.5, 0.5]), 0.0);
+    }
+
+    #[test]
+    fn amount_scales_a_masks_adjustments() {
+        let sensor = SensorImage::test_pattern(104, 104, Orientation::Normal);
+        let positions = PixelToMask::new(&sensor, sensor.crop, (100, 100));
+        let mut mask = Mask::new("Centre", hard_circle([0.5, 0.5], 0.2));
+        mask.adjustments.exposure = 2.0;
+        mask.adjustments.contrast = 50.0;
+        mask.amount = 25.0;
+        let local = LocalAdjust::new(&[mask], &sensor, positions).expect("active");
+        let centre = local.at(50, 50);
+        assert_eq!((centre.exposure, centre.contrast), (0.5, 0.125));
     }
 }

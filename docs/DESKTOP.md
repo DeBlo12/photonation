@@ -15,16 +15,24 @@ follows Photomator: dark and image-first, with the controls in quiet cards.
 │        (fit / zoom / pan / compare)       │   sliders…      │  sidebar
 │                                           │ ▸ Curves …      │
 ├───────────────────────────────────────────┴─────────────────┤
-│ [thumb] [thumb] [thumb] …                                    │  filmstrip
+│ ▫ ▫ ▫ …                                                      │  filmstrip (resting)
 └─────────────────────────────────────────────────────────────┘
 ```
+
+While masking (◎ or `M`) the sidebar shows the masks panel instead of the
+adjustment cards, and the photo shows the selected shape's handles.
 
 | File | Region |
 |---|---|
 | `panels/toolbar.rs` | Open, photo name and exposure info, undo/redo, compare, zoom, export |
 | `panels/viewer.rs` | Canvas: fit/zoom/pan, before/after divider, eyedropper, status toast |
 | `panels/adjustments.rs` | Histogram and one card per `AdjustmentGroup` |
-| `panels/filmstrip.rs` | Thumbnails; edited photos carry a blue dot |
+| `panels/filmstrip.rs` | Thumbnails; edited photos carry a blue dot. Rests as a thin strip (see below) |
+| `panels/masks.rs` | Masks panel: layer list, the selected mask's shapes, settings and local adjustments |
+| `panels/mask_thumbnails.rs` | The layer list's pictures of what each mask selects |
+| `panels/mask_handles.rs` | On-canvas handles and pins for mask editing |
+| `gpu/mask_overlay.rs`, `.wgsl` | The selected mask's tint over the photo, evaluated per pixel on the GPU |
+| `gpu/mod.rs` | Graphics adapter choice and texture limits |
 | `panels/export.rs` | Export sheet (format, quality, size, colour space, scope) |
 | `widgets/*` | Custom controls: adjustment slider, section card, toggle, segmented control, curve editor, colour wheel, histogram |
 | `theme.rs` | Every colour and metric |
@@ -36,10 +44,12 @@ follows Photomator: dark and image-first, with the controls in quiet cards.
    show errors as a toast.
 2. **Keyboard shortcuts.**
 3. **Snapshot** the settings and the disabled panels.
-4. **Draw** the toolbar, filmstrip, sidebar, viewer and, if open, the export
-   sheet. Widgets edit `app.settings` directly. The viewer asks for a preview
+4. **Draw** the toolbar, filmstrip, sidebar (adjustment cards or the masks
+   panel), viewer and, if open, the export sheet. Widgets edit `app.settings` directly. The viewer asks for a preview
    at the resolution it needs (`request_previews`), which sends a request only
    when the edit generation or the size changed.
+   Then drop a mask selection that undo or a deletion made invalid
+   (`MaskSelection::validated`).
 5. **Edited?** If the settings or switches differ from the snapshot, bump the
    generation (triggering a new preview) and schedule a sidecar save.
 6. **Commit history** when no pointer button is down (one undo step per drag).
@@ -53,6 +63,61 @@ follows Photomator: dark and image-first, with the controls in quiet cards.
   while a control is being dragged, when it stays at fit size for speed and
   refines on release.
 
+## Filmstrip
+
+The filmstrip rests as a 26 pt row of tiny thumbnails, so the photo gets the
+room. It grows to full size (104 pt) while the pointer is on it, stays open for
+half a second after the pointer leaves, and opens for 1.2 s whenever the photo
+changes, to show where in the folder the new one is (`FilmstripReveal`). Only
+the resting strip is reserved in the layout. The open strip floats over the
+bottom of the viewer, so the photo neither moves nor re-renders as the strip
+opens and closes.
+
+## Masks
+
+**Panel** (`panels/masks.rs`), top to bottom:
+
+1. **Layer list.** *+ Linear* / *+ Radial* add a mask with one shape and select
+   it. Each row shows the photo's thumbnail tinted where the mask applies, its
+   name, a summary ("2 shapes · inverted · 60 %") and a visibility switch.
+   Click a row to select it, drag it to reorder, right-click to invert,
+   duplicate, move or delete it.
+2. **Shapes** of the selected mask: add shapes, pick the one the handles edit,
+   choose how each later shape combines (Add, Subtract, Intersect), remove
+   shapes (one always stays). Feather and rotation for radial shapes.
+3. **Name, Amount, Invert** and the overlay switch.
+4. **Adjustments**: the local sliders, Reset, Delete Mask.
+
+**Selection.** `ViewState::selected_mask` is a `MaskSelection { mask, component }`:
+the mask the panel edits and the shape whose handles show.
+
+**Canvas** (`panels/mask_handles.rs`). The selected shape shows its lines or
+ellipse with handles (drag to move or resize; ⇧ keeps a circle round). Hollow
+blue rings mark the selected mask's other shapes; solid pins mark the other
+masks. Clicking either selects it. A drag that starts on a handle edits the
+shape instead of panning.
+
+**Overlay** (`gpu/mask_overlay.rs`). A fragment shader tints the photo by the
+selected mask's combined weight, mirroring `MaskWeight::at`. The CPU packs the
+mask (up to eight shapes) into one uniform. Tests check the packing against
+the pipeline's weights through a transcription of the shader, and validate the
+shader with naga. Because the GPU evaluates the overlay, the tint follows
+handle drags at once, without waiting for the photo to re-render.
+
+**Thumbnails** (`panels/mask_thumbnails.rs`) are computed on the CPU at twice
+the row's point size and cached by the mask's shapes, inversion, crop and size.
+Textures not drawn in a frame are dropped.
+
+## GPU selection (`gpu/mod.rs`)
+
+wgpu draws the UI, previews and the overlay; the develop pipeline itself runs
+on the CPU. Adapters are ranked discrete → integrated → virtual → software,
+skipping those that can't draw to the window and preferring native backends
+(Metal, Vulkan, DX12) over OpenGL. `PHOTONATION_GPU=integrated` or `software`
+changes the order. The device requests the adapter's largest texture side (up
+to 16384). Previews never exceed it, so 1:1 views of high-resolution cameras
+don't fail.
+
 ## Panel switches
 
 Turning a card off renders the photo as if that group were at its defaults
@@ -63,4 +128,6 @@ state and are not saved.
 
 `PHOTONATION_SCREENSHOT=out.png photonation-desktop <folder or photo>` saves the window
 once the preview and thumbnails are ready, then quits.
-`PHOTONATION_SCREENSHOT_PANELS="Curves,Color Grading"` picks the open cards.
+`PHOTONATION_SCREENSHOT_PANELS="Curves,Color Grading"` picks the open cards;
+`PHOTONATION_SCREENSHOT_MASKS=1` opens the masks panel with the first mask
+selected.

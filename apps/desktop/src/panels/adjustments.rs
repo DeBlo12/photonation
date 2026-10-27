@@ -2,7 +2,8 @@
 // Copyright (C) 2026 The Photonation contributors
 
 //! The adjustments sidebar: histogram, then one collapsible card per
-//! [`AdjustmentGroup`], in Lightroom's order.
+//! [`AdjustmentGroup`], in Lightroom's order (or, while masking, the
+//! masks panel).
 
 use crate::app::{PhotonationApp, ViewState};
 use crate::theme;
@@ -47,6 +48,10 @@ pub fn show(app: &mut PhotonationApp, ui: &mut Ui) {
             egui::ScrollArea::vertical()
                 .auto_shrink([false; 2])
                 .show(ui, |ui| {
+                    if app.view.show_masks {
+                        crate::panels::masks::show(app, ui);
+                        return;
+                    }
                     ui.spacing_mut().item_spacing.y = 8.0;
                     let as_shot = app.info.as_ref().map_or((5500.0, 0.0), |i| i.as_shot);
                     for group in AdjustmentGroup::ALL {

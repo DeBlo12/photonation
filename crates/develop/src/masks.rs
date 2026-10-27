@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 The Photonation contributors
 
-//! Masks: shapes that select part of the photo, each with the local
-//! adjustments applied there. See docs/EDIT-MODEL.md.
+//! Masks: layers that each select part of the photo with one or more
+//! shapes, and apply their local adjustments there. See docs/EDIT-MODEL.md.
 
 use crate::LOCAL_CONTROLS;
 use serde::{Deserialize, Serialize};
@@ -12,6 +12,9 @@ use serde::{Deserialize, Serialize};
 pub const MAX_MASKS: usize = 32;
 /// Longest mask name kept, in characters.
 pub const MAX_MASK_NAME_CHARS: usize = 64;
+/// Most shapes one mask combines. The desktop overlay evaluates them in a
+/// fixed-size GPU uniform, and each one costs time at every pixel.
+pub const MAX_MASK_COMPONENTS: usize = 8;
 
 /// The coordinate frame masks are drawn in.
 ///
@@ -138,18 +141,125 @@ impl LocalAdjustments {
     }
 }
 
-/// A local adjustment: a shape selecting part of the photo, optionally
-/// inverted to select everything else, and what to change there.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// How a shape combines with the shapes above it in its mask. Weights are
+/// 0..1; the first shape is the starting selection, whatever its mode.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CombineMode {
+    /// Union: the larger weight.
+    #[default]
+    Add,
+    /// Remove this shape's selection: the smaller of the weight and
+    /// one minus the shape's.
+    Subtract,
+    /// Keep only what both select: the smaller weight.
+    Intersect,
+}
+
+impl CombineMode {
+    pub const ALL: [CombineMode; 3] = [
+        CombineMode::Add,
+        CombineMode::Subtract,
+        CombineMode::Intersect,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            CombineMode::Add => "Add",
+            CombineMode::Subtract => "Subtract",
+            CombineMode::Intersect => "Intersect",
+        }
+    }
+
+    /// The selection after combining `selected` (so far) with a shape's
+    /// `weight`.
+    #[inline(always)]
+    pub fn combine(self, selected: f32, weight: f32) -> f32 {
+        match self {
+            CombineMode::Add => selected.max(weight),
+            CombineMode::Subtract => selected.min(1.0 - weight),
+            CombineMode::Intersect => selected.min(weight),
+        }
+    }
+}
+
+/// One shape of a mask and how it combines with the shapes before it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+pub struct MaskComponent {
+    pub shape: MaskShape,
+    pub mode: CombineMode,
+}
+
+impl MaskComponent {
+    pub fn new(shape: MaskShape, mode: CombineMode) -> MaskComponent {
+        MaskComponent { shape, mode }
+    }
+}
+
+/// A mask layer: shapes that together select part of the photo
+/// (optionally inverted to select everything else), how strongly the layer
+/// applies, and what it changes there. Layers add up, so their order only
+/// matters for display.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(from = "StoredMask")]
 pub struct Mask {
     pub name: String,
     /// Disabled masks are kept but not rendered.
     pub enabled: bool,
-    pub shape: MaskShape,
-    /// Apply the adjustments outside the shape instead of inside.
+    /// Combined in order; see [`CombineMode`].
+    pub components: Vec<MaskComponent>,
+    /// Apply the adjustments outside the selection instead of inside.
     pub invert: bool,
+    /// How much of the adjustments apply, 0..100 %.
+    pub amount: f32,
     pub adjustments: LocalAdjustments,
+}
+
+/// A mask as sidecars store it: also accepts the single `shape` that masks
+/// had before they could combine shapes.
+#[derive(Deserialize)]
+#[serde(default)]
+struct StoredMask {
+    name: String,
+    enabled: bool,
+    shape: Option<MaskShape>,
+    components: Vec<MaskComponent>,
+    invert: bool,
+    amount: f32,
+    adjustments: LocalAdjustments,
+}
+
+impl Default for StoredMask {
+    fn default() -> Self {
+        let mask = Mask::default();
+        StoredMask {
+            name: mask.name,
+            enabled: mask.enabled,
+            shape: None,
+            components: Vec::new(),
+            invert: mask.invert,
+            amount: mask.amount,
+            adjustments: mask.adjustments,
+        }
+    }
+}
+
+impl From<StoredMask> for Mask {
+    fn from(stored: StoredMask) -> Mask {
+        let components = match (stored.components.is_empty(), stored.shape) {
+            (true, Some(shape)) => vec![MaskComponent::new(shape, CombineMode::Add)],
+            _ => stored.components,
+        };
+        Mask {
+            name: stored.name,
+            enabled: stored.enabled,
+            components,
+            invert: stored.invert,
+            amount: stored.amount,
+            adjustments: stored.adjustments,
+        }
+    }
 }
 
 impl Default for Mask {
@@ -159,19 +269,24 @@ impl Default for Mask {
 }
 
 impl Mask {
+    /// A mask of one shape, at full amount, adjusting nothing yet.
     pub fn new(name: impl Into<String>, shape: MaskShape) -> Mask {
         Mask {
             name: name.into(),
             enabled: true,
-            shape,
+            components: vec![MaskComponent::new(shape, CombineMode::Add)],
             invert: false,
+            amount: 100.0,
             adjustments: LocalAdjustments::default(),
         }
     }
 
     /// Whether rendering this mask changes anything.
     pub fn is_active(&self) -> bool {
-        self.enabled && !self.adjustments.is_neutral()
+        self.enabled
+            && self.amount > 0.0
+            && !self.components.is_empty()
+            && !self.adjustments.is_neutral()
     }
 
     /// Clamps every value into range and repairs non-finite input.
@@ -184,37 +299,14 @@ impl Mask {
             let value = control.get_mut(&mut mask.adjustments);
             *value = control.clamp(*value);
         }
-        mask.shape = match mask.shape {
-            MaskShape::Linear(linear) => {
-                let start = sanitize_position(linear.start);
-                let mut end = sanitize_position(linear.end);
-                // A zero-length gradient has no direction; make it a hard
-                // edge pointing down.
-                if (end[0] - start[0]).hypot(end[1] - start[1]) < MIN_GRADIENT_LENGTH {
-                    end = [start[0], start[1] + MIN_GRADIENT_LENGTH];
-                }
-                MaskShape::Linear(LinearGradient { start, end })
-            }
-            MaskShape::Radial(radial) => MaskShape::Radial(RadialGradient {
-                center: sanitize_position(radial.center),
-                radius: radial.radius.map(|r| {
-                    if r.is_finite() {
-                        r.clamp(MIN_RADIUS, MAX_RADIUS)
-                    } else {
-                        RadialGradient::default().radius[0]
-                    }
-                }),
-                rotation: if radial.rotation.is_finite() {
-                    radial.rotation.rem_euclid(360.0)
-                } else {
-                    0.0
-                },
-                feather: if radial.feather.is_finite() {
-                    radial.feather.clamp(0.0, 100.0)
-                } else {
-                    RadialGradient::default().feather
-                },
-            }),
+        mask.components.truncate(MAX_MASK_COMPONENTS);
+        for component in &mut mask.components {
+            component.shape = sanitized_shape(component.shape);
+        }
+        mask.amount = if mask.amount.is_finite() {
+            mask.amount.clamp(0.0, 100.0)
+        } else {
+            100.0
         };
         mask
     }
@@ -226,6 +318,41 @@ const POSITION_RANGE: std::ops::RangeInclusive<f64> = -1.0..=2.0;
 const MIN_GRADIENT_LENGTH: f64 = 1e-3;
 const MIN_RADIUS: f64 = 1e-3;
 const MAX_RADIUS: f64 = 2.0;
+
+fn sanitized_shape(shape: MaskShape) -> MaskShape {
+    match shape {
+        MaskShape::Linear(linear) => {
+            let start = sanitize_position(linear.start);
+            let mut end = sanitize_position(linear.end);
+            // A zero-length gradient has no direction; make it a hard
+            // edge pointing down.
+            if (end[0] - start[0]).hypot(end[1] - start[1]) < MIN_GRADIENT_LENGTH {
+                end = [start[0], start[1] + MIN_GRADIENT_LENGTH];
+            }
+            MaskShape::Linear(LinearGradient { start, end })
+        }
+        MaskShape::Radial(radial) => MaskShape::Radial(RadialGradient {
+            center: sanitize_position(radial.center),
+            radius: radial.radius.map(|r| {
+                if r.is_finite() {
+                    r.clamp(MIN_RADIUS, MAX_RADIUS)
+                } else {
+                    RadialGradient::default().radius[0]
+                }
+            }),
+            rotation: if radial.rotation.is_finite() {
+                radial.rotation.rem_euclid(360.0)
+            } else {
+                0.0
+            },
+            feather: if radial.feather.is_finite() {
+                radial.feather.clamp(0.0, 100.0)
+            } else {
+                RadialGradient::default().feather
+            },
+        }),
+    }
+}
 
 fn sanitize_position(position: [f64; 2]) -> [f64; 2] {
     position.map(|v| {
@@ -259,19 +386,33 @@ mod tests {
         sky.adjustments.exposure = -0.7;
         let mut face = Mask::new("Face", MaskShape::Radial(RadialGradient::default()));
         face.invert = true;
+        face.components.push(MaskComponent::new(
+            MaskShape::Linear(LinearGradient::default()),
+            CombineMode::Subtract,
+        ));
+        face.amount = 40.0;
         let json = serde_json::to_string(&vec![sky.clone(), face.clone()]).expect("serialize");
         assert!(json.contains(r#""kind":"linear""#), "{json}");
+        assert!(json.contains(r#""mode":"subtract""#), "{json}");
+        let value: serde_json::Value = serde_json::from_str(&json).expect("json");
+        assert!(
+            value[0].get("shape").is_none(),
+            "only the legacy reader knows `shape`"
+        );
         let back: Vec<Mask> = serde_json::from_str(&json).expect("parse");
         assert_eq!(back, vec![sky, face]);
     }
 
     #[test]
-    fn missing_mask_fields_default() {
+    fn single_shape_masks_from_older_sidecars_load_as_one_component() {
         let mask: Mask =
             serde_json::from_str(r#"{"shape": {"kind": "radial", "center": [0.3, 0.4]}}"#)
                 .expect("parse");
         assert!(mask.enabled, "masks are on unless switched off");
-        let MaskShape::Radial(radial) = mask.shape else {
+        assert_eq!(mask.amount, 100.0, "full amount unless set");
+        assert_eq!(mask.components.len(), 1);
+        assert_eq!(mask.components[0].mode, CombineMode::Add);
+        let MaskShape::Radial(radial) = mask.components[0].shape else {
             panic!("radial")
         };
         assert_eq!(radial.center, [0.3, 0.4]);
@@ -292,11 +433,15 @@ mod tests {
         );
         mask.adjustments.exposure = 99.0;
         mask.adjustments.contrast = f32::NAN;
+        mask.amount = f32::NAN;
+        mask.components = vec![mask.components[0]; MAX_MASK_COMPONENTS * 4];
         let clean = mask.sanitized();
         assert_eq!(clean.name.chars().count(), MAX_MASK_NAME_CHARS);
         assert_eq!(clean.adjustments.exposure, 4.0);
         assert_eq!(clean.adjustments.contrast, 0.0);
-        let MaskShape::Radial(radial) = clean.shape else {
+        assert_eq!(clean.amount, 100.0);
+        assert_eq!(clean.components.len(), MAX_MASK_COMPONENTS);
+        let MaskShape::Radial(radial) = clean.components[0].shape else {
             panic!("radial")
         };
         assert_eq!(radial.center, [0.5, 2.0]);
@@ -314,10 +459,36 @@ mod tests {
             }),
         )
         .sanitized();
-        let MaskShape::Linear(linear) = mask.shape else {
+        let MaskShape::Linear(linear) = mask.components[0].shape else {
             panic!("linear")
         };
         assert!(linear.end[1] > linear.start[1]);
+    }
+
+    #[test]
+    fn combine_modes_follow_fuzzy_set_rules() {
+        use CombineMode::{Add, Intersect, Subtract};
+        assert_eq!(Add.combine(0.25, 0.75), 0.75);
+        assert_eq!(Subtract.combine(0.75, 0.75), 0.25);
+        assert_eq!(Subtract.combine(0.75, 0.0), 0.75);
+        assert_eq!(Intersect.combine(0.25, 0.75), 0.25);
+        // Combining a selection with itself keeps it.
+        for weight in [0.0, 0.3, 1.0] {
+            assert_eq!(Add.combine(weight, weight), weight);
+            assert_eq!(Intersect.combine(weight, weight), weight);
+        }
+    }
+
+    #[test]
+    fn empty_or_zero_amount_masks_do_nothing() {
+        let mut mask = Mask::new("Sky", MaskShape::default());
+        mask.adjustments.exposure = 1.0;
+        assert!(mask.is_active());
+        mask.amount = 0.0;
+        assert!(!mask.is_active());
+        mask.amount = 100.0;
+        mask.components.clear();
+        assert!(!mask.is_active());
     }
 
     #[test]

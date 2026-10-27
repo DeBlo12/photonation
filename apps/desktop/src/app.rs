@@ -40,6 +40,36 @@ pub struct Preview {
     pub size: [usize; 2],
 }
 
+/// The mask being edited and which of its shapes the handles move.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MaskSelection {
+    /// Index into `settings.masks`.
+    pub mask: usize,
+    /// Index into that mask's `components`.
+    pub component: usize,
+}
+
+impl MaskSelection {
+    /// A mask, with its first shape.
+    pub fn mask(mask: usize) -> MaskSelection {
+        MaskSelection { mask, component: 0 }
+    }
+
+    /// The selection still valid for `masks` (undo, "Reset All" or a
+    /// deleted shape can remove what was selected).
+    pub fn validated(
+        selection: Option<MaskSelection>,
+        masks: &[photonation_develop::Mask],
+    ) -> Option<MaskSelection> {
+        let selection = selection?;
+        let shapes = masks.get(selection.mask)?.components.len();
+        Some(MaskSelection {
+            component: selection.component.min(shapes.saturating_sub(1)),
+            ..selection
+        })
+    }
+}
+
 /// Transient view state (not saved with the photo).
 pub struct ViewState {
     pub expanded: HashSet<AdjustmentGroup>,
@@ -57,13 +87,14 @@ pub struct ViewState {
     pub show_export: bool,
     pub export_options: ExportOptions,
     pub export_all: bool,
-    /// The mask window is open (and the selected mask's handles show).
+    /// The masks panel replaces the adjustments, and the selected shape's
+    /// handles show on the photo.
     pub show_masks: bool,
-    /// Index into `settings.masks`.
-    pub selected_mask: Option<usize>,
+    pub selected_mask: Option<MaskSelection>,
     /// Tint the area the selected mask affects.
     pub mask_overlay: bool,
     pub filmstrip: panels::filmstrip::FilmstripReveal,
+    pub mask_thumbnails: panels::mask_thumbnails::MaskThumbnails,
 }
 
 impl Default for ViewState {
@@ -91,6 +122,7 @@ impl Default for ViewState {
             selected_mask: None,
             mask_overlay: true,
             filmstrip: Default::default(),
+            mask_thumbnails: Default::default(),
         }
     }
 }
@@ -573,17 +605,8 @@ impl eframe::App for PhotonationApp {
             panels::adjustments::show(self, ui);
         }
         panels::viewer::show(self, ui);
-        if self.view.show_masks && self.current.is_some() {
-            panels::masks::show(self, &ctx);
-        }
-        // Undo or "Reset All" can remove the selected mask.
-        if self
-            .view
-            .selected_mask
-            .is_some_and(|index| index >= self.settings.masks.len())
-        {
-            self.view.selected_mask = None;
-        }
+        self.view.selected_mask =
+            MaskSelection::validated(self.view.selected_mask, &self.settings.masks);
         if self.view.show_export {
             panels::export::show(self, &ctx);
         }

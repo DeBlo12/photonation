@@ -2,25 +2,39 @@
 // Copyright (C) 2026 The Photonation contributors
 
 // Mask overlay: tints each screen pixel by the selected mask's weight.
-// `weight` mirrors photonation_pipeline::masks::ShapeWeight::at (the
+// `weight` mirrors photonation_pipeline::masks::MaskWeight::at (the
 // reference); the CPU prepares the same parameters (mask_overlay.rs).
+
+// Keep in step with MAX_MASK_COMPONENTS (photonation-develop).
+const MAX_COMPONENTS: u32 = 8u;
+
+// One shape of the mask: photonation_pipeline::masks::ShapeWeight.
+struct Component {
+    // Linear: start (xy), ramp (zw). Radial: centre (xy).
+    a: vec4<f32>,
+    // Radial: axis_x (xy), axis_y (zw), each divided by its radius.
+    b: vec4<f32>,
+    // 0: linear gradient, 1: radial gradient.
+    kind: u32,
+    // How it combines with the shapes before it: 0 add, 1 subtract,
+    // 2 intersect (photonation_develop::CombineMode).
+    mode: u32,
+    // Radial: normalized radius where the fade starts (1 - feather).
+    fade_start: f32,
+    _padding: f32,
+};
 
 struct Overlay {
     // Metric mask point of framebuffer pixel p: origin + p * step.
     origin: vec2<f32>,
     step: vec2<f32>,
-    // 0: linear gradient, 1: radial gradient.
-    kind: u32,
+    // How many entries of `components` are in use.
+    count: u32,
     invert: u32,
-    // Radial: normalized radius where the fade starts (1 - feather).
-    fade_start: f32,
-    _padding: f32,
-    // Linear: start (xy), ramp (zw). Radial: centre (xy).
-    a: vec4<f32>,
-    // Radial: axis_x (xy), axis_y (zw), each divided by its radius.
-    b: vec4<f32>,
+    _padding: vec2<u32>,
     // Premultiplied colour at full weight.
     color: vec4<f32>,
+    components: array<Component, MAX_COMPONENTS>,
 };
 
 @group(0) @binding(0) var<uniform> overlay: Overlay;
@@ -38,23 +52,37 @@ fn ramp(edge0: f32, edge1: f32, x: f32) -> f32 {
     return t * t * (3.0 - 2.0 * t);
 }
 
+fn shape_weight(component: Component, point: vec2<f32>) -> f32 {
+    if component.kind == 0u {
+        return 1.0 - ramp(0.0, 1.0, dot(point - component.a.xy, component.a.zw));
+    }
+    let offset = point - component.a.xy;
+    let distance = length(vec2<f32>(dot(offset, component.b.xy), dot(offset, component.b.zw)));
+    if component.fade_start >= 1.0 {
+        return select(0.0, 1.0, distance <= 1.0);
+    }
+    return 1.0 - ramp(component.fade_start, 1.0, distance);
+}
+
 fn weight(point: vec2<f32>) -> f32 {
-    var w: f32;
-    if overlay.kind == 0u {
-        w = 1.0 - ramp(0.0, 1.0, dot(point - overlay.a.xy, overlay.a.zw));
-    } else {
-        let offset = point - overlay.a.xy;
-        let distance = length(vec2<f32>(dot(offset, overlay.b.xy), dot(offset, overlay.b.zw)));
-        if overlay.fade_start >= 1.0 {
-            w = select(0.0, 1.0, distance <= 1.0);
+    var selected = 0.0;
+    for (var index = 0u; index < min(overlay.count, MAX_COMPONENTS); index++) {
+        let component = overlay.components[index];
+        let w = shape_weight(component, point);
+        if index == 0u {
+            selected = w;
+        } else if component.mode == 0u {
+            selected = max(selected, w);
+        } else if component.mode == 1u {
+            selected = min(selected, 1.0 - w);
         } else {
-            w = 1.0 - ramp(overlay.fade_start, 1.0, distance);
+            selected = min(selected, w);
         }
     }
     if overlay.invert != 0u {
-        w = 1.0 - w;
+        selected = 1.0 - selected;
     }
-    return w;
+    return selected;
 }
 
 @fragment

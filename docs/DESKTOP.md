@@ -25,8 +25,9 @@ adjustment cards, and the photo shows the selected shape's handles.
 | File | Region |
 |---|---|
 | `panels/toolbar.rs` | Open, photo name and exposure info, undo/redo, compare, zoom, export |
-| `panels/viewer.rs` | Canvas: fit/zoom/pan, before/after divider, eyedropper, status toast |
+| `panels/viewer.rs` | Canvas: fit/zoom/pan, before/after divider, eyedroppers, status toast |
 | `panels/adjustments.rs` | Histogram and one card per `AdjustmentGroup` |
+| `panels/point_colors.rs` | The Color Mixer's Point Color tab: picked colours, before/after swatch, shifts, ranges, range overlay |
 | `panels/filmstrip.rs` | Thumbnails; edited photos carry a blue dot. Rests as a thin strip (see below) |
 | `panels/masks.rs` | Masks panel: layer list, the selected mask's shapes, settings and local adjustments |
 | `panels/mask_thumbnails.rs` | The layer list's pictures of what each mask selects |
@@ -40,7 +41,7 @@ adjustment cards, and the photo shows the selected shape's handles.
 ## Per-frame control flow (`app.rs: PhotonationApp::ui`)
 
 1. **Drain engine events**: install previews and thumbnails as textures
-   (ignoring stale generations), apply eyedropper results, record photo info,
+   (ignoring stale generations), apply eyedropper results (see below), record photo info,
    show errors as a toast.
 2. **Keyboard shortcuts.**
 3. **Snapshot** the settings and the disabled panels.
@@ -54,6 +55,27 @@ adjustment cards, and the photo shows the selected shape's handles.
    generation (triggering a new preview) and schedule a sidecar save.
 6. **Commit history** when no pointer button is down (one undo step per drag).
 7. **Save the sidecar** 400 ms after the last edit, once the pointer is released.
+
+## Eyedroppers
+
+`view.eyedropper` holds the active picker (`Eyedropper`); the next click on the
+photo goes to `PhotonationApp::pick_color` and turns the picker off (Esc
+cancels it).
+
+| Picker | Button | Engine call | Result |
+|---|---|---|---|
+| `WhiteBalance` | White Balance card | `pick_white_balance` | Custom white balance |
+| `PointColor` | Color Mixer, Point Color tab | `pick_color` | A new point colour, selected |
+| `MixerBand` | Color Mixer, Mixer tab | `pick_color` | Selects the band nearest the colour's hue (`nearest_mixer_band`) |
+
+Colour picks remember their purpose in `pending_color_pick` until the
+`ColorPicked` event arrives.
+
+**Range overlay.** With "Visualize range" on, previews render the selected
+point colour's range (`ViewState::point_color_overlay`) while its tab is
+visible and the Color Mixer is switched on. The overlay is part of the preview
+request's key, and switching it bumps the generation, so the old look is
+never shown as current.
 
 ## Preview resolution
 
@@ -129,5 +151,6 @@ state and are not saved.
 `PHOTONATION_SCREENSHOT=out.png photonation-desktop <folder or photo>` saves the window
 once the preview and thumbnails are ready, then quits.
 `PHOTONATION_SCREENSHOT_PANELS="Curves,Color Grading"` picks the open cards;
-`PHOTONATION_SCREENSHOT_MASKS=1` opens the masks panel with the first mask
+`PHOTONATION_SCREENSHOT_POINT_COLOR=1` opens the Point Color tab (`=range` also
+shows the first point colour's range); `PHOTONATION_SCREENSHOT_MASKS=1` opens the masks panel with the first mask
 selected.

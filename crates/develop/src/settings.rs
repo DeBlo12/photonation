@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 The Photonation contributors
 
-use crate::{MAX_MASKS, Mask};
+use crate::{MAX_MASKS, MAX_POINT_COLORS, Mask, PointColor};
 use photonation_image::NormRect;
 use serde::{Deserialize, Serialize};
 
@@ -291,6 +291,9 @@ pub struct Settings {
     pub saturation: f32,
     pub tone_curve: ToneCurve,
     pub color_mixer: ColorMixer,
+    /// Colours sampled from the photo and their shifts (the colour
+    /// mixer's Point Color tab), at most [`MAX_POINT_COLORS`].
+    pub point_colors: Vec<PointColor>,
     pub color_grading: ColorGrading,
     pub sharpening: Sharpening,
     /// Crop on the displayed (oriented) image, inside the camera's default crop.
@@ -317,6 +320,7 @@ impl Default for Settings {
             saturation: 0.0,
             tone_curve: ToneCurve::default(),
             color_mixer: ColorMixer::default(),
+            point_colors: Vec::new(),
             color_grading: ColorGrading::default(),
             sharpening: Sharpening::default(),
             crop: None,
@@ -375,6 +379,8 @@ impl Settings {
         p.midtone_split = p.midtone_split.clamp(p.shadow_split + 5.0, 90.0);
         p.highlight_split = p.highlight_split.clamp(p.midtone_split + 5.0, 95.0);
         s.crop = s.crop.map(NormRect::clamped);
+        s.point_colors.truncate(MAX_POINT_COLORS);
+        s.point_colors = s.point_colors.iter().map(PointColor::sanitized).collect();
         s.masks.truncate(MAX_MASKS);
         s.masks = s.masks.iter().map(Mask::sanitized).collect();
         s
@@ -435,6 +441,16 @@ mod tests {
         }
         .sanitized();
         assert_eq!(s.masks.len(), MAX_MASKS);
+    }
+
+    #[test]
+    fn sanitize_caps_the_number_of_point_colors() {
+        let s = Settings {
+            point_colors: vec![PointColor::default(); MAX_POINT_COLORS * 4],
+            ..Settings::default()
+        }
+        .sanitized();
+        assert_eq!(s.point_colors.len(), MAX_POINT_COLORS);
     }
 
     #[test]

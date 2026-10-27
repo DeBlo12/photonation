@@ -7,7 +7,9 @@ use crate::panels;
 use crate::theme;
 use crate::widgets::CurveChannel;
 use eframe::egui::{self, TextureHandle, TextureOptions};
-use photonation_develop::{AdjustmentGroup, Settings, sidecar_path};
+use photonation_develop::{
+    AdjustmentGroup, MAX_POINT_COLORS, OklabLch, PointColor, Settings, sidecar_path,
+};
 use photonation_engine::{
     Event, ExportOptions, Histogram, History, PhotoInfo, PreviewKind, PreviewRequest, RenderService,
 };
@@ -70,18 +72,51 @@ impl MaskSelection {
     }
 }
 
+/// What a click on the photo measures while a picker is active.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Eyedropper {
+    /// A neutral grey, for the white balance.
+    WhiteBalance,
+    /// A colour to add as a new point colour.
+    PointColor,
+    /// A colour whose mixer band to select.
+    MixerBand,
+}
+
+impl Eyedropper {
+    /// Hint shown on the picker's button.
+    pub fn tooltip(self) -> &'static str {
+        match self {
+            Eyedropper::WhiteBalance => "Pick a neutral grey in the photo",
+            Eyedropper::PointColor => "Pick a color in the photo to edit",
+            Eyedropper::MixerBand => "Pick a color in the photo to select its band",
+        }
+    }
+}
+
+/// The Color Mixer card's tabs.
+pub const MIXER_TABS: [&str; 2] = ["Mixer", "Point Color"];
+pub const POINT_COLOR_TAB: usize = 1;
+
 /// Transient view state (not saved with the photo).
 pub struct ViewState {
     pub expanded: HashSet<AdjustmentGroup>,
     pub disabled: HashSet<AdjustmentGroup>,
     pub mixer_band: usize,
+    /// Index into [`MIXER_TABS`].
+    pub mixer_tab: usize,
+    /// Index into `settings.point_colors`.
+    pub selected_point_color: usize,
+    /// Show the selected point colour's range in the viewer.
+    pub point_color_overlay: bool,
     pub grading_wheel: usize,
     /// Index into [`panels::adjustments::CURVE_MODES`].
     pub curve_mode: usize,
     pub compare: bool,
     /// Position of the before/after divider, 0..1 across the image.
     pub compare_split: f32,
-    pub eyedropper: bool,
+    /// The active picker, if any.
+    pub eyedropper: Option<Eyedropper>,
     pub zoom: Zoom,
     pub pan: egui::Vec2,
     pub show_export: bool,
@@ -108,11 +143,14 @@ impl Default for ViewState {
             .into(),
             disabled: HashSet::new(),
             mixer_band: 0,
+            mixer_tab: 0,
+            selected_point_color: 0,
+            point_color_overlay: false,
             grading_wheel: 0,
             curve_mode: 1,
             compare: false,
             compare_split: 0.5,
-            eyedropper: false,
+            eyedropper: None,
             zoom: Zoom::Fit,
             pan: egui::Vec2::ZERO,
             show_export: false,
@@ -131,6 +169,19 @@ impl ViewState {
     pub fn curve_channel(&self) -> Option<CurveChannel> {
         self.curve_mode.checked_sub(1).map(|i| CurveChannel::ALL[i])
     }
+
+    /// The point colour whose range the viewer shows, if any: only while
+    /// its tab is open and the colour mixer is switched on.
+    pub fn point_color_overlay(&self, settings: &Settings) -> Option<usize> {
+        let tab_visible = !self.show_masks
+            && self.mixer_tab == POINT_COLOR_TAB
+            && self.expanded.contains(&AdjustmentGroup::ColorMixer)
+            && !self.disabled.contains(&AdjustmentGroup::ColorMixer);
+        (self.point_color_overlay
+            && tab_visible
+            && self.selected_point_color < settings.point_colors.len())
+        .then_some(self.selected_point_color)
+    }
 }
 
 pub struct PhotonationApp {
@@ -148,7 +199,10 @@ pub struct PhotonationApp {
     /// Bumped on every edit; previews carry the generation they were made for.
     generation: u64,
     rendered_generation: u64,
-    last_requested: Option<(u64, Option<usize>)>,
+    /// Generation, long edge and point colour overlay of the last request.
+    last_requested: Option<(u64, Option<usize>, Option<usize>)>,
+    /// What the colour picker in flight was for.
+    pending_color_pick: Option<Eyedropper>,
     before_requested: bool,
     pending_save: Option<Instant>,
     /// Latest message for the user and when it was posted.
@@ -181,6 +235,7 @@ impl PhotonationApp {
             generation: 0,
             rendered_generation: 0,
             last_requested: None,
+            pending_color_pick: None,
             before_requested: false,
             pending_save: None,
             status: None,
@@ -283,6 +338,9 @@ impl PhotonationApp {
         self.view.pan = egui::Vec2::ZERO;
         self.view.disabled.clear();
         self.view.selected_mask = None;
+        self.view.selected_point_color = 0;
+        self.view.eyedropper = None;
+        self.pending_color_pick = None;
         self.refresh();
     }
 
@@ -303,6 +361,49 @@ impl PhotonationApp {
     /// Re-render without marking the photo as changed.
     fn refresh(&mut self) {
         self.generation += 1;
+    }
+
+    /// Asks the engine for the colour at `point` (normalized display
+    /// coordinates); `purpose` decides what the answer does.
+    pub fn pick_color(&mut self, point: [f64; 2], purpose: Eyedropper) {
+        let Some(path) = self.current_path().cloned() else {
+            return;
+        };
+        match purpose {
+            Eyedropper::WhiteBalance => {
+                self.engine
+                    .pick_white_balance(path, self.settings.clone(), point)
+            }
+            Eyedropper::PointColor | Eyedropper::MixerBand => {
+                self.pending_color_pick = Some(purpose);
+                self.engine
+                    .pick_color(path, self.effective_settings(), point);
+            }
+        }
+    }
+
+    /// Applies a picked colour as the pending picker asked.
+    fn color_picked(&mut self, color: OklabLch) {
+        match self.pending_color_pick.take() {
+            Some(Eyedropper::PointColor) => {
+                if self.settings.point_colors.len() >= MAX_POINT_COLORS {
+                    self.notify(format!(
+                        "A photo keeps at most {MAX_POINT_COLORS} point colors"
+                    ));
+                    return;
+                }
+                self.settings.point_colors.push(PointColor::new(color));
+                self.view.selected_point_color = self.settings.point_colors.len() - 1;
+                self.view.mixer_tab = POINT_COLOR_TAB;
+                self.history.commit(&self.settings);
+                self.edited();
+            }
+            Some(Eyedropper::MixerBand) => {
+                self.view.mixer_band = photonation_pipeline::nearest_mixer_band(color.hue);
+                self.view.mixer_tab = 0;
+            }
+            Some(Eyedropper::WhiteBalance) | None => {}
+        }
     }
 
     /// Settings with disabled panels switched off — what is actually rendered.
@@ -415,6 +516,9 @@ impl PhotonationApp {
                     self.history.commit(&self.settings);
                     self.edited();
                 }
+                Event::ColorPicked { path, color } if Some(&path) == self.current_path() => {
+                    self.color_picked(color)
+                }
                 Event::ExportProgress { done, total } => self.export_progress = Some((done, total)),
                 Event::ExportFinished { exported, failures } => {
                     self.export_progress = None;
@@ -463,15 +567,24 @@ impl PhotonationApp {
             interacting,
             max_texture_side,
         );
-        let key = (self.generation, long_edge);
+        let point_color_overlay = self.view.point_color_overlay(&self.settings);
+        let key = (self.generation, long_edge, point_color_overlay);
         if self.last_requested != Some(key) {
-            self.last_requested = Some(key);
+            if self
+                .last_requested
+                .is_some_and(|(_, _, overlay)| overlay != point_color_overlay)
+            {
+                // A new look: newer than any preview already shown.
+                self.generation += 1;
+            }
+            self.last_requested = Some((self.generation, long_edge, point_color_overlay));
             self.engine.request_preview(PreviewRequest {
                 path: path.clone(),
                 settings: self.effective_settings(),
                 long_edge,
                 generation: self.generation,
                 kind: PreviewKind::Edited,
+                point_color_overlay,
             });
         }
         if self.view.compare && !self.before_requested {
@@ -482,6 +595,7 @@ impl PhotonationApp {
                 long_edge: Some(viewer_long_edge_px.min(max_texture_side.max(1))),
                 generation: self.generation,
                 kind: PreviewKind::Before,
+                point_color_overlay: None,
             });
         }
     }

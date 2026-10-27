@@ -140,6 +140,14 @@ rule-of-thirds grid and the outside dimmed:
 The whole photo, unturned, is stored as no crop (`settings.crop = None`), so a
 reset photo needs no sidecar. Compare (◐) frames the original like the edit.
 
+## Lightroom edits
+
+A photo with a Lightroom `.xmp` sidecar and no Photonation sidecar opens with
+its Lightroom edits (see EDIT-MODEL.md), and a toast names any edits that could
+not come along; it goes away when another photo is shown. Thumbnails and the
+filmstrip's edited dot use the same settings. Resetting such a photo keeps a
+default sidecar, so the Lightroom edits do not return.
+
 ## GPU selection (`gpu/mod.rs`)
 
 wgpu draws the UI, previews and the overlay; the develop pipeline itself runs

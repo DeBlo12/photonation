@@ -11,7 +11,7 @@ WebAssembly build.
 |---|---|---|
 | L0 | `photonation-color` | Matrices, colour spaces, Bradford adaptation, transfer curves, temperature/tint, Oklab |
 | L0 | `photonation-image` | Shared data types: `SensorImage` (decoded raw), `OutputImage` (rendered), geometry, EXIF orientation, crop frames |
-| L1 | `photonation-develop` | The edit model: `Settings`, control specs, adjustment groups, sidecar files |
+| L1 | `photonation-develop` | The edit model: `Settings`, control specs, adjustment groups, sidecar files, Lightroom XMP import |
 | L1 | `photonation-raw` | Raw decoding (adapter over rawler) → `SensorImage` |
 | L1 | `photonation-export` | JPEG/PNG/TIFF encoders with ICC profiles (moxcms) |
 | L2 | `photonation-pipeline` | The develop pipeline: `SensorImage` + `Settings` → `OutputImage` |

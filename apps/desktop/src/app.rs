@@ -7,7 +7,10 @@ use crate::panels;
 use crate::theme;
 use crate::widgets::CurveChannel;
 use eframe::egui::{self, TextureHandle, TextureOptions};
-use photonation_develop::{AdjustmentGroup, Settings, sidecar_path};
+use photonation_develop::{
+    AdjustmentGroup, Settings, SettingsOrigin, lightroom_xmp_path, load_photo_settings,
+    sidecar_path,
+};
 use photonation_engine::{
     Event, ExportOptions, Histogram, History, PhotoInfo, PreviewKind, PreviewRequest, RenderService,
 };
@@ -173,6 +176,8 @@ pub struct PhotonationApp {
     pending_save: Option<Instant>,
     /// Latest message for the user and when it was posted.
     pub status: Option<(String, Instant)>,
+    /// The status message is about the photo shown and goes when it does.
+    status_is_about_photo: bool,
     pub export_progress: Option<(usize, usize)>,
     thumbnails_by_path: HashMap<PathBuf, usize>,
     screenshot: Option<crate::screenshot::Screenshot>,
@@ -204,6 +209,7 @@ impl PhotonationApp {
             before_requested: None,
             pending_save: None,
             status: None,
+            status_is_about_photo: false,
             export_progress: None,
             thumbnails_by_path: HashMap::new(),
             screenshot: crate::screenshot::Screenshot::from_env(),
@@ -249,7 +255,7 @@ impl PhotonationApp {
                             .unwrap_or_default()
                             .to_string_lossy()
                             .into_owned(),
-                        has_edits: sidecar_path(&path).exists(),
+                        has_edits: false,
                         thumbnail: None,
                         unsupported: false,
                         path,
@@ -261,11 +267,13 @@ impl PhotonationApp {
                     .enumerate()
                     .map(|(i, p)| (p.path.clone(), i))
                     .collect();
-                for photo in &self.photos {
-                    let settings = Settings::load(&sidecar_path(&photo.path))
+                for photo in &mut self.photos {
+                    let settings = load_photo_settings(&photo.path)
                         .ok()
                         .flatten()
+                        .map(|loaded| loaded.settings)
                         .unwrap_or_default();
+                    photo.has_edits = settings != Settings::default();
                     self.engine.request_thumbnail(photo.path.clone(), settings);
                 }
                 if self.photos.is_empty() {
@@ -284,10 +292,20 @@ impl PhotonationApp {
             return;
         }
         self.save_now();
+        if self.status_is_about_photo {
+            self.status = None;
+        }
         self.current = Some(index);
         let path = &self.photos[index].path;
-        self.settings = match Settings::load(&sidecar_path(path)) {
-            Ok(settings) => settings.unwrap_or_default(),
+        self.settings = match load_photo_settings(path) {
+            Ok(Some(loaded)) => {
+                if let SettingsOrigin::Lightroom { not_imported } = loaded.origin {
+                    self.notify(lightroom_notice(&not_imported));
+                    self.status_is_about_photo = true;
+                }
+                loaded.settings
+            }
+            Ok(None) => Settings::default(),
             Err(e) => {
                 self.notify(e.to_string());
                 Settings::default()
@@ -308,6 +326,7 @@ impl PhotonationApp {
 
     pub fn notify(&mut self, message: impl Into<String>) {
         self.status = Some((message.into(), Instant::now()));
+        self.status_is_about_photo = false;
     }
 
     pub fn current_path(&self) -> Option<&PathBuf> {
@@ -365,7 +384,9 @@ impl PhotonationApp {
             return;
         };
         let sidecar = sidecar_path(&path);
-        let result = if self.settings == Settings::default() {
+        // Without a sidecar, Lightroom's edits would come back next time.
+        let resets_lightroom_edits = lightroom_xmp_path(&path).exists();
+        let result = if self.settings == Settings::default() && !resets_lightroom_edits {
             // Nothing to remember: don't leave empty sidecars around.
             match std::fs::remove_file(&sidecar) {
                 Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.to_string()),
@@ -609,6 +630,19 @@ impl PhotonationApp {
     }
 }
 
+/// Tells the user a photo opened with its Lightroom edits, and which of
+/// them Photonation could not bring along.
+fn lightroom_notice(not_imported: &[&str]) -> String {
+    match not_imported {
+        [] => "Opened with its Lightroom edits".into(),
+        [only] => format!("Opened with its Lightroom edits, without {only}"),
+        [first @ .., last] => format!(
+            "Opened with its Lightroom edits, without {} and {last}",
+            first.join(", ")
+        ),
+    }
+}
+
 /// Preview resolution: the viewer size when fitted, more when zoomed in,
 /// never more than the GPU can hold in one texture (a larger upload fails
 /// and takes the app down). While a control is being dragged, stay at fit
@@ -711,6 +745,15 @@ mod tests {
     use super::*;
 
     const GPU_LIMIT: usize = 8192;
+
+    #[test]
+    fn lightroom_notices_list_what_was_left_out() {
+        assert_eq!(lightroom_notice(&[]), "Opened with its Lightroom edits");
+        assert_eq!(
+            lightroom_notice(&["masks", "noise reduction", "effects"]),
+            "Opened with its Lightroom edits, without masks, noise reduction and effects"
+        );
+    }
 
     #[test]
     fn fitted_previews_follow_the_viewer() {

@@ -25,6 +25,10 @@ All notable changes to this project are documented here. The format follows
 - Crop and straighten: a crop tool (R) with aspect ratios, an angle slider and
   dragging outside the frame to turn it. Turned crops render with bicubic
   resampling; masks, the overlay and the eyedropper follow them.
+- Photos edited in Lightroom open with their edits: white balance, light,
+  presence, colour, curves, colour mixer, colour grading, sharpening and crop
+  are read from the `.xmp` sidecar (never written). The editor names edits it
+  could not bring along, such as masks.
 - The desktop editor prefers a discrete GPU, falling back to integrated
   graphics and then software rendering; `PHOTONATION_GPU` overrides the order.
 

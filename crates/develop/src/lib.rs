@@ -12,6 +12,7 @@
 
 mod controls;
 mod groups;
+mod lightroom;
 mod masks;
 mod settings;
 mod sidecar;
@@ -21,6 +22,7 @@ pub use controls::{
     GRADING_CONTROLS, LOCAL_CONTROLS, MIXER_CONTROLS, PARAMETRIC_CURVE_CONTROLS, all_controls,
 };
 pub use groups::AdjustmentGroup;
+pub use lightroom::{LightroomImport, XmpError, import_lightroom_xmp, lightroom_xmp_path};
 pub use masks::{
     CombineMode, LinearGradient, LocalAdjustments, MAX_MASK_COMPONENTS, MAX_MASK_NAME_CHARS,
     MAX_MASKS, Mask, MaskComponent, MaskShape, MaskSpace, RadialGradient,
@@ -29,4 +31,7 @@ pub use settings::{
     ColorGrading, ColorMixer, GradingWheel, HslAdjustment, ParametricCurve, PointCurve,
     ProcessVersion, Settings, Sharpening, ToneCurve, WhiteBalance,
 };
-pub use sidecar::{MAX_SIDECAR_BYTES, SIDECAR_EXTENSION, SidecarError, sidecar_path};
+pub use sidecar::{
+    MAX_SIDECAR_BYTES, PhotoSettings, SIDECAR_EXTENSION, SettingsOrigin, SidecarError,
+    load_photo_settings, sidecar_path,
+};

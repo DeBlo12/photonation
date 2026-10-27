@@ -15,13 +15,14 @@
   intersect), with invert, amount and eight local adjustments; layer panel with
   live thumbnails, reordering and a GPU overlay
 - Crop and straighten tool (aspect ratios, angle, drag to turn)
+- Lightroom XMP import: global develop settings and crops open with the photo
 - Desktop editor (toolbar, viewer with zoom/compare, filmstrip, adjustment cards, export sheet)
 - CLI: info, export, edit
 
 ## Next
 
-1. **Lightroom XMP import**: read `crs:` develop settings from existing `.xmp`
-   sidecars so photos already edited in Lightroom open with their edits.
+1. **Lightroom import, continued**: masks (linear, radial; brush once masks
+   have one), and the edits listed as not imported once Photonation has them.
 2. **Straighten by drawing a line** along the horizon, and auto-straighten.
 3. **Highlight reconstruction** (recover detail where only some channels clip).
 4. **Local Highlights/Shadows** (edge-aware, as process V2), so they behave like

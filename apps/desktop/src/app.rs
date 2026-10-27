@@ -11,6 +11,7 @@ use photonation_develop::{AdjustmentGroup, Settings, sidecar_path};
 use photonation_engine::{
     Event, ExportOptions, Histogram, History, PhotoInfo, PreviewKind, PreviewRequest, RenderService,
 };
+use photonation_image::NormRect;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -93,6 +94,10 @@ pub struct ViewState {
     pub selected_mask: Option<MaskSelection>,
     /// Tint the area the selected mask affects.
     pub mask_overlay: bool,
+    /// The crop tool: the whole photo with the crop frame over it, and the
+    /// crop card in place of the adjustments.
+    pub cropping: bool,
+    pub crop_tool: panels::crop::CropTool,
     pub filmstrip: panels::filmstrip::FilmstripReveal,
     pub mask_thumbnails: panels::mask_thumbnails::MaskThumbnails,
 }
@@ -121,6 +126,8 @@ impl Default for ViewState {
             show_masks: false,
             selected_mask: None,
             mask_overlay: true,
+            cropping: false,
+            crop_tool: Default::default(),
             filmstrip: Default::default(),
             mask_thumbnails: Default::default(),
         }
@@ -130,6 +137,18 @@ impl Default for ViewState {
 impl ViewState {
     pub fn curve_channel(&self) -> Option<CurveChannel> {
         self.curve_mode.checked_sub(1).map(|i| CurveChannel::ALL[i])
+    }
+
+    /// Opens or closes the masks panel; it replaces the crop tool.
+    pub fn toggle_masks(&mut self) {
+        self.show_masks = !self.show_masks;
+        self.cropping &= !self.show_masks;
+    }
+
+    /// Opens or closes the crop tool; it replaces the masks panel.
+    pub fn toggle_cropping(&mut self) {
+        self.cropping = !self.cropping;
+        self.show_masks &= !self.cropping;
     }
 }
 
@@ -149,7 +168,8 @@ pub struct PhotonationApp {
     generation: u64,
     rendered_generation: u64,
     last_requested: Option<(u64, Option<usize>)>,
-    before_requested: bool,
+    /// The crop the "before" preview was requested with, if any.
+    before_requested: Option<(Option<NormRect>, f32)>,
     pending_save: Option<Instant>,
     /// Latest message for the user and when it was posted.
     pub status: Option<(String, Instant)>,
@@ -181,7 +201,7 @@ impl PhotonationApp {
             generation: 0,
             rendered_generation: 0,
             last_requested: None,
-            before_requested: false,
+            before_requested: None,
             pending_save: None,
             status: None,
             export_progress: None,
@@ -278,7 +298,7 @@ impl PhotonationApp {
         self.preview = None;
         self.before = None;
         self.histogram = None;
-        self.before_requested = false;
+        self.before_requested = None;
         self.view.zoom = Zoom::Fit;
         self.view.pan = egui::Vec2::ZERO;
         self.view.disabled.clear();
@@ -297,6 +317,12 @@ impl PhotonationApp {
     /// Call after any change to `settings`: re-render and save the sidecar.
     pub fn edited(&mut self) {
         self.refresh();
+        self.mark_unsaved();
+    }
+
+    /// Save the sidecar soon, without re-rendering (the change doesn't
+    /// show, like a crop edit while the crop tool shows the whole photo).
+    fn mark_unsaved(&mut self) {
         self.pending_save = Some(Instant::now());
     }
 
@@ -308,6 +334,16 @@ impl PhotonationApp {
     /// Settings with disabled panels switched off — what is actually rendered.
     pub fn effective_settings(&self) -> Settings {
         AdjustmentGroup::apply_disabled(&self.settings, &self.view.disabled)
+    }
+
+    /// What the viewer shows: the crop tool shows the whole photo.
+    fn preview_settings(&self) -> Settings {
+        let settings = self.effective_settings();
+        if self.view.cropping {
+            panels::crop::uncropped(settings)
+        } else {
+            settings
+        }
     }
 
     pub fn undo(&mut self) {
@@ -468,17 +504,27 @@ impl PhotonationApp {
             self.last_requested = Some(key);
             self.engine.request_preview(PreviewRequest {
                 path: path.clone(),
-                settings: self.effective_settings(),
+                settings: self.preview_settings(),
                 long_edge,
                 generation: self.generation,
                 kind: PreviewKind::Edited,
             });
         }
-        if self.view.compare && !self.before_requested {
-            self.before_requested = true;
+        // The original, framed like the edit so the two line up.
+        let (crop, crop_angle) = if self.view.cropping {
+            (None, 0.0)
+        } else {
+            (self.settings.crop, self.settings.crop_angle)
+        };
+        if self.view.compare && self.before_requested != Some((crop, crop_angle)) {
+            self.before_requested = Some((crop, crop_angle));
             self.engine.request_preview(PreviewRequest {
                 path,
-                settings: Settings::default(),
+                settings: Settings {
+                    crop,
+                    crop_angle,
+                    ..Settings::default()
+                },
                 long_edge: Some(viewer_long_edge_px.min(max_texture_side.max(1))),
                 generation: self.generation,
                 kind: PreviewKind::Before,
@@ -494,15 +540,17 @@ impl PhotonationApp {
         use egui::{Key, Modifiers};
         // Plain keys belong to a focused text field (e.g. a mask's name).
         let typing = ctx.egui_wants_keyboard_input();
-        let (undo, redo, prev, next, compare, masks, export, open, reset_zoom) =
+        let (undo, redo, prev, next, compare, masks, crop, leave_crop, export, open, reset_zoom) =
             ctx.input_mut(|i| {
                 let mut plain = |key| !typing && i.consume_key(Modifiers::NONE, key);
-                let (prev, next, compare, masks) = (
+                let (prev, next, compare, masks, crop) = (
                     plain(Key::ArrowLeft),
                     plain(Key::ArrowRight),
                     plain(Key::Backslash),
                     plain(Key::M),
+                    plain(Key::R),
                 );
+                let leave_crop = self.view.cropping && (plain(Key::Enter) || plain(Key::Escape));
                 (
                     i.consume_key(Modifiers::COMMAND, Key::Z),
                     i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z),
@@ -510,6 +558,8 @@ impl PhotonationApp {
                     next,
                     compare,
                     masks,
+                    crop,
+                    leave_crop,
                     i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::E),
                     i.consume_key(Modifiers::COMMAND, Key::O),
                     i.consume_key(Modifiers::COMMAND, Key::Num0),
@@ -532,7 +582,10 @@ impl PhotonationApp {
             self.view.compare = !self.view.compare;
         }
         if masks && self.current.is_some() {
-            self.view.show_masks = !self.view.show_masks;
+            self.view.toggle_masks();
+        }
+        if (crop && self.current.is_some()) || leave_crop {
+            self.view.toggle_cropping();
         }
         if export && self.current.is_some() {
             self.view.show_export = true;
@@ -596,6 +649,7 @@ impl eframe::App for PhotonationApp {
 
         let settings_before = self.settings.clone();
         let disabled_before = self.view.disabled.clone();
+        let cropping_before = self.view.cropping;
 
         panels::toolbar::show(self, ui);
         if !self.photos.is_empty() {
@@ -611,8 +665,17 @@ impl eframe::App for PhotonationApp {
             panels::export::show(self, &ctx);
         }
 
-        if self.settings != settings_before || self.view.disabled != disabled_before {
+        if self.view.disabled != disabled_before
+            || (self.settings != settings_before
+                && !(self.view.cropping
+                    && panels::crop::only_crop_differs(&self.settings, &settings_before)))
+        {
             self.edited();
+        } else if self.settings != settings_before {
+            self.mark_unsaved();
+        }
+        if self.view.cropping != cropping_before {
+            self.refresh();
         }
         // One undo step per interaction: commit once the pointer is released.
         if !ctx.input(|i| i.pointer.any_down()) {

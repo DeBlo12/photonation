@@ -1,17 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 The Photonation contributors
 
-//! The image canvas: fit/zoom/pan, before/after split, eyedropper, and
-//! mask editing (handles and the GPU overlay) while the masks panel is open.
+//! The image canvas: fit/zoom/pan, before/after split, eyedropper, mask
+//! editing (handles and the GPU overlay) while the masks panel is open, and
+//! the crop frame while the crop tool is.
 
 use crate::app::{PhotonationApp, Preview, ViewState, Zoom};
 use crate::gpu::mask_overlay::MaskOverlay;
-use crate::panels::mask_handles;
+use crate::panels::{crop, mask_handles};
 use crate::photo_frame::PhotoFrame;
 use crate::theme;
 use eframe::egui::{self, Align2, Color32, CursorIcon, Rect, Sense, Stroke, Vec2, pos2, vec2};
 use photonation_develop::MaskSpace;
-use photonation_image::NormRect;
+use photonation_image::CropFrame;
 use photonation_pipeline::masks::MaskWeight;
 
 const MARGIN: f32 = 28.0;
@@ -70,8 +71,18 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
             };
             let displayed = image_size * points_per_image_pixel;
             let editing_masks = app.view.show_masks && !app.view.eyedropper;
-            // A drag that grabs a mask handle edits the mask instead of panning.
+            let cropping = app.view.cropping && !app.view.eyedropper;
+            // A drag that grabs a mask handle or the crop frame edits it
+            // instead of panning.
             let mut dragging_mask = false;
+            if cropping
+                && let Some(frame) = photo_frame(
+                    app,
+                    Rect::from_center_size(canvas.center() + app.view.pan, displayed),
+                )
+            {
+                dragging_mask = crop::interact(app, ui, &response, &frame);
+            }
             if editing_masks
                 && let Some(frame) = photo_frame(
                     app,
@@ -118,6 +129,9 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
                     &painter,
                     &frame,
                 );
+            }
+            if cropping && let Some(frame) = photo_frame(app, image_rect) {
+                crop::paint(app, &painter, &frame);
             }
             if app.is_rendering() {
                 let spinner = Rect::from_center_size(
@@ -197,10 +211,17 @@ fn full_resolution_size(app: &PhotonationApp) -> Option<Vec2> {
 /// Where the photo is on screen, for mask editing (once its size is known).
 pub fn photo_frame(app: &PhotonationApp, image_rect: Rect) -> Option<PhotoFrame> {
     let info = app.info.as_ref()?;
+    let photo = [info.size.0 as f64, info.size.1 as f64];
+    // The crop tool shows the whole photo with the frame drawn over it.
+    let crop = if app.view.cropping {
+        CropFrame::full(photo)
+    } else {
+        photonation_pipeline::crop_frame(photo, app.settings.crop, app.settings.crop_angle)
+    };
     Some(PhotoFrame {
         image_rect,
-        crop: app.settings.crop.map_or(NormRect::FULL, NormRect::clamped),
-        space: MaskSpace::new(info.size.0 as f64, info.size.1 as f64),
+        crop,
+        space: MaskSpace::new(photo[0], photo[1]),
     })
 }
 

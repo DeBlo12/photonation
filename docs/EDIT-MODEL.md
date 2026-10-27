@@ -18,10 +18,33 @@ balance.
 | Color Mixer | `color_mixer`: hue/saturation/luminance for red, orange, yellow, green, aqua, blue, purple, magenta |
 | Color Grading | `color_grading`: `shadows`, `midtones`, `highlights`, `global` wheels (hue, saturation, luminance), `blending`, `balance` |
 | Detail | `sharpening`: amount, radius |
-| — | `crop` (normalized, on the displayed image), `masks` (see below), `process` |
+| — | `crop` and `crop_angle` (see below), `masks` (see below), `process` |
 
 `Settings::sanitized()` clamps everything into range and repairs bad input; the
 pipeline always renders sanitized settings.
+
+## Crop and straighten
+
+A crop is a frame on the photo: `crop` holds the normalized positions of its
+top-left and bottom-right **corners** on the displayed (oriented) image, inside
+the camera's default crop, and `crop_angle` turns the frame clockwise on the
+photo by −45..45 degrees. The render shows what is inside the frame, upright, so
+the photo appears turned the other way. Without an angle the corners are simply
+the crop rectangle; `crop: None` is the whole photo, or, with an angle, the
+largest frame of the photo's aspect that fits. This is how Lightroom stores a
+crop too.
+
+`photonation_image::CropFrame` does the geometry. Rotation needs equal units on
+both axes, so it works in photo pixels: from the corners and angle it derives
+the frame's centre and its size along its own axes (the size of a full
+resolution render), maps points between the frame and the photo, and keeps a
+frame on the photo (`constrained`: shrink around the centre, then slide back).
+`photonation_pipeline::crop_frame` turns settings into the frame every render,
+the viewer and the crop tool use.
+
+Sanitizing clamps the angle and the corner coordinates to 0..1. It reorders an
+unrotated crop's edges, but not a turned frame's corners: the bottom-right
+corner of a tall frame turned clockwise can lie left of its top-left one.
 
 ## Masks (`masks.rs`)
 
@@ -96,6 +119,7 @@ the settings with some groups switched off (the panel switches in the editor).
   unchanged (`StoredMask`).
 - Writes are atomic (temporary file, then rename).
 - The editor deletes the sidecar when a photo is reset to defaults.
+- Sidecars written before straightening have no `crop_angle` and render as before.
 
 ## Process versions
 

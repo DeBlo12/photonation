@@ -89,7 +89,7 @@ pub fn tint_image(mask: &Mask, frame: PhotoFrame, size: [usize; 2]) -> ColorImag
 mod tests {
     use super::*;
     use photonation_develop::{MaskShape, MaskSpace, RadialGradient};
-    use photonation_image::NormRect;
+    use photonation_image::{CropFrame, NormRect};
 
     #[test]
     fn tint_follows_the_mask_and_the_crop() {
@@ -104,7 +104,7 @@ mod tests {
         );
         let frame = PhotoFrame {
             image_rect: Rect::NOTHING,
-            crop: NormRect::FULL,
+            crop: CropFrame::full([400.0, 200.0]),
             space: MaskSpace::new(400.0, 200.0),
         };
         let image = tint_image(&mask, frame, [40, 20]);
@@ -113,10 +113,14 @@ mod tests {
 
         // Cropped to the left half, the circle is in the middle.
         let cropped = PhotoFrame {
-            crop: NormRect {
-                right: 0.5,
-                ..NormRect::FULL
-            },
+            crop: CropFrame::new(
+                [400.0, 200.0],
+                NormRect {
+                    right: 0.5,
+                    ..NormRect::FULL
+                },
+                0.0,
+            ),
             ..frame
         };
         let image = tint_image(&mask, cropped, [20, 20]);

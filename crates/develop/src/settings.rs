@@ -293,8 +293,14 @@ pub struct Settings {
     pub color_mixer: ColorMixer,
     pub color_grading: ColorGrading,
     pub sharpening: Sharpening,
-    /// Crop on the displayed (oriented) image, inside the camera's default crop.
+    /// Crop on the displayed (oriented) image, inside the camera's default
+    /// crop: the frame's top-left and bottom-right corners (see
+    /// `photonation_image::CropFrame`). `None` is the whole photo, or the
+    /// largest frame that fits at `crop_angle`.
     pub crop: Option<NormRect>,
+    /// Clockwise rotation of the crop frame on the photo in degrees,
+    /// −45..45; the photo appears straightened by the opposite amount.
+    pub crop_angle: f32,
     /// Local adjustments, applied in order on top of the global ones.
     pub masks: Vec<Mask>,
 }
@@ -320,6 +326,7 @@ impl Default for Settings {
             color_grading: ColorGrading::default(),
             sharpening: Sharpening::default(),
             crop: None,
+            crop_angle: 0.0,
             masks: Vec::new(),
         }
     }
@@ -374,7 +381,16 @@ impl Settings {
         p.shadow_split = p.shadow_split.clamp(5.0, 45.0);
         p.midtone_split = p.midtone_split.clamp(p.shadow_split + 5.0, 90.0);
         p.highlight_split = p.highlight_split.clamp(p.midtone_split + 5.0, 95.0);
-        s.crop = s.crop.map(NormRect::clamped);
+        // A rotated frame's corners need not be ordered like a rectangle's
+        // (the bottom-right corner of a tall frame turned clockwise lies
+        // left of its top-left one), so only an unrotated crop is reordered.
+        s.crop = s.crop.map(|crop| {
+            if s.crop_angle == 0.0 {
+                crop.clamped()
+            } else {
+                crop.coordinates_clamped()
+            }
+        });
         s.masks.truncate(MAX_MASKS);
         s.masks = s.masks.iter().map(Mask::sanitized).collect();
         s
@@ -435,6 +451,35 @@ mod tests {
         }
         .sanitized();
         assert_eq!(s.masks.len(), MAX_MASKS);
+    }
+
+    #[test]
+    fn sanitize_keeps_rotated_corners_in_order() {
+        let corners = NormRect {
+            left: 0.6,
+            top: 0.1,
+            right: 0.4,
+            bottom: 0.9,
+        };
+        let rotated = Settings {
+            crop: Some(corners),
+            crop_angle: 30.0,
+            ..Settings::default()
+        }
+        .sanitized();
+        assert_eq!(rotated.crop, Some(corners));
+        let straight = Settings {
+            crop: Some(corners),
+            ..Settings::default()
+        }
+        .sanitized();
+        assert_eq!(straight.crop.map(|c| c.left), Some(0.4));
+        let angle = Settings {
+            crop_angle: 90.0,
+            ..Settings::default()
+        }
+        .sanitized();
+        assert_eq!(angle.crop_angle, 45.0);
     }
 
     #[test]

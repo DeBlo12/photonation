@@ -22,10 +22,15 @@ All notable changes to this project are documented here. The format follows
 - Masks: linear and radial gradients with invert, and local temperature, tint,
   exposure, contrast, highlights, shadows, dehaze and saturation. The desktop
   editor has a mask window (M), draggable handles and a GPU-drawn overlay.
+- Crop and straighten: a crop tool (R) with aspect ratios, an angle slider and
+  dragging outside the frame to turn it. Turned crops render with bicubic
+  resampling; masks, the overlay and the eyedropper follow them.
 - The desktop editor prefers a discrete GPU, falling back to integrated
   graphics and then software rendering; `PHOTONATION_GPU` overrides the order.
 
 ### Fixed
+
+- Compare (◐) shows the original with the edit's crop, so the two line up.
 
 - A panic while decoding or rendering one file no longer stops previews,
   thumbnails or exports for the rest of the session.

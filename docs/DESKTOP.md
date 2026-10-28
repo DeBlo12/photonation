@@ -129,6 +129,9 @@ Only thumbnails in view are drawn, so long folders stay cheap.
    name, a summary ("2 shapes · inverted · 60 %") and a visibility switch.
    Click a row to select it, drag it to reorder, right-click to invert,
    duplicate, move or delete it.
+   Each row is a fixed height and keeps its text on one line: names and
+   summaries that do not fit end in "…", and the row's tooltip shows them in
+   full.
 2. **Shapes** of the selected mask: add shapes, pick the one the handles edit,
    choose how each later shape combines (Add, Subtract, Intersect), remove
    shapes (one always stays). Feather and rotation for radial shapes.
@@ -234,4 +237,5 @@ once the preview and thumbnails are ready, then quits.
 `PHOTONATION_SCREENSHOT_POINT_COLOR=1` opens the Point Color tab (`=range` also
 shows the first point colour's range); `PHOTONATION_SCREENSHOT_MASKS=1` opens
 the masks panel with the first mask selected; `PHOTONATION_SCREENSHOT_CROP=1`
-opens the crop tool.
+opens the crop tool; `PHOTONATION_SCREENSHOT_SIDEBAR=280` starts the sidebar at
+that width (280–440), to check narrow and wide layouts.

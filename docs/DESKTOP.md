@@ -101,6 +101,22 @@ the resting strip is reserved in the layout. The open strip floats over the
 bottom of the viewer, so the photo neither moves nor re-renders as the strip
 opens and closes.
 
+It scrolls sideways, resting or open: a two-finger swipe, or the mouse wheel
+while the pointer is anywhere on it, margins included (the strip's area claims
+its whole rect so egui routes the wheel to it, the scroll area spans the whole
+strip, and its one scroll direction takes vertical wheel turns too).
+`FilmstripScroll` moves it by itself in two cases:
+
+- **The photo changes from elsewhere** (← →, opening a folder): the new photo
+  is centred, as far as the ends allow. A photo clicked in the strip is in view
+  already, so the strip stays put.
+- **Thumbnails change size** (opening, closing, thumbnails loading): the point
+  under the pointer, or the middle of the strip when the pointer is elsewhere,
+  stays on the same photo, so opening the strip grows it around what you are
+  pointing at and the photo just centred stays centred.
+
+Only thumbnails in view are drawn, so long folders stay cheap.
+
 ## Masks
 
 **Panel** (`panels/masks.rs`), top to bottom:

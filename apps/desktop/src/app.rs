@@ -153,6 +153,8 @@ pub struct ViewState {
     /// handles show on the photo.
     pub show_masks: bool,
     pub selected_mask: Option<MaskSelection>,
+    /// The selected mask group, and which groups the layer list folds.
+    pub mask_groups: panels::masks::groups::GroupView,
     /// Tint the area the selected mask affects.
     pub mask_overlay: bool,
     /// The crop tool: the whole photo with the crop frame over it, and the
@@ -198,6 +200,7 @@ impl Default for ViewState {
             export_all: false,
             show_masks: false,
             selected_mask: None,
+            mask_groups: Default::default(),
             mask_overlay: true,
             cropping: false,
             crop_tool: Default::default(),
@@ -449,6 +452,7 @@ impl PhotonationApp {
         self.view.pan = egui::Vec2::ZERO;
         self.view.disabled.clear();
         self.view.selected_mask = None;
+        self.view.mask_groups = Default::default();
         self.view.selected_point_color = 0;
         self.view.eyedropper = None;
         self.pending_color_pick = None;
@@ -918,6 +922,9 @@ impl eframe::App for PhotonationApp {
         panels::viewer::show(self, ui);
         self.view.selected_mask =
             MaskSelection::validated(self.view.selected_mask, &self.settings.masks);
+        self.view
+            .mask_groups
+            .validate(self.settings.mask_groups.len());
         self.view.selected_removal = self
             .view
             .selected_removal

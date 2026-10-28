@@ -8,6 +8,7 @@
 
 use crate::app::{PhotonationApp, Preview, ViewState, Zoom};
 use crate::gpu::mask_overlay::MaskOverlay;
+use crate::panels::mask_thumbnails::tint_strength;
 use crate::panels::{crop, mask_handles, removal_brush};
 use crate::photo_frame::PhotoFrame;
 use crate::theme;
@@ -140,8 +141,9 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
             }
             if editing_masks && let Some(frame) = photo_frame(app, image_rect) {
                 selected_mask_overlay(app, &painter, &frame);
+                // As rendered, so pins of hidden masks look hidden.
                 mask_handles::paint(
-                    &app.settings.masks,
+                    &app.settings.rendered_masks(),
                     app.view.selected_mask,
                     &painter,
                     &frame,
@@ -264,11 +266,11 @@ fn selected_mask_overlay(app: &PhotonationApp, painter: &egui::Painter, frame: &
         return;
     };
     // The render sanitizes masks, so the overlay shows the sanitized shape.
-    let mask = mask.sanitized();
+    let mask = mask.rendered(&app.settings.mask_groups).sanitized();
     MaskOverlay {
         frame: *frame,
         weight: MaskWeight::new(&mask, frame.space),
-        color: theme::MASK_OVERLAY,
+        color: theme::MASK_OVERLAY.gamma_multiply(tint_strength(&mask)),
     }
     .paint(painter);
 }

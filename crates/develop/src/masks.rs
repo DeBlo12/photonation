@@ -200,7 +200,8 @@ impl MaskComponent {
 /// A mask layer: shapes that together select part of the photo
 /// (optionally inverted to select everything else), how strongly the layer
 /// applies, and what it changes there. Layers add up, so their order only
-/// matters for display.
+/// matters for display. A mask may sit in a group
+/// ([`MaskGroup`](crate::MaskGroup)), whose switch and amount also apply.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(from = "StoredMask")]
 pub struct Mask {
@@ -214,6 +215,10 @@ pub struct Mask {
     /// How much of the adjustments apply, 0..100 %.
     pub amount: f32,
     pub adjustments: LocalAdjustments,
+    /// Index into `Settings::mask_groups`; `None` for a mask outside any
+    /// group, which sidecars leave out.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group: Option<usize>,
 }
 
 /// A mask as sidecars store it: also accepts the single `shape` that masks
@@ -228,6 +233,7 @@ struct StoredMask {
     invert: bool,
     amount: f32,
     adjustments: LocalAdjustments,
+    group: Option<usize>,
 }
 
 impl Default for StoredMask {
@@ -241,6 +247,7 @@ impl Default for StoredMask {
             invert: mask.invert,
             amount: mask.amount,
             adjustments: mask.adjustments,
+            group: mask.group,
         }
     }
 }
@@ -258,6 +265,7 @@ impl From<StoredMask> for Mask {
             invert: stored.invert,
             amount: stored.amount,
             adjustments: stored.adjustments,
+            group: stored.group,
         }
     }
 }
@@ -278,6 +286,7 @@ impl Mask {
             invert: false,
             amount: 100.0,
             adjustments: LocalAdjustments::default(),
+            group: None,
         }
     }
 
@@ -292,9 +301,7 @@ impl Mask {
     /// Clamps every value into range and repairs non-finite input.
     pub fn sanitized(&self) -> Mask {
         let mut mask = self.clone();
-        if let Some((cut, _)) = mask.name.char_indices().nth(MAX_MASK_NAME_CHARS) {
-            mask.name.truncate(cut);
-        }
+        truncate_name(&mut mask.name);
         for control in LOCAL_CONTROLS {
             let value = control.get_mut(&mut mask.adjustments);
             *value = control.clamp(*value);
@@ -309,6 +316,13 @@ impl Mask {
             100.0
         };
         mask
+    }
+}
+
+/// Cuts `name` to [`MAX_MASK_NAME_CHARS`] characters.
+pub(crate) fn truncate_name(name: &mut String) {
+    if let Some((cut, _)) = name.char_indices().nth(MAX_MASK_NAME_CHARS) {
+        name.truncate(cut);
     }
 }
 

@@ -3,15 +3,16 @@
 
 //! Masks and local adjustments (docs/PIPELINE.md §5). A mask's weight at a
 //! pixel combines its shapes' weights in order ([`MaskWeight`]); it scales
-//! the mask's adjustments times its amount. The weighted adjustments of all
-//! masks add up, and the develop stage applies the sum with the global ones.
+//! the mask's adjustments times its amount (and its group's). The weighted
+//! adjustments of all masks add up, and the develop stage applies the sum
+//! with the global ones.
 //!
 //! [`MaskWeight::at`] is the reference for the mask overlay the desktop
 //! editor draws on the GPU (`apps/desktop/src/gpu/mask_overlay.wgsl`);
 //! keep the two in step.
 
 use crate::color::smoothstep;
-use photonation_develop::{CombineMode, LocalAdjustments, Mask, MaskShape, MaskSpace};
+use photonation_develop::{CombineMode, LocalAdjustments, Mask, MaskGroup, MaskShape, MaskSpace};
 use photonation_image::{Rect, SensorImage};
 
 /// The mask space of a photo: its default crop in display orientation.
@@ -253,23 +254,26 @@ pub struct LocalAdjust {
 }
 
 impl LocalAdjust {
-    /// `None` when no mask is enabled and adjusts something, so renders
-    /// without masks skip the per-pixel work entirely.
+    /// `None` when no mask is enabled (in an enabled group) and adjusts
+    /// something, so renders without masks skip the per-pixel work
+    /// entirely. Grouped masks render as [`Mask::rendered`] says.
     pub fn new(
         masks: &[Mask],
+        groups: &[MaskGroup],
         sensor: &SensorImage,
         positions: PixelToMask,
     ) -> Option<LocalAdjust> {
         let space = mask_space(sensor);
         let masks: Vec<WeightedMask> = masks
             .iter()
+            .map(|mask| mask.rendered(groups))
             .filter(|mask| mask.is_active())
             .map(|mask| {
                 let full = LocalAmounts::from_adjustments(&mask.adjustments);
                 let mut amounts = LocalAmounts::NONE;
                 amounts.add_weighted(&full, mask.amount / 100.0);
                 WeightedMask {
-                    weight: MaskWeight::new(mask, space),
+                    weight: MaskWeight::new(&mask, space),
                     amounts,
                 }
             })
@@ -435,13 +439,18 @@ mod tests {
         darken_outside.adjustments.exposure = -2.0;
         let mut disabled = brighten.clone();
         disabled.enabled = false;
-        let local = LocalAdjust::new(&[brighten, darken_outside, disabled], &sensor, positions)
-            .expect("active masks");
+        let local = LocalAdjust::new(
+            &[brighten, darken_outside, disabled],
+            &[],
+            &sensor,
+            positions,
+        )
+        .expect("active masks");
         assert_eq!(local.at(50, 50).exposure, 1.0);
         assert_eq!(local.at(2, 2).exposure, -2.0);
 
         let idle = Mask::new("Nothing to do", MaskShape::default());
-        assert!(LocalAdjust::new(&[idle], &sensor, positions).is_none());
+        assert!(LocalAdjust::new(&[idle], &[], &sensor, positions).is_none());
     }
 
     fn hard_circle(center: [f64; 2], radius: f64) -> MaskShape {
@@ -497,8 +506,43 @@ mod tests {
         mask.adjustments.exposure = 2.0;
         mask.adjustments.contrast = 50.0;
         mask.amount = 25.0;
-        let local = LocalAdjust::new(&[mask], &sensor, positions).expect("active");
+        let local = LocalAdjust::new(&[mask], &[], &sensor, positions).expect("active");
         let centre = local.at(50, 50);
         assert_eq!((centre.exposure, centre.contrast), (0.5, 0.125));
+    }
+
+    #[test]
+    fn groups_scale_and_hide_their_masks() {
+        let sensor = SensorImage::test_pattern(104, 104, Orientation::Normal);
+        let positions = PixelToMask::new(&sensor, sensor.crop, (100, 100));
+        let mut grouped = Mask::new("Centre", hard_circle([0.5, 0.5], 0.2));
+        grouped.adjustments.exposure = 2.0;
+        grouped.amount = 50.0;
+        grouped.group = Some(0);
+        let mut ungrouped = grouped.clone();
+        ungrouped.group = None;
+        ungrouped.adjustments.exposure = 0.25;
+        ungrouped.amount = 100.0;
+        let masks = [grouped, ungrouped];
+        let mut groups = vec![MaskGroup::new("People")];
+        groups[0].amount = 25.0;
+        let local = LocalAdjust::new(&masks, &groups, &sensor, positions).expect("active");
+        // 2 stops × 50 % × 25 %, plus the ungrouped quarter stop.
+        assert_eq!(local.at(50, 50).exposure, 0.5);
+
+        groups[0].enabled = false;
+        let local = LocalAdjust::new(&masks, &groups, &sensor, positions).expect("active");
+        assert_eq!(
+            local.at(50, 50).exposure,
+            0.25,
+            "the hidden group adds nothing"
+        );
+        assert!(
+            LocalAdjust::new(&masks[..1], &groups, &sensor, positions).is_none(),
+            "a hidden group's masks cost no per-pixel work"
+        );
+        groups[0].enabled = true;
+        groups[0].amount = 0.0;
+        assert!(LocalAdjust::new(&masks[..1], &groups, &sensor, positions).is_none());
     }
 }

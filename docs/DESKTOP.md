@@ -33,6 +33,7 @@ most one of masks, crop and Remove is open.
 | `panels/point_colors.rs` | The Color Mixer's Point Color tab: picked colours, before/after swatch, shifts, ranges, range overlay |
 | `panels/filmstrip.rs` | Thumbnails; edited photos carry a blue dot. Rests as a thin strip (see below) |
 | `panels/masks.rs` | Masks panel: layer list, the selected mask's shapes, settings and local adjustments |
+| `panels/masks/groups.rs` | Mask groups in the layer list: rows, drop targets, group edits, the group row and card |
 | `panels/mask_thumbnails.rs` | The layer list's pictures of what each mask selects |
 | `panels/mask_handles.rs` | On-canvas handles and pins for mask editing |
 | `panels/crop.rs` | Crop tool: the frame on the canvas and the crop card |
@@ -56,8 +57,8 @@ most one of masks, crop and Remove is open.
    panel), viewer and, if open, the export sheet. Widgets edit `app.settings` directly. The viewer asks for a preview
    at the resolution it needs (`request_previews`), which sends a request only
    when the edit generation or the size changed.
-   Then drop a mask selection that undo or a deletion made invalid
-   (`MaskSelection::validated`).
+   Then drop a mask or mask group selection that undo or a deletion made
+   invalid (`MaskSelection::validated`, `GroupView::validate`).
 5. **Edited?** If the settings or switches differ from the snapshot, bump the
    generation (triggering a new preview) and schedule a sidecar save. While
    the crop tool is open, a change to the crop alone only schedules the save:
@@ -125,13 +126,22 @@ Only thumbnails in view are drawn, so long folders stay cheap.
 **Panel** (`panels/masks.rs`), top to bottom:
 
 1. **Layer list.** *+ Linear* / *+ Radial* add a mask with one shape and select
-   it. Each row shows the photo's thumbnail tinted where the mask applies, its
+   it (inside the selected group, or the selected mask's group, if there is
+   one). Each row shows the photo's thumbnail tinted where the mask applies, its
    name, a summary ("2 shapes · inverted · 60 %") and a visibility switch.
    Click a row to select it, drag it to reorder, right-click to invert,
-   duplicate, move or delete it.
+   duplicate, move, group or delete it.
    Each row is a fixed height and keeps its text on one line: names and
    summaries that do not fit end in "…", and the row's tooltip shows them in
    full.
+   *+ Group* puts the selected mask in a new group, selects the group and
+   focuses its name. A group's header row shows a fold arrow, its name, a
+   summary ("3 masks · 60 %") and a visibility switch; its masks are indented
+   beneath it, joined by a faint line. Click the header to select the group,
+   double-click to rename it, click the arrow to collapse or expand it,
+   right-click to rename, fold, ungroup or delete it (with its masks).
+2. **Group** (instead of 2–4, while a group is selected): name, amount,
+   visibility, *Ungroup* and *Delete Group*.
 2. **Shapes** of the selected mask: add shapes, pick the one the handles edit,
    choose how each later shape combines (Add, Subtract, Intersect), remove
    shapes (one always stays). Feather and rotation for radial shapes.
@@ -139,7 +149,30 @@ Only thumbnails in view are drawn, so long folders stay cheap.
 4. **Adjustments**: the local sliders, Reset, Delete Mask.
 
 **Selection.** `ViewState::selected_mask` is a `MaskSelection { mask, component }`:
-the mask the panel edits and the shape whose handles show.
+the mask the panel edits and the shape whose handles show. `ViewState::mask_groups`
+(`GroupView`) holds the selected group, never set together with a selected mask
+(picking a mask on the photo deselects the group), and the collapsed groups.
+Both are view state: folding a group is not an edit and is not saved.
+
+**Groups in the list** (`panels/masks/groups.rs`). `list_rows` turns the flat
+mask list into rows: a group's header where its masks start, then its masks
+unless it is collapsed. Dragging a row resolves against every row's place once
+the list is drawn (`drop_target`):
+
+- A mask dropped on the middle half of a group's header joins the group at its
+  end (the header is outlined).
+- Between rows, it lands in that gap: inside a group when the row below is one
+  of the group's masks (the line is indented), so the gap below a group's last
+  mask is outside it.
+- A dragged group header moves all its masks; dropped inside an open group, it
+  goes above that group, since groups don't nest.
+
+*Move Up* / *Move Down* in a mask's menu stay inside its group, and step an
+ungrouped mask over a whole neighbouring group. *Move to Group* moves it to the
+end of another group or into a new one; *Remove from Group* puts it just below
+its group. Every edit (`Layers::apply`) keeps each group's masks together, and
+removes a group once its last mask leaves or is deleted; the selection and the
+collapsed set follow the renumbering.
 
 **Canvas** (`panels/mask_handles.rs`). The selected shape shows its lines or
 ellipse with handles (drag to move or resize; ⇧ keeps a circle round). Hollow
@@ -148,7 +181,11 @@ masks. Clicking either selects it. A drag that starts on a handle edits the
 shape instead of panning.
 
 **Overlay** (`gpu/mask_overlay.rs`). A fragment shader tints the photo by the
-selected mask's combined weight, mirroring `MaskWeight::at`. The CPU packs the
+selected mask's combined weight, mirroring `MaskWeight::at`. The tint's strength
+follows the mask as it renders (`tint_strength`): its amount times its group's
+(never fainter than a quarter, so a mask at 0 % still shows what it selects),
+and dimmed to 40 % while it or its group is hidden. Pins of hidden masks are
+drawn dimmed too. The CPU packs the
 mask (up to eight shapes) into one uniform. Tests check the packing against
 the pipeline's weights through a transcription of the shader, and validate the
 shader with naga. Because the GPU evaluates the overlay, the tint follows
@@ -156,6 +193,8 @@ handle drags at once, without waiting for the photo to re-render.
 
 **Thumbnails** (`panels/mask_thumbnails.rs`) are computed on the CPU at twice
 the row's point size and cached by the mask's shapes, inversion, crop and size.
+They are drawn as strongly as the overlay (`tint_strength`), and over a dimmed
+photo while the mask or its group is hidden.
 Textures not drawn in a frame are dropped.
 
 **Straightened photos.** `PhotoFrame` maps through the crop frame, so handles,
@@ -236,6 +275,7 @@ once the preview and thumbnails are ready, then quits.
 `PHOTONATION_SCREENSHOT_PANELS="Curves,Color Grading"` picks the open cards;
 `PHOTONATION_SCREENSHOT_POINT_COLOR=1` opens the Point Color tab (`=range` also
 shows the first point colour's range); `PHOTONATION_SCREENSHOT_MASKS=1` opens
-the masks panel with the first mask selected; `PHOTONATION_SCREENSHOT_CROP=1`
-opens the crop tool; `PHOTONATION_SCREENSHOT_SIDEBAR=280` starts the sidebar at
-that width (280–440), to check narrow and wide layouts.
+the masks panel with the first mask selected (`=group` selects the first mask
+group instead); `PHOTONATION_SCREENSHOT_CROP=1` opens the crop tool;
+`PHOTONATION_SCREENSHOT_SIDEBAR=280` starts the sidebar at that width
+(280–440), to check narrow and wide layouts.

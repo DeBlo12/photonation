@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 The Photonation contributors
 
-use crate::{LocalAdjustments, Settings};
+use crate::{LocalAdjustments, PointColor, Settings};
 
-/// Description of one slider over a `Target`: the photo's [`Settings`]
-/// or a mask's [`LocalAdjustments`].
+/// Description of one slider over a `Target`: the photo's [`Settings`],
+/// a mask's [`LocalAdjustments`] or a [`PointColor`].
 #[derive(Debug)]
 pub struct Control<Target = Settings> {
     /// Stable id used by the CLI, sidecars and UIs.
@@ -223,6 +223,16 @@ pub static DETAIL_CONTROLS: &[Control] = &[
     control!("sharpen-radius", "Radius", 0.5, 3.0, 1.0, sharpening.radius),
 ];
 
+/// The crop tool's straighten angle.
+pub static CROP_CONTROLS: &[Control] = &[control!(
+    "crop-angle",
+    "Angle",
+    -45.0,
+    45.0,
+    0.0,
+    crop_angle
+)];
+
 /// A mask's local adjustments, in the order the mask editor shows them.
 pub static LOCAL_CONTROLS: &[Control<LocalAdjustments>] = &[
     control!(
@@ -256,6 +266,45 @@ pub static LOCAL_CONTROLS: &[Control<LocalAdjustments>] = &[
     ),
 ];
 
+/// A point colour's shifts, then its ranges, in the order the Point Color
+/// tab shows them.
+pub static POINT_COLOR_CONTROLS: &[Control<PointColor>] = &[
+    control!("point-hue", "Hue Shift", -100.0, 100.0, 0.0, hue),
+    control!(
+        "point-saturation",
+        "Saturation Shift",
+        -100.0,
+        100.0,
+        0.0,
+        saturation
+    ),
+    control!(
+        "point-luminance",
+        "Luminance Shift",
+        -100.0,
+        100.0,
+        0.0,
+        luminance
+    ),
+    control!("point-hue-range", "Hue Range", 0.0, 100.0, 50.0, hue_range),
+    control!(
+        "point-saturation-range",
+        "Saturation Range",
+        0.0,
+        100.0,
+        50.0,
+        saturation_range
+    ),
+    control!(
+        "point-luminance-range",
+        "Luminance Range",
+        0.0,
+        100.0,
+        50.0,
+        luminance_range
+    ),
+];
+
 /// Every slider, in panel order.
 pub fn all_controls() -> impl Iterator<Item = &'static Control> {
     BASIC_CONTROLS
@@ -265,6 +314,7 @@ pub fn all_controls() -> impl Iterator<Item = &'static Control> {
         .chain(GRADING_CONTROLS.iter().flatten())
         .chain(GRADING_BLEND_CONTROLS)
         .chain(DETAIL_CONTROLS)
+        .chain(CROP_CONTROLS)
 }
 
 #[cfg(test)]
@@ -288,10 +338,19 @@ mod tests {
     }
 
     #[test]
+    fn point_color_defaults_match_point_color_default() {
+        let point = PointColor::default();
+        for c in POINT_COLOR_CONTROLS {
+            assert_eq!(c.get(&point), c.default, "{}", c.id);
+        }
+    }
+
+    #[test]
     fn ids_are_unique() {
         let ids: Vec<&str> = all_controls()
             .map(|c| c.id)
             .chain(LOCAL_CONTROLS.iter().map(|c| c.id))
+            .chain(POINT_COLOR_CONTROLS.iter().map(|c| c.id))
             .collect();
         for (i, id) in ids.iter().enumerate() {
             assert!(!ids[i + 1..].contains(id), "{id}");

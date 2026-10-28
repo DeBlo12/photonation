@@ -64,12 +64,21 @@ impl Develop {
             highlights: s.highlights / 100.0,
             shadows: s.shadows / 100.0,
             tone: ToneLuts::new(s),
-            color: ColorAdjust::new(s, WORKING),
+            color: ColorAdjust::new(s, WORKING, None),
             working_to_output: working_to_output.to_f32(),
             output_luminance: out.luminance().map(|v| v as f32),
             local: None,
             oklab: Oklab::new(WORKING),
         }
+    }
+
+    /// Shows point colour `overlay`'s selection instead of the edit:
+    /// colours it selects keep their colour, everything else turns grey.
+    pub fn with_point_color_overlay(mut self, s: &Settings, overlay: Option<usize>) -> Develop {
+        if overlay.is_some() {
+            self.color = ColorAdjust::new(s, WORKING, overlay);
+        }
+        self
     }
 
     /// Adds the masks' local adjustments (`None`: no active masks).
@@ -185,19 +194,30 @@ impl Develop {
     /// where no mask applies).
     #[cfg(test)]
     fn pixel(&self, camera_rgb: [f32; 3], local: Option<&LocalAmounts>) -> [f32; 3] {
-        match local {
-            None => self.develop_pixel::<false>(camera_rgb, &LocalAmounts::NONE),
-            Some(local) => self.develop_pixel::<true>(camera_rgb, local),
+        let working = match local {
+            None => self.working_pixel::<false>(camera_rgb, &LocalAmounts::NONE),
+            Some(local) => self.working_pixel::<true>(camera_rgb, local),
+        };
+        self.to_output_gamut(working)
+    }
+
+    /// Stage pixel `(x, y)` developed up to the output conversion: display
+    /// linear, in the working space. What the colour pickers sample.
+    pub fn working_at(&self, x: usize, y: usize, camera_rgb: [f32; 3]) -> [f32; 3] {
+        match &self.local {
+            None => self.working_pixel::<false>(camera_rgb, &LocalAmounts::NONE),
+            Some(local) => self.working_pixel::<true>(camera_rgb, &local.at(x, y)),
         }
     }
 
-    /// The develop steps for one pixel. `MASKED` is false for renders
-    /// without active masks: that copy is compiled separately with every
-    /// local step removed, so unmasked renders cost what they did before
-    /// masks existed. (Merely passing zero amounts is measurably slower:
-    /// the compiler must keep `x + 0.0`, which isn't `x` for `-0.0`.)
+    /// The develop steps for one pixel, before the output conversion.
+    /// `MASKED` is false for renders without active masks: that copy is
+    /// compiled separately with every local step removed, so unmasked
+    /// renders cost what they did before masks existed. (Merely passing
+    /// zero amounts is measurably slower: the compiler must keep
+    /// `x + 0.0`, which isn't `x` for `-0.0`.)
     #[inline(always)]
-    fn develop_pixel<const MASKED: bool>(
+    fn working_pixel<const MASKED: bool>(
         &self,
         camera_rgb: [f32; 3],
         local: &LocalAmounts,
@@ -237,7 +257,7 @@ impl Develop {
                 rgb = self.saturate(rgb, saturation);
             }
         }
-        self.to_output_gamut(rgb)
+        rgb
     }
 }
 
@@ -246,14 +266,14 @@ impl PointOp for Develop {
         let pixels = row.chunks_exact_mut(3);
         match &self.local {
             None => pixels.for_each(|pixel| {
-                let out = self
-                    .develop_pixel::<false>([pixel[0], pixel[1], pixel[2]], &LocalAmounts::NONE);
-                pixel.copy_from_slice(&out);
+                let working = self
+                    .working_pixel::<false>([pixel[0], pixel[1], pixel[2]], &LocalAmounts::NONE);
+                pixel.copy_from_slice(&self.to_output_gamut(working));
             }),
             Some(local) => pixels.enumerate().for_each(|(x, pixel)| {
-                let out =
-                    self.develop_pixel::<true>([pixel[0], pixel[1], pixel[2]], &local.at(x, y));
-                pixel.copy_from_slice(&out);
+                let working =
+                    self.working_pixel::<true>([pixel[0], pixel[1], pixel[2]], &local.at(x, y));
+                pixel.copy_from_slice(&self.to_output_gamut(working));
             }),
         }
     }

@@ -7,13 +7,15 @@
 - DNG-style colour model (dual-illuminant interpolation, temperature/tint, eyedropper)
 - Light: exposure, contrast, highlights, shadows, whites, blacks
 - Presence: texture, clarity, dehaze
-- Colour: vibrance, saturation, 8-band colour mixer, colour grading wheels
+- Colour: vibrance, saturation, 8-band colour mixer with a band picker, point colours, colour grading wheels
 - Tone curve: parametric, RGB and per-channel point curves
 - Sharpening; Lanczos resizing; JPEG/PNG/TIFF export with ICC profiles
 - JSON sidecars, process versions, undo/redo
 - Masks: linear and radial gradients combined per mask (add, subtract,
   intersect), with invert, amount and eight local adjustments; layer panel with
   live thumbnails, reordering and a GPU overlay
+- Crop and straighten tool (aspect ratios, angle, drag to turn)
+- Lightroom XMP import: global develop settings and crops open with the photo
 - Object removal: painted removals filled by content-aware fill (PatchMatch)
   or a neural inpainting model (LaMa / MI-GAN via tract), in the background
 - Desktop editor (toolbar, viewer with zoom/compare, filmstrip, adjustment cards, export sheet)
@@ -21,9 +23,9 @@
 
 ## Next
 
-1. **Lightroom XMP import**: read `crs:` develop settings from existing `.xmp`
-   sidecars so photos already edited in Lightroom open with their edits.
-2. **Crop and straighten** tool in the viewer (the model already stores a crop).
+1. **Lightroom import, continued**: masks (linear, radial; brush once masks
+   have one), and the edits listed as not imported once Photonation has them.
+2. **Straighten by drawing a line** along the horizon, and auto-straighten.
 3. **Highlight reconstruction** (recover detail where only some channels clip).
 4. **Local Highlights/Shadows** (edge-aware, as process V2), so they behave like
    Lightroom's on high-contrast scenes.

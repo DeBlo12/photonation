@@ -48,7 +48,19 @@ impl NormRect {
         bottom: 1.0,
     };
 
+    /// Every coordinate in 0..1 and left ≤ right, top ≤ bottom.
     pub fn clamped(self) -> NormRect {
+        let c = self.coordinates_clamped();
+        NormRect {
+            left: c.left.min(c.right),
+            top: c.top.min(c.bottom),
+            right: c.left.max(c.right),
+            bottom: c.top.max(c.bottom),
+        }
+    }
+
+    /// Every coordinate in 0..1 (non-finite ones become 0), order kept.
+    pub fn coordinates_clamped(self) -> NormRect {
         let c = |v: f64| {
             if v.is_finite() {
                 v.clamp(0.0, 1.0)
@@ -56,13 +68,11 @@ impl NormRect {
                 0.0
             }
         };
-        let (l, r) = (c(self.left), c(self.right));
-        let (t, b) = (c(self.top), c(self.bottom));
         NormRect {
-            left: l.min(r),
-            top: t.min(b),
-            right: l.max(r),
-            bottom: t.max(b),
+            left: c(self.left),
+            top: c(self.top),
+            right: c(self.right),
+            bottom: c(self.bottom),
         }
     }
 }
@@ -107,6 +117,18 @@ impl Orientation {
         )
     }
 
+    /// Whether display is a mirror image of the stored pixels, which turns
+    /// clockwise rotations counter-clockwise.
+    pub fn mirrors(self) -> bool {
+        matches!(
+            self,
+            Orientation::FlipH
+                | Orientation::FlipV
+                | Orientation::Transpose
+                | Orientation::Transverse
+        )
+    }
+
     /// Display size of a stored `w × h` image.
     pub fn display_size(self, w: usize, h: usize) -> (usize, usize) {
         if self.swaps_axes() { (h, w) } else { (w, h) }
@@ -128,7 +150,7 @@ impl Orientation {
     }
 
     /// Stored-space normalized point for a display-space normalized point.
-    fn to_stored_norm(self, u: f64, v: f64) -> (f64, f64) {
+    pub fn to_stored_norm(self, u: f64, v: f64) -> (f64, f64) {
         match self {
             Orientation::Normal => (u, v),
             Orientation::FlipH => (1.0 - u, v),

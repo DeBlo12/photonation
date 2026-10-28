@@ -89,15 +89,24 @@ impl Plane {
     }
 }
 
+/// Fixed-point scale of the running sums: 2^30 steps per unit.
+const SUM_SCALE: f64 = (1u64 << 30) as f64;
+
 /// Running-sum box filter of `len` samples into `out`, edges clamped.
+///
+/// The sum runs in fixed point, where adding and removing samples is
+/// exact: a floating-point running sum would carry rounding error that
+/// depends on where the band starts, so band height would change the
+/// output.
 fn box_1d(out: &mut [f32], radius: usize, len: usize, sample: impl Fn(usize) -> f32) {
     let r = radius as isize;
-    let norm = 1.0 / (2 * radius + 1) as f32;
-    let mut sum: f32 = (-r..=r).map(|i| sample(clamp_index(i, len))).sum();
+    let fixed = |i: isize| (sample(clamp_index(i, len)) as f64 * SUM_SCALE).round() as i64;
+    let norm = 1.0 / ((2 * radius + 1) as f64 * SUM_SCALE);
+    let mut sum: i64 = (-r..=r).map(fixed).sum();
     for (i, slot) in out.iter_mut().enumerate().take(len) {
-        *slot = sum * norm;
+        *slot = (sum as f64 * norm) as f32;
         let i = i as isize;
-        sum += sample(clamp_index(i + r + 1, len)) - sample(clamp_index(i - r, len));
+        sum += fixed(i + r + 1) - fixed(i - r);
     }
 }
 

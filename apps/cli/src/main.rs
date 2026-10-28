@@ -4,7 +4,7 @@
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use photonation_color::ColorSpace;
-use photonation_develop::{Settings, WhiteBalance, sidecar_path};
+use photonation_develop::{Settings, WhiteBalance, load_photo_settings, sidecar_path};
 use photonation_engine::ExportOptions;
 use photonation_export::Format;
 use photonation_image::BitDepth;
@@ -351,7 +351,9 @@ fn edit(files: &[PathBuf], adjust: &Adjustments, reset: bool) -> Result<()> {
         let mut settings = if reset {
             Settings::default()
         } else {
-            Settings::load(&sidecar)?.unwrap_or_default()
+            load_photo_settings(path)?
+                .map(|loaded| loaded.settings)
+                .unwrap_or_default()
         };
         adjust.apply(&mut settings, || {
             photonation_raw::decode_file(path)

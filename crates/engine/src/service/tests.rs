@@ -121,6 +121,7 @@ impl Harness {
             long_edge: Some(long_edge),
             generation,
             kind,
+            point_color_overlay: None,
         });
     }
 }
@@ -253,6 +254,20 @@ fn eyedropper_reports_a_white_balance() {
     assert_eq!(path, Path::new("a.cr3"));
     assert!((2000.0..25000.0).contains(temperature), "{temperature}");
     assert!(tint.is_finite());
+}
+
+#[test]
+fn color_picker_reports_a_color() {
+    let h = harness(FakeDecoder::default());
+    h.service
+        .pick_color("a.cr3".into(), Settings::default(), [0.5, 0.5]);
+    let events = h.events_until(|e| matches!(e, Event::ColorPicked { .. }));
+    let Some(Event::ColorPicked { path, color }) = events.last() else {
+        unreachable!()
+    };
+    assert_eq!(path, Path::new("a.cr3"));
+    assert!((0.0..=1.0).contains(&color.lightness), "{color:?}");
+    assert!((0.0..360.0).contains(&color.hue), "{color:?}");
 }
 
 #[test]
@@ -472,6 +487,7 @@ fn removals_are_filled_in_the_background_then_rendered() {
         long_edge: None,
         generation,
         kind: PreviewKind::Edited,
+        point_color_overlay: None,
     };
     h.service.request_preview(request(1));
     let events = h.events_until(|e| matches!(e, Event::RemovalsFilled { .. }));

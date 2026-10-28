@@ -73,7 +73,7 @@ pub fn show(app: &mut PhotonationApp, ui: &mut Ui) {
     }
 }
 
-fn card(ui: &mut Ui, content: impl FnOnce(&mut Ui)) {
+pub fn card(ui: &mut Ui, content: impl FnOnce(&mut Ui)) {
     theme::card_frame().show(ui, |ui| {
         ui.set_width(ui.available_width());
         content(ui);
@@ -185,10 +185,8 @@ fn layer_list(app: &mut PhotonationApp, ui: &mut Ui) {
         .map(|texture| texture.id());
     let frame = photo_frame(app, Rect::NOTHING);
     let aspect = frame.map_or(1.5, |frame| {
-        let size = frame.space.scale();
-        let crop = frame.crop;
-        ((size[0] * (crop.right - crop.left)) / (size[1] * (crop.bottom - crop.top)).max(1e-6))
-            as f32
+        let [width, height] = frame.crop.size();
+        (width / height.max(1e-6)) as f32
     });
     let thumb_size = vec2(
         (THUMB_HEIGHT * aspect).clamp(*THUMB_WIDTH.start(), *THUMB_WIDTH.end()),

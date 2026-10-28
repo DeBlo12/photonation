@@ -2,17 +2,18 @@
 // Copyright (C) 2026 The Photonation contributors
 
 //! The image canvas: fit/zoom/pan, before/after split, eyedropper, mask
-//! editing (handles and the GPU overlay) while the masks panel is open, and
-//! painting removals while the Remove panel is open.
+//! editing (handles and the GPU overlay) while the masks panel is open, the
+//! crop frame while the crop tool is, and painting removals while the
+//! Remove panel is.
 
 use crate::app::{PhotonationApp, Preview, ViewState, Zoom};
 use crate::gpu::mask_overlay::MaskOverlay;
-use crate::panels::{mask_handles, removal_brush};
+use crate::panels::{crop, mask_handles, removal_brush};
 use crate::photo_frame::PhotoFrame;
 use crate::theme;
 use eframe::egui::{self, Align2, Color32, CursorIcon, Rect, Sense, Stroke, Vec2, pos2, vec2};
 use photonation_develop::MaskSpace;
-use photonation_image::NormRect;
+use photonation_image::CropFrame;
 use photonation_pipeline::masks::MaskWeight;
 
 const MARGIN: f32 = 28.0;
@@ -70,10 +71,20 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
                 Zoom::Scale(scale) => scale / pixels_per_point,
             };
             let displayed = image_size * points_per_image_pixel;
-            let editing_masks = app.view.show_masks && !app.view.eyedropper;
-            let painting_removals = app.view.show_removals && !app.view.eyedropper;
-            // A drag that grabs a mask handle edits the mask instead of panning.
+            let editing_masks = app.view.show_masks && app.view.eyedropper.is_none();
+            let cropping = app.view.cropping && app.view.eyedropper.is_none();
+            let painting_removals = app.view.show_removals && app.view.eyedropper.is_none();
+            // A drag that grabs a mask handle or the crop frame, or paints a
+            // removal, edits it instead of panning.
             let mut dragging_mask = false;
+            if cropping
+                && let Some(frame) = photo_frame(
+                    app,
+                    Rect::from_center_size(canvas.center() + app.view.pan, displayed),
+                )
+            {
+                dragging_mask = crop::interact(app, ui, &response, &frame);
+            }
             if editing_masks
                 && let Some(frame) = photo_frame(
                     app,
@@ -105,7 +116,7 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
             }
             if response.dragged()
                 && app.view.zoom != Zoom::Fit
-                && !app.view.eyedropper
+                && app.view.eyedropper.is_none()
                 && !dragging_mask
             {
                 app.view.pan += response.drag_delta();
@@ -136,6 +147,9 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
                     &frame,
                 );
             }
+            if cropping && let Some(frame) = photo_frame(app, image_rect) {
+                crop::paint(app, &painter, &frame);
+            }
             if painting_removals && let Some(frame) = photo_frame(app, image_rect) {
                 removal_brush::paint(
                     &app.settings.removals,
@@ -157,7 +171,7 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
             }
             eyedropper(app, ui, &response, image_rect);
 
-            if response.double_clicked() && !app.view.eyedropper && !dragging_mask {
+            if response.double_clicked() && app.view.eyedropper.is_none() && !dragging_mask {
                 app.view.zoom = if app.view.zoom == Zoom::Fit {
                     Zoom::Scale(1.0)
                 } else {
@@ -223,10 +237,17 @@ fn full_resolution_size(app: &PhotonationApp) -> Option<Vec2> {
 /// Where the photo is on screen, for mask editing (once its size is known).
 pub fn photo_frame(app: &PhotonationApp, image_rect: Rect) -> Option<PhotoFrame> {
     let info = app.info.as_ref()?;
+    let photo = [info.size.0 as f64, info.size.1 as f64];
+    // The crop tool shows the whole photo with the frame drawn over it.
+    let crop = if app.view.cropping {
+        CropFrame::full(photo)
+    } else {
+        photonation_pipeline::crop_frame(photo, app.settings.crop, app.settings.crop_angle)
+    };
     Some(PhotoFrame {
         image_rect,
-        crop: app.settings.crop.map_or(NormRect::FULL, NormRect::clamped),
-        space: MaskSpace::new(info.size.0 as f64, info.size.1 as f64),
+        crop,
+        space: MaskSpace::new(photo[0], photo[1]),
     })
 }
 
@@ -407,26 +428,24 @@ fn eyedropper(
     response: &egui::Response,
     image_rect: Rect,
 ) {
-    if !app.view.eyedropper {
+    let Some(purpose) = app.view.eyedropper else {
         return;
-    }
+    };
     if response.hover_pos().is_some_and(|p| image_rect.contains(p)) {
         ui.ctx().set_cursor_icon(CursorIcon::Crosshair);
     }
     if response.clicked()
         && let Some(pointer) = response.interact_pointer_pos()
         && image_rect.contains(pointer)
-        && let Some(path) = app.current_path().cloned()
     {
         let point = [
             ((pointer.x - image_rect.left()) / image_rect.width()) as f64,
             ((pointer.y - image_rect.top()) / image_rect.height()) as f64,
         ];
-        app.engine
-            .pick_white_balance(path, app.settings.clone(), point);
-        app.view.eyedropper = false;
+        app.pick_color(point, purpose);
+        app.view.eyedropper = None;
     }
     if ui.ctx().input(|i| i.key_pressed(egui::Key::Escape)) {
-        app.view.eyedropper = false;
+        app.view.eyedropper = None;
     }
 }

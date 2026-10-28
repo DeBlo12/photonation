@@ -7,7 +7,7 @@ follows Photomator: dark and image-first, with the controls in quiet cards.
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
-│ ● ● ●  Open  IMG_0001.CR3  camera · exposure    ↶ ↷ ◐ Fit 1:1 [Export] │  toolbar
+│ ● ● ●  Open  IMG_0001.CR3  camera · exposure  ↶ ↷ ⛶ ◎ ◐ Fit 1:1 [Export] │  toolbar
 ├───────────────────────────────────────────┬─────────────────┤
 │                                           │ histogram       │
 │                                           │ ▸ White Balance │
@@ -20,19 +20,23 @@ follows Photomator: dark and image-first, with the controls in quiet cards.
 ```
 
 While masking (◎ or `M`) the sidebar shows the masks panel instead of the
-adjustment cards, and the photo shows the selected shape's handles. While
-removing (Remove or `Q`) it shows the Remove panel, and dragging on the photo
-paints a removal. The two tools are exclusive.
+adjustment cards, and the photo shows the selected shape's handles. The crop
+tool (⛶ or `R`) likewise swaps in the crop card, and the Remove tool (Remove
+or `Q`) the Remove panel, where dragging on the photo paints a removal. At
+most one of masks, crop and Remove is open.
 
 | File | Region |
 |---|---|
 | `panels/toolbar.rs` | Open, photo name and exposure info, undo/redo, compare, zoom, export |
-| `panels/viewer.rs` | Canvas: fit/zoom/pan, before/after divider, eyedropper, status toast |
+| `panels/viewer.rs` | Canvas: fit/zoom/pan, before/after divider, eyedroppers, status toast |
 | `panels/adjustments.rs` | Histogram and one card per `AdjustmentGroup` |
+| `panels/point_colors.rs` | The Color Mixer's Point Color tab: picked colours, before/after swatch, shifts, ranges, range overlay |
 | `panels/filmstrip.rs` | Thumbnails; edited photos carry a blue dot. Rests as a thin strip (see below) |
 | `panels/masks.rs` | Masks panel: layer list, the selected mask's shapes, settings and local adjustments |
 | `panels/mask_thumbnails.rs` | The layer list's pictures of what each mask selects |
 | `panels/mask_handles.rs` | On-canvas handles and pins for mask editing |
+| `panels/crop.rs` | Crop tool: the frame on the canvas and the crop card |
+| `photo_frame.rs` | Screen ↔ photo positions for the displayed crop (handles, overlay, crop tool) |
 | `panels/removals.rs` | Remove panel: method, brush size, model status, removal list, selected removal |
 | `panels/removal_brush.rs` | Painting removals on the canvas and drawing brushed areas |
 | `gpu/mask_overlay.rs`, `.wgsl` | The selected mask's tint over the photo, evaluated per pixel on the GPU |
@@ -44,7 +48,7 @@ paints a removal. The two tools are exclusive.
 ## Per-frame control flow (`app.rs: PhotonationApp::ui`)
 
 1. **Drain engine events**: install previews and thumbnails as textures
-   (ignoring stale generations), apply eyedropper results, record photo info,
+   (ignoring stale generations), apply eyedropper results (see below), record photo info,
    show errors as a toast.
 2. **Keyboard shortcuts.**
 3. **Snapshot** the settings and the disabled panels.
@@ -55,9 +59,32 @@ paints a removal. The two tools are exclusive.
    Then drop a mask selection that undo or a deletion made invalid
    (`MaskSelection::validated`).
 5. **Edited?** If the settings or switches differ from the snapshot, bump the
-   generation (triggering a new preview) and schedule a sidecar save.
+   generation (triggering a new preview) and schedule a sidecar save. While
+   the crop tool is open, a change to the crop alone only schedules the save:
+   the tool shows the whole photo, so there is nothing new to render.
 6. **Commit history** when no pointer button is down (one undo step per drag).
 7. **Save the sidecar** 400 ms after the last edit, once the pointer is released.
+
+## Eyedroppers
+
+`view.eyedropper` holds the active picker (`Eyedropper`); the next click on the
+photo goes to `PhotonationApp::pick_color` and turns the picker off (Esc
+cancels it).
+
+| Picker | Button | Engine call | Result |
+|---|---|---|---|
+| `WhiteBalance` | White Balance card | `pick_white_balance` | Custom white balance |
+| `PointColor` | Color Mixer, Point Color tab | `pick_color` | A new point colour, selected |
+| `MixerBand` | Color Mixer, Mixer tab | `pick_color` | Selects the band nearest the colour's hue (`nearest_mixer_band`) |
+
+Colour picks remember their purpose in `pending_color_pick` until the
+`ColorPicked` event arrives.
+
+**Range overlay.** With "Visualize range" on, previews render the selected
+point colour's range (`ViewState::point_color_overlay`) while its tab is
+visible and the Color Mixer is switched on. The overlay is part of the preview
+request's key, and switching it bumps the generation, so the old look is
+never shown as current.
 
 ## Preview resolution
 
@@ -112,6 +139,40 @@ handle drags at once, without waiting for the photo to re-render.
 the row's point size and cached by the mask's shapes, inversion, crop and size.
 Textures not drawn in a frame are dropped.
 
+**Straightened photos.** `PhotoFrame` maps through the crop frame, so handles,
+pins and the overlay follow a turned crop; the overlay's uniform carries the
+screen → mask mapping as an origin and one step per screen axis.
+
+## Crop and straighten (`panels/crop.rs`)
+
+The crop tool (⛶ or `R`; `Return` or `Esc` closes it) previews the whole photo,
+unturned, and draws the crop frame over it, turned by the angle, with a
+rule-of-thirds grid and the outside dimmed:
+
+- **Drag inside** the frame to move it; it slides along the photo's edges.
+- **Drag a corner or an edge** to resize it; the opposite side stays put and the
+  frame stops at the photo's edge (a binary search between the frame at the
+  start of the drag, which fits, and the one under the pointer).
+- **Drag outside** to turn it around its centre (straighten); it shrinks to stay
+  on the photo.
+- **Aspect** (sidebar): Original (default), Free, 1:1, 4:5, 5:7, 2:3, 9:16, in
+  the frame's orientation; ⇔ swaps portrait and landscape. A corner drag follows
+  the larger change, an edge drag resizes the other side around its middle.
+- **Angle** slider: turns the frame from where it was when the drag began, so
+  turning back gives the frame its size back.
+- **Reset** removes the crop and the angle.
+
+The whole photo, unturned, is stored as no crop (`settings.crop = None`), so a
+reset photo needs no sidecar. Compare (◐) frames the original like the edit.
+
+## Lightroom edits
+
+A photo with a Lightroom `.xmp` sidecar and no Photonation sidecar opens with
+its Lightroom edits (see EDIT-MODEL.md), and a toast names any edits that could
+not come along; it goes away when another photo is shown. Thumbnails and the
+filmstrip's edited dot use the same settings. Resetting such a photo keeps a
+default sidecar, so the Lightroom edits do not return.
+
 ## Remove
 
 **Panel** (`panels/removals.rs`): the method for new removals (*Generative
@@ -154,5 +215,7 @@ state and are not saved.
 `PHOTONATION_SCREENSHOT=out.png photonation-desktop <folder or photo>` saves the window
 once the preview and thumbnails are ready, then quits.
 `PHOTONATION_SCREENSHOT_PANELS="Curves,Color Grading"` picks the open cards;
-`PHOTONATION_SCREENSHOT_MASKS=1` opens the masks panel with the first mask
-selected.
+`PHOTONATION_SCREENSHOT_POINT_COLOR=1` opens the Point Color tab (`=range` also
+shows the first point colour's range); `PHOTONATION_SCREENSHOT_MASKS=1` opens
+the masks panel with the first mask selected; `PHOTONATION_SCREENSHOT_CROP=1`
+opens the crop tool.

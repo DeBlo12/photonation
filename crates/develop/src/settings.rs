@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 The Photonation contributors
 
-use crate::{MAX_MASKS, MAX_REMOVALS, Mask, Removal};
+use crate::{MAX_MASKS, MAX_POINT_COLORS, MAX_REMOVALS, Mask, PointColor, Removal};
 use photonation_image::NormRect;
 use serde::{Deserialize, Serialize};
 
@@ -291,10 +291,19 @@ pub struct Settings {
     pub saturation: f32,
     pub tone_curve: ToneCurve,
     pub color_mixer: ColorMixer,
+    /// Colours sampled from the photo and their shifts (the colour
+    /// mixer's Point Color tab), at most [`MAX_POINT_COLORS`].
+    pub point_colors: Vec<PointColor>,
     pub color_grading: ColorGrading,
     pub sharpening: Sharpening,
-    /// Crop on the displayed (oriented) image, inside the camera's default crop.
+    /// Crop on the displayed (oriented) image, inside the camera's default
+    /// crop: the frame's top-left and bottom-right corners (see
+    /// `photonation_image::CropFrame`). `None` is the whole photo, or the
+    /// largest frame that fits at `crop_angle`.
     pub crop: Option<NormRect>,
+    /// Clockwise rotation of the crop frame on the photo in degrees,
+    /// −45..45; the photo appears straightened by the opposite amount.
+    pub crop_angle: f32,
     /// Local adjustments, applied in order on top of the global ones.
     pub masks: Vec<Mask>,
     /// Brushed areas replaced by a fill, applied in order before any
@@ -320,9 +329,11 @@ impl Default for Settings {
             saturation: 0.0,
             tone_curve: ToneCurve::default(),
             color_mixer: ColorMixer::default(),
+            point_colors: Vec::new(),
             color_grading: ColorGrading::default(),
             sharpening: Sharpening::default(),
             crop: None,
+            crop_angle: 0.0,
             masks: Vec::new(),
             removals: Vec::new(),
         }
@@ -378,7 +389,18 @@ impl Settings {
         p.shadow_split = p.shadow_split.clamp(5.0, 45.0);
         p.midtone_split = p.midtone_split.clamp(p.shadow_split + 5.0, 90.0);
         p.highlight_split = p.highlight_split.clamp(p.midtone_split + 5.0, 95.0);
-        s.crop = s.crop.map(NormRect::clamped);
+        // A rotated frame's corners need not be ordered like a rectangle's
+        // (the bottom-right corner of a tall frame turned clockwise lies
+        // left of its top-left one), so only an unrotated crop is reordered.
+        s.crop = s.crop.map(|crop| {
+            if s.crop_angle == 0.0 {
+                crop.clamped()
+            } else {
+                crop.coordinates_clamped()
+            }
+        });
+        s.point_colors.truncate(MAX_POINT_COLORS);
+        s.point_colors = s.point_colors.iter().map(PointColor::sanitized).collect();
         s.masks.truncate(MAX_MASKS);
         s.masks = s.masks.iter().map(Mask::sanitized).collect();
         s.removals.truncate(MAX_REMOVALS);
@@ -441,6 +463,45 @@ mod tests {
         }
         .sanitized();
         assert_eq!(s.masks.len(), MAX_MASKS);
+    }
+
+    #[test]
+    fn sanitize_keeps_rotated_corners_in_order() {
+        let corners = NormRect {
+            left: 0.6,
+            top: 0.1,
+            right: 0.4,
+            bottom: 0.9,
+        };
+        let rotated = Settings {
+            crop: Some(corners),
+            crop_angle: 30.0,
+            ..Settings::default()
+        }
+        .sanitized();
+        assert_eq!(rotated.crop, Some(corners));
+        let straight = Settings {
+            crop: Some(corners),
+            ..Settings::default()
+        }
+        .sanitized();
+        assert_eq!(straight.crop.map(|c| c.left), Some(0.4));
+        let angle = Settings {
+            crop_angle: 90.0,
+            ..Settings::default()
+        }
+        .sanitized();
+        assert_eq!(angle.crop_angle, 45.0);
+    }
+
+    #[test]
+    fn sanitize_caps_the_number_of_point_colors() {
+        let s = Settings {
+            point_colors: vec![PointColor::default(); MAX_POINT_COLORS * 4],
+            ..Settings::default()
+        }
+        .sanitized();
+        assert_eq!(s.point_colors.len(), MAX_POINT_COLORS);
     }
 
     #[test]

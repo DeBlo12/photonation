@@ -8,12 +8,13 @@
 //! on demand by `photonation-pipeline`. Every setting has a [`Control`]
 //! describing its id, range and default, so UIs, the CLI and future
 //! automation share one definition. [`Mask`]s add local adjustments on
-//! top of the global ones; [`PointColor`]s edit colours sampled from the
+//! top of the global ones, optionally in [`MaskGroup`]s; [`PointColor`]s edit colours sampled from the
 //! photo; [`Removal`]s replace brushed areas with a fill.
 
 mod controls;
 mod groups;
 mod lightroom;
+mod mask_groups;
 mod masks;
 mod point_colors;
 mod removals;
@@ -27,6 +28,10 @@ pub use controls::{
 };
 pub use groups::AdjustmentGroup;
 pub use lightroom::{LightroomImport, XmpError, import_lightroom_xmp, lightroom_xmp_path};
+pub use mask_groups::{
+    MAX_MASK_GROUP_NAME_CHARS, MAX_MASK_GROUPS, MaskGroup, group_members, remove_group,
+    rendered_masks, sanitize_groups, tidy_groups,
+};
 pub use masks::{
     CombineMode, LinearGradient, LocalAdjustments, MAX_MASK_COMPONENTS, MAX_MASK_NAME_CHARS,
     MAX_MASKS, Mask, MaskComponent, MaskShape, MaskSpace, RadialGradient,

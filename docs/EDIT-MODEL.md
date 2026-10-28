@@ -18,7 +18,7 @@ balance.
 | Color Mixer | `color_mixer`: hue/saturation/luminance for red, orange, yellow, green, aqua, blue, purple, magenta; `point_colors` (see below) |
 | Color Grading | `color_grading`: `shadows`, `midtones`, `highlights`, `global` wheels (hue, saturation, luminance), `blending`, `balance` |
 | Detail | `sharpening`: amount, radius |
-| — | `crop` and `crop_angle` (see below), `masks` (see below), `removals` (see [RETOUCH.md](RETOUCH.md)), `process` |
+| — | `crop` and `crop_angle` (see below), `masks` and `mask_groups` (see below), `removals` (see [RETOUCH.md](RETOUCH.md)), `process` |
 
 `Settings::sanitized()` clamps everything into range and repairs bad input; the
 pipeline always renders sanitized settings.
@@ -106,6 +106,7 @@ point colours. How colours are selected and shifted: docs/PIPELINE.md §5.
 | `invert` | Apply the adjustments outside the selection instead |
 | `amount` | 0..100 %, scales all of the mask's adjustments |
 | `adjustments` | `LocalAdjustments`: temperature, tint, exposure, contrast, highlights, shadows, dehaze, saturation, on the global sliders' scales (`LOCAL_CONTROLS`) |
+| `group` | Index into `settings.mask_groups`, or absent for a mask outside any group |
 
 **Shapes** (`MaskShape`): a `Linear` gradient (full effect up to the line through
 `start`, fading to none at the parallel line through `end`) or a `Radial` one
@@ -130,15 +131,42 @@ plain set union, difference and intersection.
 order of the masks only matters for display. A mask is active when it is
 enabled, has shapes and an amount above 0, and adjusts something.
 
+**Groups** (`mask_groups.rs`). `settings.mask_groups` lists folders of masks,
+at most `MAX_MASK_GROUPS` (16). Each `MaskGroup` has a `name` (up to 64
+characters), an `enabled` switch and an `amount` (0..100 %) that apply to every
+mask in it: a grouped mask renders only when both it and its group are enabled,
+at its own amount times the group's (`Mask::rendered`, `Settings::rendered_masks`).
+Everything that shows or renders masks goes through that: the pipeline's
+`LocalAdjust`, the editor's overlay, thumbnails and pins. Rendering is otherwise
+unchanged: grouped masks add up with all the others.
+
+The masks stay one flat list, so a mask's index means the same with or without
+groups. Two rules make that list read as a tree:
+
+- A group's masks sit next to each other; the group is shown where they are.
+- A group without masks is removed, so every group has a place in the list.
+
+`tidy_groups` restores both rules (ungrouping masks that name a missing group,
+moving each group's masks together where its first mask is, dropping empty
+groups and renumbering); `remove_group` removes one group and keeps its masks.
+The editor's edits keep the rules as they go (`panels/masks/groups.rs`).
+
+**No new process version.** An ungrouped mask renders exactly as before groups
+existed, and so does a grouped one in an enabled group at 100 % (its amount is
+multiplied by exactly 1). Older sidecars have no groups, so they render as they
+did; a grouped sidecar opened by an older build loses only its groups (it
+ignores the unknown fields and renders every mask as if ungrouped).
+
 **Mask space** (`MaskSpace`). Positions are normalized to the photo: 0..1 across
 its width and height, in display orientation, on the camera's default crop but
 *before* the user's crop, so a mask stays on the same content when the crop
 changes. Radii are in units of the long edge, so circles stay round on any
 aspect ratio.
 
-**Sanitizing** caps the number of masks and shapes, truncates names, clamps
-every value and repairs non-finite numbers. The caps also bound the per-pixel
-cost a hostile sidecar can cause.
+**Sanitizing** caps the number of masks, shapes and groups, truncates names,
+clamps every value (group amounts too) and repairs non-finite numbers, then
+tidies the groups (`sanitize_groups`). The caps also bound the per-pixel cost a
+hostile sidecar can cause.
 
 ## Removals (`removals.rs`)
 
@@ -174,6 +202,9 @@ the settings with some groups switched off (the panel switches in the editor).
 - Masks written before masks could combine shapes have a single `"shape"`
   instead of `"components"`. They load as one *Add* component and render
   unchanged (`StoredMask`).
+- Sidecars written before mask groups have neither `mask_groups` nor a mask
+  `group`; their masks load ungrouped and render unchanged. While a photo has
+  no groups, its sidecar leaves both fields out and looks exactly as before.
 - Writes are atomic (temporary file, then rename).
 - The editor deletes the sidecar when a photo is reset to defaults, unless a
   Lightroom sidecar is next to it (its edits would come back).

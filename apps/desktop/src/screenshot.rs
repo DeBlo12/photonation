@@ -6,7 +6,8 @@
 //! then quits. Used to check the UI and to produce documentation images.
 //! `PHOTONATION_SCREENSHOT_PANELS=Curves,Color Grading` chooses which
 //! adjustment cards are open; `PHOTONATION_SCREENSHOT_MASKS=1` opens the
-//! masks panel with the first mask selected; `PHOTONATION_SCREENSHOT_CROP=1`
+//! masks panel with the first mask selected (`=group`: the first mask
+//! group); `PHOTONATION_SCREENSHOT_CROP=1`
 //! opens the crop tool; `PHOTONATION_SCREENSHOT_POINT_COLOR=1` opens the
 //! Color Mixer's Point Color tab (`=range` also shows the first point
 //! colour's range).
@@ -39,9 +40,13 @@ impl Screenshot {
         if std::env::var_os("PHOTONATION_SCREENSHOT_CROP").is_some() {
             view.cropping = true;
         }
-        if std::env::var_os("PHOTONATION_SCREENSHOT_MASKS").is_some() {
+        if let Some(masks) = std::env::var_os("PHOTONATION_SCREENSHOT_MASKS") {
             view.show_masks = true;
-            view.selected_mask = Some(crate::app::MaskSelection::mask(0));
+            if masks == "group" {
+                view.mask_groups.selected = Some(0);
+            } else {
+                view.selected_mask = Some(crate::app::MaskSelection::mask(0));
+            }
         }
         if let Some(point_color) = std::env::var_os("PHOTONATION_SCREENSHOT_POINT_COLOR") {
             view.mixer_tab = crate::app::POINT_COLOR_TAB;

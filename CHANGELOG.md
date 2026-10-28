@@ -38,6 +38,11 @@ All notable changes to this project are documented here. The format follows
   replaced by a content-aware fill (PatchMatch) or, with an installed LaMa
   or MI-GAN ONNX model, a generative fill. Fills are computed in the
   background and cached; removals are stored in the sidecar.
+- Mask groups: gather masks in collapsible folders in the masks panel, each
+  with a name, a visibility switch and an amount that scale every mask in it.
+  Drag masks into, out of and between groups, reorder groups, ungroup or delete
+  them. Existing sidecars load unchanged. Mask thumbnails and the overlay now
+  show a mask's amount (and its group's) and dim while it is hidden.
 - The desktop editor prefers a discrete GPU, falling back to integrated
   graphics and then software rendering; `PHOTONATION_GPU` overrides the order.
 

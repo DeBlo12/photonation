@@ -476,21 +476,22 @@ fn layer_row(
         StrokeKind::Outside,
     );
 
-    let toggle_size = vec2(30.0, 17.0);
     let text_left = thumb.right() + 10.0;
-    let text_width = rect.right() - toggle_size.x - 14.0 - text_left;
+    let text_width = rect.right() - widgets::TOGGLE_SIZE.x - 14.0 - text_left;
     let text_color = if picture.shown {
         theme::TEXT
     } else {
         theme::TEXT_TERTIARY
     };
-    let name = painter.layout(
+    let name = single_line(
+        painter,
         display_name(mask, index),
         theme::body(13.0),
         text_color,
         text_width,
     );
-    let details = painter.layout(
+    let details = single_line(
+        painter,
         summary(mask),
         theme::body(11.0),
         theme::TEXT_SECONDARY,
@@ -507,14 +508,16 @@ fn layer_row(
         theme::TEXT_SECONDARY,
     );
 
+    // A child Ui, unlike `ui.put`, leaves the list's cursor below the row.
     let toggle_rect = Rect::from_center_size(
-        pos2(rect.right() - 8.0 - toggle_size.x / 2.0, rect.center().y),
-        toggle_size,
+        pos2(
+            rect.right() - 8.0 - widgets::TOGGLE_SIZE.x / 2.0,
+            rect.center().y,
+        ),
+        widgets::TOGGLE_SIZE,
     );
-    ui.put(toggle_rect, |ui: &mut Ui| {
-        widgets::toggle(ui, &mut mask.enabled)
-    })
-    .on_hover_text("Show this mask's effect");
+    let mut toggle_ui = ui.new_child(egui::UiBuilder::new().max_rect(toggle_rect));
+    widgets::toggle(&mut toggle_ui, &mut mask.enabled).on_hover_text("Show this mask's effect");
     // Text is painted, so the row gets a hover tip with the full name.
     let tip = format!("{}\n{}", display_name(mask, index), summary(mask));
     response.on_hover_text(tip)
@@ -849,6 +852,46 @@ mod tests {
         move_mask(&mut masks, &mut selection, 2, 2);
         move_mask(&mut masks, &mut selection, 2, 3);
         assert_eq!(names(&masks), ["D", "C", "A", "B"]);
+    }
+
+    #[test]
+    fn rows_leave_room_for_each_other_and_the_hint_below() {
+        let ctx = egui::Context::default();
+        let mut masks = named(&[
+            "Sky",
+            "A name far too long to fit on one line of even the widest sidebar",
+            "Face",
+        ]);
+        for width in [280.0, 440.0] {
+            let input = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(width, 600.0))),
+                ..Default::default()
+            };
+            let mut output = ctx.run_ui(input, |ui| {
+                let mut previous_bottom = f32::NEG_INFINITY;
+                for (index, mask) in masks.iter_mut().enumerate() {
+                    let picture = Picture {
+                        photo: None,
+                        tint: None,
+                        size: vec2(50.0, THUMB_HEIGHT),
+                        shown: true,
+                        tint_strength: 1.0,
+                    };
+                    let row = layer_row(ui, mask, index, index == 1, picture).rect;
+                    assert_eq!(row.height(), ROW_HEIGHT);
+                    assert!(
+                        row.top() >= previous_bottom,
+                        "row {index} overlaps the one above"
+                    );
+                    assert!(
+                        ui.cursor().top() >= row.bottom(),
+                        "what follows row {index} would start inside it"
+                    );
+                    previous_bottom = row.bottom();
+                }
+            });
+            output.textures_delta.clear();
+        }
     }
 
     #[test]

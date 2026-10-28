@@ -131,6 +131,9 @@ Only thumbnails in view are drawn, so long folders stay cheap.
    name, a summary ("2 shapes · inverted · 60 %") and a visibility switch.
    Click a row to select it, drag it to reorder, right-click to invert,
    duplicate, move, group or delete it.
+   Each row is a fixed height and keeps its text on one line: names and
+   summaries that do not fit end in "…", and the row's tooltip shows them in
+   full.
    *+ Group* puts the selected mask in a new group, selects the group and
    focuses its name. A group's header row shows a fold arrow, its name, a
    summary ("3 masks · 60 %") and a visibility switch; its masks are indented
@@ -273,5 +276,6 @@ once the preview and thumbnails are ready, then quits.
 `PHOTONATION_SCREENSHOT_POINT_COLOR=1` opens the Point Color tab (`=range` also
 shows the first point colour's range); `PHOTONATION_SCREENSHOT_MASKS=1` opens
 the masks panel with the first mask selected (`=group` selects the first mask
-group instead); `PHOTONATION_SCREENSHOT_CROP=1`
-opens the crop tool.
+group instead); `PHOTONATION_SCREENSHOT_CROP=1` opens the crop tool;
+`PHOTONATION_SCREENSHOT_SIDEBAR=280` starts the sidebar at that width
+(280–440), to check narrow and wide layouts.

@@ -10,14 +10,28 @@
 //! group); `PHOTONATION_SCREENSHOT_CROP=1`
 //! opens the crop tool; `PHOTONATION_SCREENSHOT_POINT_COLOR=1` opens the
 //! Color Mixer's Point Color tab (`=range` also shows the first point
-//! colour's range).
+//! colour's range); `PHOTONATION_SCREENSHOT_SIDEBAR=280` starts the sidebar
+//! at that width.
 
 use eframe::egui;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 /// Give up waiting for everything to settle after this long.
 const TIMEOUT: Duration = Duration::from_secs(20);
+
+/// The sidebar's starting width: `PHOTONATION_SCREENSHOT_SIDEBAR`, so
+/// narrow and wide layouts can be checked, else the usual default.
+pub fn sidebar_width() -> f32 {
+    static WIDTH: OnceLock<f32> = OnceLock::new();
+    *WIDTH.get_or_init(|| {
+        std::env::var("PHOTONATION_SCREENSHOT_SIDEBAR")
+            .ok()
+            .and_then(|width| width.trim().parse().ok())
+            .unwrap_or(crate::theme::SIDEBAR_WIDTH)
+    })
+}
 
 pub struct Screenshot {
     path: PathBuf,

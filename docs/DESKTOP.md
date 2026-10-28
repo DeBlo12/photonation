@@ -42,7 +42,7 @@ most one of masks, crop and Remove is open.
 | `panels/removal_brush.rs` | Painting removals on the canvas and drawing brushed areas |
 | `gpu/mask_overlay.rs`, `.wgsl` | The selected mask's tint over the photo, evaluated per pixel on the GPU |
 | `gpu/mod.rs` | Graphics adapter choice and texture limits |
-| `panels/export.rs` | Export sheet (format, quality, size, colour space, scope) |
+| `panels/export.rs` | Export sheet (format, quality, size, colour space, scope, file name with a preview of the result) |
 | `widgets/*` | Custom controls: adjustment slider, section card, toggle, segmented control, curve editor, colour wheel, histogram |
 | `theme.rs` | Every colour and metric |
 

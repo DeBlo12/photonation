@@ -9,6 +9,7 @@ mod app;
 mod gpu;
 mod panels;
 mod photo_frame;
+mod preferences;
 mod screenshot;
 mod theme;
 mod widgets;

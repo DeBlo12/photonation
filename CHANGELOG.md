@@ -8,6 +8,15 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Export metadata: exported JPEG, PNG and TIFF files carry EXIF and XMP with
+  the camera, lens, exposure and capture time, the creator and copyright
+  (from the raw file or entered in the export sheet, remembered between
+  launches) and, only if chosen, the GPS position. The export sheet offers
+  All / Copyright Only / None and a checkbox per group;
+  `photonation export` takes `--metadata`, `--location`, `--creator` and
+  `--copyright`. Orientation is written as normal and the ICC profile is
+  kept. `photonation info` also shows exposure compensation, artist,
+  copyright and location.
 - Export file names: the export sheet and `photonation export --name` take
   a name, or a template with `{name}` (original name) and `{n}` (number in
   the batch); the sheet previews the resulting file name.

@@ -11,7 +11,7 @@
 //! opens the crop tool; `PHOTONATION_SCREENSHOT_POINT_COLOR=1` opens the
 //! Color Mixer's Point Color tab (`=range` also shows the first point
 //! colour's range); `PHOTONATION_SCREENSHOT_SIDEBAR=280` starts the sidebar
-//! at that width.
+//! at that width; `PHOTONATION_SCREENSHOT_EXPORT=1` opens the export sheet.
 
 use eframe::egui;
 use std::path::PathBuf;
@@ -53,6 +53,9 @@ impl Screenshot {
     pub fn prepare(&self, view: &mut crate::app::ViewState) {
         if std::env::var_os("PHOTONATION_SCREENSHOT_CROP").is_some() {
             view.cropping = true;
+        }
+        if std::env::var_os("PHOTONATION_SCREENSHOT_EXPORT").is_some() {
+            view.show_export = true;
         }
         if let Some(masks) = std::env::var_os("PHOTONATION_SCREENSHOT_MASKS") {
             view.show_masks = true;

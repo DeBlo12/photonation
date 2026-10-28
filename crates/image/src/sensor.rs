@@ -111,10 +111,14 @@ pub struct CameraColor {
     pub matrices: Vec<CalibrationMatrix>,
 }
 
+/// What the raw file records about the shot: camera, exposure, capture
+/// time, creator and location. Exports write it back as EXIF (see
+/// `photonation_export::exif`); empty fields are left out.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct CameraInfo {
     pub make: String,
     pub model: String,
+    /// Lens make and model, e.g. "Canon EF-S18-55mm f/4-5.6 IS STM".
     pub lens: Option<String>,
     pub iso: Option<u32>,
     /// Seconds.
@@ -122,7 +126,26 @@ pub struct CameraInfo {
     pub f_number: Option<f64>,
     /// Millimetres.
     pub focal_length: Option<f64>,
+    /// Exposure compensation, stops.
+    pub exposure_bias: Option<f64>,
+    /// Capture time as EXIF writes it, "YYYY:MM:DD HH:MM:SS" (local time).
     pub date_time: Option<String>,
+    /// The capture time's offset from UTC, "+HH:MM", when recorded.
+    pub time_offset: Option<String>,
+    pub artist: Option<String>,
+    pub copyright: Option<String>,
+    pub gps: Option<GpsPosition>,
+}
+
+/// Where a photo was taken (WGS 84).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GpsPosition {
+    /// Degrees, north positive.
+    pub latitude: f64,
+    /// Degrees, east positive.
+    pub longitude: f64,
+    /// Metres above sea level (negative below).
+    pub altitude: Option<f64>,
 }
 
 /// Decoded raw sensor data plus everything needed to develop it.

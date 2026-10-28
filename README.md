@@ -21,7 +21,8 @@ a Lightroom-style develop module with a Photomator-inspired interface.
   JPEG in ~170 ms (Apple M1 Pro) without ever holding a full-size float image;
   slider drags re-render the preview in ~40 ms.
 - **Export** to JPEG, PNG (8/16-bit) and TIFF (8/16-bit) in sRGB, Display P3,
-  Adobe RGB or ProPhoto RGB with embedded ICC profiles.
+  Adobe RGB or ProPhoto RGB with embedded ICC profiles and EXIF/XMP metadata
+  (camera, lens, capture time, creator and copyright; GPS only if chosen).
 - **Desktop app** (macOS first; egui, so the same UI can later run in the browser
   via WebAssembly) and a **CLI** for batch export.
 
@@ -51,7 +52,7 @@ Batch-exports every raw in a folder, applying each photo's sidecar edits.
 | Command | What it does |
 |---|---|
 | `photonation info <files…>` | Camera, lens, exposure, size, as-shot white balance |
-| `photonation export <files or folders…>` | Develop and write JPEG/PNG/TIFF (`--format`, `--quality`, `--long-edge`, `--color-space`, `--depth`, slider overrides such as `--exposure 0.5 --shadows 30`) |
+| `photonation export <files or folders…>` | Develop and write JPEG/PNG/TIFF (`--format`, `--quality`, `--long-edge`, `--color-space`, `--depth`, `--metadata all\|copyright\|none`, `--location`, `--creator`, `--copyright`, slider overrides such as `--exposure 0.5 --shadows 30`) |
 | `photonation edit <files…> --exposure 0.3 …` | Create or update sidecars without exporting |
 
 ### Desktop shortcuts

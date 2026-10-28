@@ -9,8 +9,8 @@
 
 use photonation_color::Mat3;
 use photonation_image::{
-    CalibrationMatrix, CameraColor, CameraInfo, CfaColor, CfaPattern, Orientation, Rect,
-    SensorImage, SensorLayout,
+    CalibrationMatrix, CameraColor, CameraInfo, CfaColor, CfaPattern, GpsPosition, Orientation,
+    Rect, SensorImage, SensorLayout,
 };
 use rawler::decoders::{RawDecodeParams, RawMetadata};
 use rawler::imgop::xyz::Illuminant;
@@ -330,26 +330,78 @@ fn camera_color(raw: &RawImage) -> CameraColor {
 }
 
 fn camera_info(raw: &RawImage, meta: Option<&RawMetadata>) -> CameraInfo {
-    let rational = |r: &Option<rawler::formats::tiff::Rational>| {
-        r.as_ref()
-            .filter(|r| r.d != 0)
-            .map(|r| r.n as f64 / r.d as f64)
-    };
     let exif = meta.map(|m| &m.exif);
+    let text = |field: fn(&rawler::exif::Exif) -> &Option<String>| {
+        exif.and_then(|e| field(e).as_deref()).and_then(clean_text)
+    };
+    // rawler's lens database names the lens; otherwise the EXIF lens model.
+    let lens = meta
+        .and_then(|m| m.lens.as_ref())
+        .and_then(|l| clean_text(&format!("{} {}", l.lens_make, l.lens_model)))
+        .or_else(|| text(|e| &e.lens_model));
     CameraInfo {
         make: raw.clean_make.clone(),
         model: raw.clean_model.clone(),
-        lens: meta.and_then(|m| m.lens.as_ref()).map(|l| {
-            format!("{} {}", l.lens_make, l.lens_model)
-                .trim()
-                .to_string()
-        }),
+        lens,
         iso: exif.and_then(|e| e.iso_speed.or(e.iso_speed_ratings.map(u32::from))),
-        exposure_time: exif.and_then(|e| rational(&e.exposure_time)),
-        f_number: exif.and_then(|e| rational(&e.fnumber)),
-        focal_length: exif.and_then(|e| rational(&e.focal_length)),
-        date_time: exif.and_then(|e| e.date_time_original.clone()),
+        exposure_time: exif.and_then(|e| unsigned(e.exposure_time.as_ref()?)),
+        f_number: exif.and_then(|e| unsigned(e.fnumber.as_ref()?)),
+        focal_length: exif.and_then(|e| unsigned(e.focal_length.as_ref()?)),
+        exposure_bias: exif.and_then(|e| signed(e.exposure_bias.as_ref()?)),
+        date_time: text(|e| &e.date_time_original),
+        time_offset: text(|e| &e.offset_time_original).or_else(|| text(|e| &e.offset_time)),
+        artist: text(|e| &e.artist),
+        copyright: text(|e| &e.copyright),
+        gps: exif.and_then(|e| gps_position(e.gps.as_ref()?)),
     }
+}
+
+/// EXIF strings are fixed-size fields padded with NULs or spaces; blank
+/// ones (cameras record an empty artist by default) count as absent.
+fn clean_text(text: &str) -> Option<String> {
+    let text = text.trim_matches(|c: char| c == '\0' || c.is_whitespace());
+    (!text.is_empty()).then(|| text.to_string())
+}
+
+fn unsigned(r: &rawler::formats::tiff::Rational) -> Option<f64> {
+    (r.d != 0).then(|| r.n as f64 / r.d as f64)
+}
+
+fn signed(r: &rawler::formats::tiff::SRational) -> Option<f64> {
+    (r.d != 0).then(|| r.n as f64 / r.d as f64)
+}
+
+/// Signed decimal degrees from EXIF's degrees/minutes/seconds and N/S, E/W
+/// references. Cameras without a fix record zeros or nothing.
+fn gps_position(gps: &rawler::exif::ExifGPS) -> Option<GpsPosition> {
+    let degrees = |dms: &[rawler::formats::tiff::Rational; 3], reference: Option<&str>| {
+        let [d, m, s] = [unsigned(&dms[0])?, unsigned(&dms[1])?, unsigned(&dms[2])?];
+        let value = d + m / 60.0 + s / 3600.0;
+        let negative = matches!(reference.map(str::trim), Some("S" | "W"));
+        Some(if negative { -value } else { value })
+    };
+    let latitude = degrees(gps.gps_latitude.as_ref()?, gps.gps_latitude_ref.as_deref())?;
+    let longitude = degrees(
+        gps.gps_longitude.as_ref()?,
+        gps.gps_longitude_ref.as_deref(),
+    )?;
+    let in_range = latitude.abs() <= 90.0 && longitude.abs() <= 180.0;
+    if !in_range || (latitude == 0.0 && longitude == 0.0) {
+        return None;
+    }
+    let altitude = gps.gps_altitude.as_ref().and_then(unsigned).map(|metres| {
+        // Reference 1 means below sea level.
+        if gps.gps_altitude_ref == Some(1) {
+            -metres
+        } else {
+            metres
+        }
+    });
+    Some(GpsPosition {
+        latitude,
+        longitude,
+        altitude,
+    })
 }
 
 #[cfg(test)]

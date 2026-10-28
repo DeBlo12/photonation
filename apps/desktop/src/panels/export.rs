@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 The Photonation contributors
 
-//! Export sheet: format, size, colour and file name options, then a
-//! folder picker.
+//! Export sheet: format, size, colour, file name and metadata options,
+//! then a folder picker.
 
 use crate::app::PhotonationApp;
 use crate::theme;
 use crate::widgets::{self, SliderStyle, adjustment_slider};
 use eframe::egui::{self, RichText};
 use photonation_color::ColorSpace;
-use photonation_engine::{NAME_TOKEN, NUMBER_TOKEN, export_file_stem};
+use photonation_engine::{MetadataPreset, NAME_TOKEN, NUMBER_TOKEN, export_file_stem};
 use photonation_export::Format;
 use photonation_image::BitDepth;
 
@@ -107,6 +107,9 @@ pub fn show(app: &mut PhotonationApp, ctx: &egui::Context) {
         label(ui, "File Name");
         let total = if app.view.export_all { photo_count } else { 1 };
         file_name(ui, app, total);
+        ui.add_space(10.0);
+        label(ui, "Metadata");
+        metadata(ui, &mut app.view.export_options.metadata);
         ui.add_space(12.0);
         ui.horizontal(|ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -160,6 +163,43 @@ fn file_name(ui: &mut egui::Ui, app: &mut PhotonationApp, total: usize) {
     }
 }
 
+/// The preset shortcuts, a checkbox per group, and the creator and
+/// copyright fields (remembered with the groups, see `preferences.rs`).
+fn metadata(ui: &mut egui::Ui, options: &mut photonation_engine::MetadataOptions) {
+    let names = MetadataPreset::ALL.map(MetadataPreset::name);
+    // A custom choice of groups highlights no preset.
+    let mut preset_index = options
+        .preset()
+        .and_then(|preset| MetadataPreset::ALL.iter().position(|&p| p == preset))
+        .unwrap_or(names.len());
+    if widgets::segmented(ui, &names, &mut preset_index).changed() {
+        options.apply(MetadataPreset::ALL[preset_index]);
+    }
+    ui.add_space(4.0);
+    ui.checkbox(&mut options.camera, "Camera and capture")
+        .on_hover_text("Make, model, lens, exposure and capture time");
+    ui.checkbox(&mut options.copyright, "Copyright and creator");
+    if options.copyright {
+        ui.indent("export-creator", |ui| {
+            for (text, hint) in [
+                (&mut options.creator, "Creator (else the camera's)"),
+                (
+                    &mut options.copyright_notice,
+                    "Copyright (else the camera's)",
+                ),
+            ] {
+                ui.add(
+                    egui::TextEdit::singleline(text)
+                        .hint_text(hint)
+                        .desired_width(f32::INFINITY),
+                );
+            }
+        });
+    }
+    ui.checkbox(&mut options.location, "Location (GPS)")
+        .on_hover_text("Where the photo was taken; left out unless ticked");
+}
+
 fn label(ui: &mut egui::Ui, text: &str) {
     ui.label(RichText::new(text).size(12.0).color(theme::TEXT_SECONDARY));
 }
@@ -169,6 +209,9 @@ fn start_export(app: &mut PhotonationApp) {
         return;
     };
     app.save_now();
+    let mut preferences = crate::preferences::Preferences::load();
+    preferences.export_metadata = app.view.export_options.metadata.clone();
+    preferences.save();
     let photos = if app.view.export_all {
         // Sidecars hold every photo's settings (the current one was just saved).
         app.photos.iter().map(|p| (p.path.clone(), None)).collect()

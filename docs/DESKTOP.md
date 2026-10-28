@@ -42,7 +42,8 @@ most one of masks, crop and Remove is open.
 | `panels/removal_brush.rs` | Painting removals on the canvas and drawing brushed areas |
 | `gpu/mask_overlay.rs`, `.wgsl` | The selected mask's tint over the photo, evaluated per pixel on the GPU |
 | `gpu/mod.rs` | Graphics adapter choice and texture limits |
-| `panels/export.rs` | Export sheet (format, quality, size, colour space, scope, file name with a preview of the result) |
+| `panels/export.rs` | Export sheet (format, quality, size, colour space, scope, file name with a preview of the result, metadata) |
+| `preferences.rs` | Choices remembered between launches (`preferences.json` in the data directory): the export metadata |
 | `widgets/*` | Custom controls: adjustment slider, section card, toggle, segmented control, curve editor, colour wheel, histogram |
 | `theme.rs` | Every colour and metric |
 
@@ -252,6 +253,21 @@ start-up it asks the engine to load the generative model
 (`request_model_status`). The `ai` cargo feature (on by default) builds the
 neural inpainting; see [RETOUCH.md](RETOUCH.md).
 
+## Export metadata
+
+The export sheet's **Metadata** section chooses what the files carry (see
+[ENGINE.md](ENGINE.md#export-exportrs-export_photo)): a segmented control
+with the presets **All**, **Copyright Only** and **None**, and a checkbox per
+group (Camera and capture, Copyright and creator, Location). The control
+highlights the preset the checkboxes match and nothing for a custom choice.
+With Copyright and creator on, two fields take a creator and a copyright
+notice; left blank, the raw file's are written. Location is off until ticked.
+
+The choice and the entered text are saved to `preferences.json` when an
+export starts and loaded when the app opens (`preferences.rs`), so they are
+remembered between exports and launches. A missing or unreadable file means
+the defaults (All, location off, nothing entered).
+
 ## GPU selection (`gpu/mod.rs`)
 
 wgpu draws the UI, previews and the overlay; the develop pipeline itself runs
@@ -278,4 +294,5 @@ shows the first point colour's range); `PHOTONATION_SCREENSHOT_MASKS=1` opens
 the masks panel with the first mask selected (`=group` selects the first mask
 group instead); `PHOTONATION_SCREENSHOT_CROP=1` opens the crop tool;
 `PHOTONATION_SCREENSHOT_SIDEBAR=280` starts the sidebar at that width
-(280–440), to check narrow and wide layouts.
+(280–440), to check narrow and wide layouts; `PHOTONATION_SCREENSHOT_EXPORT=1`
+opens the export sheet.

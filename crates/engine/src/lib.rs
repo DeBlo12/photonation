@@ -11,6 +11,7 @@ mod export;
 mod histogram;
 mod history;
 mod library;
+mod metadata;
 mod retouch;
 mod service;
 
@@ -22,5 +23,8 @@ pub use export::{
 pub use histogram::Histogram;
 pub use history::History;
 pub use library::scan_folder;
-pub use retouch::{MODEL_PATH_VARIABLE, ModelStatus, Retoucher, default_model_path};
+pub use metadata::{MetadataOptions, MetadataPreset};
+pub use retouch::{
+    MODEL_PATH_VARIABLE, ModelStatus, Retoucher, data_directory, default_model_path,
+};
 pub use service::{Event, PhotoInfo, PreviewKind, PreviewRequest, RenderService, RenderedImage};

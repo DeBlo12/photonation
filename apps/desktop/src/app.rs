@@ -309,6 +309,7 @@ impl PhotonationApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> PhotonationApp {
         let mut app = PhotonationApp::empty(&cc.egui_ctx);
         app.screenshot = crate::screenshot::Screenshot::from_env();
+        app.view.export_options.metadata = crate::preferences::Preferences::load().export_metadata;
         // Load the inpainting model in the background, so the first
         // generative removal doesn't wait for it.
         app.engine.request_model_status();

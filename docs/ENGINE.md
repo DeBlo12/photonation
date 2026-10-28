@@ -73,6 +73,48 @@ dropped, it is cut at 200 characters, and an empty name falls back to the
 original's. Exports never replace a file (`unused_path` adds `-2`, `-3`, …).
 The CLI takes the template as `--name`.
 
+**Metadata** (`metadata.rs: MetadataOptions`). The raw decoder fills
+`CameraInfo` from the file's EXIF: make, model, lens, exposure (shutter,
+aperture, ISO, compensation, focal length), capture time with its UTC
+offset, artist, copyright and GPS position. `ExportOptions::metadata`
+chooses what of it the export writes, in three groups:
+
+| Group | Fields | Default |
+|---|---|---|
+| Camera and capture (`camera`) | make, model, lens, exposure, capture date and time | on |
+| Copyright and creator (`copyright`) | artist and copyright: the ones entered (`creator`, `copyright_notice`), else the file's | on |
+| Location (`location`) | GPS latitude, longitude, altitude | off (privacy) |
+
+Presets (`MetadataPreset`, Lightroom's "Include" menu) set the groups:
+**All** turns on camera and copyright and leaves location as chosen, like
+Lightroom's separate "Remove Location Info"; **Copyright Only** and **None**
+also turn location off. `MetadataOptions::select` runs after rendering and
+gives the encoder a `CameraInfo` with only the chosen fields;
+`photonation_export::write` writes what is not empty and nothing at all for
+an empty one (preset None):
+
+- **EXIF** (`crates/export/src/exif.rs`, our own encoder: the format is a
+  few TIFF directories). IFD0 has make, model, artist, copyright,
+  `Software` ("Photonation <version>") and `Orientation` = 1, because
+  exports are rendered upright. The Exif IFD has exposure, capture times
+  (`DateTimeOriginal`/`Digitized` with `OffsetTime…`), lens model,
+  `PixelX/YDimension` and `ColorSpace` (1 for sRGB, else 0xFFFF
+  "uncalibrated" so readers use the ICC profile). Decimal values become the
+  simplest fraction (1/160 s, −2/3 EV stay exact). Text is UTF-8 (readers
+  accept it in ASCII fields), NUL-free and cut at 2000 bytes so a JPEG
+  segment always fits. JPEG carries the TIFF stream in APP1 (`Exif\0\0`),
+  PNG in `eXIf`; TIFF writes the Exif and GPS directories first and links
+  them from the image's own IFD0.
+- **XMP** (`xmp.rs`): creator (`dc:creator`), copyright (`dc:rights`), lens
+  (`aux:Lens`, `exifEX:LensModel`), capture time and creating tool. macOS
+  Spotlight and Finder read the creator, copyright and lens only from XMP.
+  JPEG: APP1 `http://ns.adobe.com/xap/1.0/`; PNG: `iTXt`
+  `XML:com.adobe.xmp`; TIFF: tag 700.
+
+The ICC profile is written as before (JPEG APP2 after the APP1 segments,
+PNG `iCCP`, TIFF tag 34675). The CLI takes `--metadata all|copyright|none`,
+`--location`, `--creator` and `--copyright`.
+
 ## History (`history.rs`)
 
 Undo/redo of whole `Settings` values. Front ends call `commit(&settings)` when an

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 The Photonation contributors
 
-use crate::{Decoder, RawDecoder, Retoucher, default_model_path};
+use crate::{Decoder, MetadataOptions, RawDecoder, Retoucher, default_model_path};
 use photonation_color::ColorSpace;
 use photonation_develop::{Settings, load_photo_settings};
 use photonation_export::Format;
@@ -20,6 +20,8 @@ pub struct ExportOptions {
     /// `{name}` is the original's name and `{n}` the photo's number in
     /// the batch.
     pub file_name: String,
+    /// Which of the photo's metadata the file carries.
+    pub metadata: MetadataOptions,
 }
 
 impl Default for ExportOptions {
@@ -30,6 +32,7 @@ impl Default for ExportOptions {
             color_space: ColorSpace::Srgb,
             long_edge: None,
             file_name: NAME_TOKEN.into(),
+            metadata: MetadataOptions::default(),
         }
     }
 }
@@ -190,10 +193,11 @@ pub fn export_photo_with(
     let image =
         photonation_pipeline::render_with_fills(&sensor, &settings, &fills, &render_options)?;
     let render = started.elapsed();
+    let metadata = options.metadata.select(&sensor.info);
     drop(sensor);
 
     let started = Instant::now();
-    photonation_export::write(target, &image, options.format)?;
+    photonation_export::write(target, &image, options.format, &metadata)?;
     Ok(ExportReport {
         size: (image.width, image.height),
         decode,
@@ -243,6 +247,78 @@ mod tests {
             export_file_stem(&"a".repeat(500), original, 1, 1).len(),
             MAX_STEM_CHARS
         );
+    }
+
+    /// Decodes every path to a small test pattern shot with a Canon.
+    struct CanonDecoder;
+
+    impl Decoder for CanonDecoder {
+        fn decode(
+            &self,
+            _: &Path,
+        ) -> Result<photonation_image::SensorImage, photonation_raw::RawError> {
+            let mut sensor = photonation_image::SensorImage::test_pattern(
+                48,
+                32,
+                photonation_image::Orientation::Normal,
+            );
+            sensor.info = photonation_image::CameraInfo {
+                make: "Canon".into(),
+                model: "Canon EOS 250D".into(),
+                date_time: Some("2026:06:20 18:02:23".into()),
+                ..Default::default()
+            };
+            Ok(sensor)
+        }
+    }
+
+    #[test]
+    fn exports_carry_the_chosen_metadata() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let export = |metadata: MetadataOptions| {
+            let target = dir.path().join("out.jpg");
+            let options = ExportOptions {
+                metadata,
+                ..ExportOptions::default()
+            };
+            export_photo_with(
+                &CanonDecoder,
+                &Retoucher::new(None),
+                Path::new("IMG_0001.CR3"),
+                &target,
+                Some(&Settings::default()),
+                &options,
+                |_, _| {},
+            )
+            .expect("export");
+            std::fs::read(target).expect("read")
+        };
+        let contains =
+            |bytes: &[u8], text: &str| bytes.windows(text.len()).any(|w| w == text.as_bytes());
+
+        let all = export(MetadataOptions {
+            creator: "Ada Lovelace".into(),
+            ..MetadataOptions::default()
+        });
+        assert!(contains(&all, "Exif\0\0"));
+        assert!(contains(&all, "Canon EOS 250D"));
+        assert!(contains(&all, "2026:06:20 18:02:23"));
+        assert!(contains(&all, "Ada Lovelace"));
+
+        let mut copyright_only = MetadataOptions {
+            creator: "Ada Lovelace".into(),
+            ..MetadataOptions::default()
+        };
+        copyright_only.apply(crate::MetadataPreset::CopyrightOnly);
+        let bytes = export(copyright_only);
+        assert!(contains(&bytes, "Ada Lovelace"));
+        assert!(!contains(&bytes, "Canon EOS 250D"));
+
+        let mut none = MetadataOptions::default();
+        none.apply(crate::MetadataPreset::None);
+        let bytes = export(none);
+        assert!(!contains(&bytes, "Exif\0\0"));
+        assert!(contains(&bytes, "ICC_PROFILE"), "the profile stays");
     }
 
     #[test]

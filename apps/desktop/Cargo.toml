@@ -25,6 +25,12 @@ eframe.workspace = true
 rfd.workspace = true
 png.workspace = true
 
+[features]
+default = ["ai"]
+# The "Generative AI" removal method (neural inpainting, tract). Without it
+# generative removals use content-aware fill.
+ai = ["photonation-engine/ai"]
+
 [dev-dependencies]
 naga.workspace = true
 

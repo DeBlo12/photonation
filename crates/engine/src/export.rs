@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 The Photonation contributors
 
-use crate::{Decoder, RawDecoder};
+use crate::{Decoder, RawDecoder, Retoucher, default_model_path};
 use photonation_color::ColorSpace;
 use photonation_develop::{Settings, load_photo_settings};
 use photonation_export::Format;
@@ -39,6 +39,8 @@ pub enum ExportError {
     Render(#[from] photonation_pipeline::RenderError),
     #[error(transparent)]
     Encode(#[from] photonation_export::ExportError),
+    #[error("removal failed: {0}")]
+    Retouch(String),
 }
 
 /// Timings and size of one export.
@@ -75,7 +77,11 @@ pub fn unused_path(target: &Path) -> PathBuf {
 }
 
 /// Decodes, develops and writes one photo. `settings` overrides the
-/// sidecar (or the edits imported from Lightroom's); `adjust` runs on the settings after decoding (CLI overrides).
+/// sidecar (or the edits imported from Lightroom's); `adjust` runs on the
+/// settings after decoding (CLI overrides). Removals are filled with the
+/// default model location ([`default_model_path`]); batch callers should
+/// share one [`Retoucher`] through [`export_photo_with`] so the model loads
+/// once.
 pub fn export_photo(
     original: &Path,
     target: &Path,
@@ -83,12 +89,23 @@ pub fn export_photo(
     options: &ExportOptions,
     adjust: impl FnOnce(&mut Settings, &photonation_image::SensorImage),
 ) -> Result<ExportReport, ExportError> {
-    export_photo_with(&RawDecoder, original, target, settings, options, adjust)
+    let retoucher = Retoucher::new(default_model_path());
+    export_photo_with(
+        &RawDecoder,
+        &retoucher,
+        original,
+        target,
+        settings,
+        options,
+        adjust,
+    )
 }
 
-/// [`export_photo`] with the photo decoded by `decoder`.
+/// [`export_photo`] with the photo decoded by `decoder` and removals filled
+/// (or taken from the cache) by `retoucher`.
 pub fn export_photo_with(
     decoder: &dyn Decoder,
+    retoucher: &Retoucher,
     original: &Path,
     target: &Path,
     settings: Option<&Settings>,
@@ -114,7 +131,11 @@ pub fn export_photo_with(
         bit_depth: options.bit_depth,
         ..RenderOptions::default()
     };
-    let image = photonation_pipeline::render(&sensor, &settings, &render_options)?;
+    let fills = retoucher
+        .fill_missing(original, &sensor, &settings, || {})
+        .map_err(ExportError::Retouch)?;
+    let image =
+        photonation_pipeline::render_with_fills(&sensor, &settings, &fills, &render_options)?;
     let render = started.elapsed();
     drop(sensor);
 

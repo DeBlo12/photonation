@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 The Photonation contributors
 
-use crate::{MAX_MASKS, MAX_POINT_COLORS, Mask, PointColor};
+use crate::{MAX_MASKS, MAX_POINT_COLORS, MAX_REMOVALS, Mask, PointColor, Removal};
 use photonation_image::NormRect;
 use serde::{Deserialize, Serialize};
 
@@ -306,6 +306,9 @@ pub struct Settings {
     pub crop_angle: f32,
     /// Local adjustments, applied in order on top of the global ones.
     pub masks: Vec<Mask>,
+    /// Brushed areas replaced by a fill, applied in order before any
+    /// adjustment.
+    pub removals: Vec<Removal>,
 }
 
 impl Default for Settings {
@@ -332,6 +335,7 @@ impl Default for Settings {
             crop: None,
             crop_angle: 0.0,
             masks: Vec::new(),
+            removals: Vec::new(),
         }
     }
 }
@@ -399,6 +403,8 @@ impl Settings {
         s.point_colors = s.point_colors.iter().map(PointColor::sanitized).collect();
         s.masks.truncate(MAX_MASKS);
         s.masks = s.masks.iter().map(Mask::sanitized).collect();
+        s.removals.truncate(MAX_REMOVALS);
+        s.removals = s.removals.iter().map(Removal::sanitized).collect();
         s
     }
 }

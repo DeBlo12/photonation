@@ -31,5 +31,41 @@ jpeg-encoder: (MIT OR Apache-2.0) AND IJG
   Includes code derived from the Independent JPEG Group's software. This
   software is based in part on the work of the Independent JPEG Group.
 
+tract (https://github.com/sonos/tract), MIT OR Apache-2.0
+  Pure-Rust ONNX runtime, used by crates/retouch (feature "onnx") to run
+  neural inpainting models. Copyright the tract contributors / Sonos. Its
+  dependency tree is permissive: mostly MIT OR Apache-2.0, plus MIT-only
+  (bytes, nom, libm, metrics, derive-new, ...), Apache-2.0-only (prost,
+  prost-derive), Zlib (foldhash) and Unicode-3.0 (unicode-ident). None of
+  these crates ships an Apache NOTICE file that would have to be passed on.
+
 On macOS the desktop app loads the system font at run time; no system fonts
 are distributed with Photonation.
+
+Obligations when distributing binaries
+--------------------------------------
+
+MIT, BSD, Unicode-3.0 and the font licences require their copyright and
+permission notices to accompany every copy, and Apache-2.0 (section 4)
+requires a copy of the licence text. Source distributions satisfy this
+through the crates' own licence files. Binary distributions (app bundles,
+installers) must include the licence texts of every compiled-in crate, for
+example as a generated THIRD-PARTY-LICENSES file. We modify none of these
+crates; if that changes, Apache-2.0 section 4(b) requires the modified files
+to say so.
+
+Inpainting models (not distributed)
+-----------------------------------
+
+Photonation does not ship neural network weights. The "Generative AI"
+removal method loads a model file the user installs (see docs/RETOUCH.md):
+
+LaMa (https://github.com/advimman/lama), Apache-2.0
+  Resolution-robust Large Mask Inpainting with Fourier Convolutions,
+  Suvorov et al. 2021. ONNX exports are third-party conversions.
+
+MI-GAN (https://github.com/Picsart-AI-Research/MI-GAN), MIT
+  Mobile Inpainting GAN, Sargsyan et al. 2023, Picsart AI Research.
+
+Anyone who bundles one of these models with Photonation must include that
+model's licence (and, for LaMa, any NOTICE file of the upstream project).

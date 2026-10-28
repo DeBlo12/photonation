@@ -10,6 +10,7 @@ Crate: `photonation-engine`. Front ends talk to `RenderService` and receive
 | Preview | 1 | `PreviewJob::Render(PreviewRequest)`, `PreviewJob::Pick` (white balance or colour) | `PhotoLoaded`, `Preview`, `WhiteBalancePicked`, `ColorPicked`, `Error` |
 | Thumbnails | 2 | `ThumbnailJob` | `Thumbnail`, `Error` |
 | Export | 1 | `ExportJob` (a batch) | `ExportProgress`, `ExportFinished` |
+| Retouch | 1 | `RetouchJob::Fill`, `RetouchJob::Status` | `RemovalsFilled`, `ModelStatus`, `Error` |
 
 Every event send also calls the `notify` callback the front end passed in (the
 desktop app passes `ctx.request_repaint`), so the UI wakes up only when there is
@@ -37,10 +38,28 @@ loop:
 - **Overlays**: `PreviewRequest::point_color_overlay` renders one point
   colour's range instead of the edit (see docs/PIPELINE.md §5).
 
+## Removal fills (`retouch.rs`)
+
+One `Retoucher` is shared by all workers. It caches fills per photo (the 8
+most recent photos) by removal chain fingerprint, chooses the inpainter per
+removal (the generative model when loaded, else content-aware fill), and
+fills missing removals in order.
+
+- **Preview** renders with the cached fills and, if any are missing, sends
+  `RetouchJob::Fill` to the retouch worker instead of waiting.
+- **Retouch worker** keeps only the newest request of a burst, fills what is
+  missing and sends `RemovalsFilled` after each fill; the desktop then asks
+  for the same generation again. `RetouchJob::Status`
+  (`request_model_status`) loads the model if needed and answers with
+  `ModelStatus`.
+- **Thumbnails and exports** fill missing removals synchronously.
+
+See [RETOUCH.md](RETOUCH.md).
+
 ## Export (`export.rs: export_photo`)
 
-`decode → settings (explicit, or the sidecar, or Lightroom's) → optional adjust hook → render →
-encode → atomic write`. The CLI and the desktop export sheet both use it; the
+`decode → settings (explicit, or the sidecar, or Lightroom's) → optional adjust hook → fill
+removals → render → encode → atomic write`. The CLI and the desktop export sheet both use it; the
 CLI's slider overrides arrive through the adjust hook.
 
 ## History (`history.rs`)

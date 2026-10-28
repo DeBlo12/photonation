@@ -8,17 +8,21 @@
 //!   (latest-wins), so dragging a slider never queues stale renders.
 //! * Thumbnail workers: a small pool decoding and rendering small previews.
 //! * Export worker: one thread running export batches in order.
+//! * Retouch worker: one thread filling removals in the background (a
+//!   neural fill takes seconds), so previews never wait for them; it loads
+//!   the generative model too.
 //!
 //! Every job runs under [`isolate_panics`]: a decoder or pipeline bug hit
 //! by an unusual file becomes an [`Event::Error`] instead of silently
 //! killing the worker thread for the rest of the session.
 
 use crate::{
-    Decoder, ExportOptions, Histogram, RawDecoder, export_photo_with, output_path, unused_path,
+    Decoder, ExportOptions, Histogram, ModelStatus, RawDecoder, Retoucher, default_model_path,
+    export_photo_with, output_path, unused_path,
 };
 use photonation_develop::{OklabLch, Settings, WhiteBalance};
 use photonation_image::{CameraInfo, Pixels, SensorImage};
-use photonation_pipeline::{CameraModel, RenderOptions};
+use photonation_pipeline::{CameraModel, RemovalFills, RenderOptions};
 use std::any::Any;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
@@ -101,6 +105,14 @@ pub enum Event {
         exported: usize,
         failures: Vec<(PathBuf, String)>,
     },
+    /// More removal fills are ready for this photo; previews rendered
+    /// before lack them, so request another.
+    RemovalsFilled {
+        path: PathBuf,
+    },
+    /// The generative removal model's state, after a status request or
+    /// when it changes.
+    ModelStatus(ModelStatus),
     Error {
         path: Option<PathBuf>,
         message: String,
@@ -132,6 +144,16 @@ struct ThumbnailJob {
     settings: Settings,
 }
 
+enum RetouchJob {
+    Fill {
+        path: PathBuf,
+        sensor: Arc<SensorImage>,
+        settings: Box<Settings>,
+    },
+    /// Load the model if needed and report its status.
+    Status,
+}
+
 struct ExportJob {
     photos: Vec<(PathBuf, Option<Settings>)>,
     directory: PathBuf,
@@ -158,6 +180,7 @@ pub struct RenderService {
     previews: Sender<PreviewJob>,
     thumbnails: Sender<ThumbnailJob>,
     exports: Sender<ExportJob>,
+    retouches: Sender<RetouchJob>,
     events: Receiver<Event>,
 }
 
@@ -172,40 +195,70 @@ impl RenderService {
         decoder: Arc<dyn Decoder>,
         notify: impl Fn() + Send + Sync + 'static,
     ) -> RenderService {
+        let retoucher = Arc::new(Retoucher::new(default_model_path()));
+        RenderService::with_parts(decoder, retoucher, notify)
+    }
+
+    /// A service with its own decoder and removal filler.
+    pub fn with_parts(
+        decoder: Arc<dyn Decoder>,
+        retoucher: Arc<Retoucher>,
+        notify: impl Fn() + Send + Sync + 'static,
+    ) -> RenderService {
         let (event_sender, events) = channel();
         let sink = EventSink {
             sender: event_sender,
             notify: Arc::new(notify),
         };
 
+        let (retouches, retouch_jobs) = channel();
+        let (retouch_sink, retouch_retoucher) = (sink.clone(), retoucher.clone());
+        std::thread::Builder::new()
+            .name("retouch".into())
+            .spawn(move || retouch_worker(retouch_jobs, &retouch_retoucher, retouch_sink))
+            .expect("spawning the retouch thread");
+
         let (previews, preview_jobs) = channel();
-        let (preview_sink, preview_decoder) = (sink.clone(), decoder.clone());
+        let preview = PreviewContext {
+            decoder: decoder.clone(),
+            retoucher: retoucher.clone(),
+            retouches: retouches.clone(),
+            sink: sink.clone(),
+        };
         std::thread::Builder::new()
             .name("preview".into())
-            .spawn(move || preview_worker(preview_jobs, &*preview_decoder, preview_sink))
+            .spawn(move || preview_worker(preview_jobs, &preview))
             .expect("spawning the preview thread");
 
         let (thumbnails, thumbnail_jobs) = channel::<ThumbnailJob>();
         let thumbnail_jobs = Arc::new(Mutex::new(thumbnail_jobs));
         for index in 0..THUMBNAIL_WORKERS {
             let (jobs, thumbnail_sink) = (thumbnail_jobs.clone(), sink.clone());
-            let thumbnail_decoder = decoder.clone();
+            let (thumbnail_decoder, thumbnail_retoucher) = (decoder.clone(), retoucher.clone());
             std::thread::Builder::new()
                 .name(format!("thumbnail-{index}"))
-                .spawn(move || thumbnail_worker(jobs, &*thumbnail_decoder, thumbnail_sink))
+                .spawn(move || {
+                    thumbnail_worker(
+                        jobs,
+                        &*thumbnail_decoder,
+                        &thumbnail_retoucher,
+                        thumbnail_sink,
+                    )
+                })
                 .expect("spawning a thumbnail thread");
         }
 
         let (exports, export_jobs) = channel();
         std::thread::Builder::new()
             .name("export".into())
-            .spawn(move || export_worker(export_jobs, &*decoder, sink))
+            .spawn(move || export_worker(export_jobs, &*decoder, &retoucher, sink))
             .expect("spawning the export thread");
 
         RenderService {
             previews,
             thumbnails,
             exports,
+            retouches,
             events,
         }
     }
@@ -237,6 +290,12 @@ impl RenderService {
                 kind,
             }))
             .ok();
+    }
+
+    /// Loads the generative removal model in the background if needed;
+    /// answers with [`Event::ModelStatus`].
+    pub fn request_model_status(&self) {
+        self.retouches.send(RetouchJob::Status).ok();
     }
 
     /// Exports photos (with explicit settings, or `None` to use each sidecar).
@@ -295,9 +354,10 @@ fn to_rendered(image: photonation_image::OutputImage) -> RenderedImage {
 fn render_rgb8(
     sensor: &SensorImage,
     settings: &Settings,
+    fills: &RemovalFills,
     options: &RenderOptions,
 ) -> Result<RenderedImage, String> {
-    photonation_pipeline::render(sensor, settings, options)
+    photonation_pipeline::render_with_fills(sensor, settings, fills, options)
         .map(to_rendered)
         .map_err(|e| e.to_string())
 }
@@ -339,7 +399,17 @@ fn load_photo(
     Ok(sensor)
 }
 
-fn preview_worker(jobs: Receiver<PreviewJob>, decoder: &dyn Decoder, sink: EventSink) {
+/// What the preview worker works with.
+struct PreviewContext {
+    decoder: Arc<dyn Decoder>,
+    retoucher: Arc<Retoucher>,
+    /// Missing removal fills are requested here.
+    retouches: Sender<RetouchJob>,
+    sink: EventSink,
+}
+
+fn preview_worker(jobs: Receiver<PreviewJob>, context: &PreviewContext) {
+    let (decoder, sink) = (&*context.decoder, &context.sink);
     let mut current: Option<CurrentPhoto> = None;
     while let Ok(first) = jobs.recv() {
         // Collapse the burst: newest render per kind, every picker click.
@@ -358,7 +428,7 @@ fn preview_worker(jobs: Receiver<PreviewJob>, decoder: &dyn Decoder, sink: Event
         for pick in picks {
             let path = pick.path.clone();
             let picked = isolate_panics(|| {
-                let sensor = load_photo(&mut current, &pick.path, decoder, &sink)?;
+                let sensor = load_photo(&mut current, &pick.path, decoder, sink)?;
                 Ok(measure(&sensor, pick))
             });
             match picked {
@@ -372,13 +442,28 @@ fn preview_worker(jobs: Receiver<PreviewJob>, decoder: &dyn Decoder, sink: Event
         }
         for request in [latest_edited, latest_before].into_iter().flatten() {
             let rendered = isolate_panics(|| {
-                let sensor = load_photo(&mut current, &request.path, decoder, &sink)?;
+                let sensor = load_photo(&mut current, &request.path, decoder, sink)?;
+                // Render with the fills at hand; missing ones are filled in
+                // the background and announced with RemovalsFilled.
+                let retoucher = &context.retoucher;
+                if !retoucher
+                    .missing(&request.path, &request.settings)
+                    .is_empty()
+                {
+                    let fill = RetouchJob::Fill {
+                        path: request.path.clone(),
+                        sensor: sensor.clone(),
+                        settings: Box::new(request.settings.clone()),
+                    };
+                    context.retouches.send(fill).ok();
+                }
+                let fills = retoucher.cached_fills(&request.path, &request.settings);
                 let options = RenderOptions {
                     long_edge: request.long_edge,
                     point_color_overlay: request.point_color_overlay,
                     ..RenderOptions::default()
                 };
-                render_rgb8(&sensor, &request.settings, &options)
+                render_rgb8(&sensor, &request.settings, &fills, &options)
             });
             match rendered {
                 Ok(image) => sink.send(Event::Preview {
@@ -421,6 +506,7 @@ fn measure(sensor: &SensorImage, pick: PickJob) -> Option<Event> {
 fn thumbnail_worker(
     jobs: Arc<Mutex<Receiver<ThumbnailJob>>>,
     decoder: &dyn Decoder,
+    retoucher: &Retoucher,
     sink: EventSink,
 ) {
     loop {
@@ -432,12 +518,13 @@ fn thumbnail_worker(
         let Ok(job) = job else { return };
         let rendered = isolate_panics(|| {
             let sensor = decoder.decode(&job.path).map_err(|e| e.to_string())?;
+            let fills = retoucher.fill_missing(&job.path, &sensor, &job.settings, || {})?;
             let options = RenderOptions {
                 long_edge: Some(THUMBNAIL_LONG_EDGE),
                 sharpen: false,
                 ..RenderOptions::default()
             };
-            render_rgb8(&sensor, &job.settings, &options)
+            render_rgb8(&sensor, &job.settings, &fills, &options)
         });
         match rendered {
             Ok(image) => sink.send(Event::Thumbnail {
@@ -452,7 +539,12 @@ fn thumbnail_worker(
     }
 }
 
-fn export_worker(jobs: Receiver<ExportJob>, decoder: &dyn Decoder, sink: EventSink) {
+fn export_worker(
+    jobs: Receiver<ExportJob>,
+    decoder: &dyn Decoder,
+    retoucher: &Retoucher,
+    sink: EventSink,
+) {
     for job in jobs {
         let total = job.photos.len();
         let mut failures = Vec::new();
@@ -462,6 +554,7 @@ fn export_worker(jobs: Receiver<ExportJob>, decoder: &dyn Decoder, sink: EventSi
             let exported = isolate_panics(|| {
                 export_photo_with(
                     decoder,
+                    retoucher,
                     path,
                     &target,
                     settings.as_ref(),
@@ -479,6 +572,50 @@ fn export_worker(jobs: Receiver<ExportJob>, decoder: &dyn Decoder, sink: EventSi
             exported: total - failures.len(),
             failures,
         });
+    }
+}
+
+/// Fills removals in the background: for each burst, only the newest
+/// request (older ones describe settings the user has moved on from).
+fn retouch_worker(jobs: Receiver<RetouchJob>, retoucher: &Retoucher, sink: EventSink) {
+    let mut reported: Option<ModelStatus> = None;
+    while let Ok(first) = jobs.recv() {
+        let mut latest_fill = None;
+        let mut status_requested = false;
+        for job in std::iter::once(first).chain(jobs.try_iter()) {
+            match job {
+                RetouchJob::Fill {
+                    path,
+                    sensor,
+                    settings,
+                } => latest_fill = Some((path, sensor, settings)),
+                RetouchJob::Status => status_requested = true,
+            }
+        }
+        if status_requested {
+            let status = isolate_panics(|| Ok(retoucher.ensure_model()))
+                .unwrap_or_else(|message| ModelStatus::Failed { message });
+            sink.send(Event::ModelStatus(status.clone()));
+            reported = Some(status);
+        }
+        if let Some((path, sensor, settings)) = latest_fill {
+            let filled = isolate_panics(|| {
+                retoucher.fill_missing(&path, &sensor, &settings, || {
+                    sink.send(Event::RemovalsFilled { path: path.clone() })
+                })
+            });
+            if let Err(message) = filled {
+                sink.send(Event::Error {
+                    path: Some(path),
+                    message,
+                });
+            }
+            let status = retoucher.model_status();
+            if reported.as_ref() != Some(&status) {
+                sink.send(Event::ModelStatus(status.clone()));
+                reported = Some(status);
+            }
+        }
     }
 }
 

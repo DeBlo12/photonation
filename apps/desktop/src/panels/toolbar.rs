@@ -90,6 +90,15 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
                     {
                         app.view.toggle_cropping();
                     }
+                    if ui
+                        .add_enabled_ui(has_photo, |ui| {
+                            tool_button(ui, "Remove", app.view.show_removals, "Remove objects (Q)")
+                        })
+                        .inner
+                        .clicked()
+                    {
+                        app.view.toggle_removals();
+                    }
                     ui.add_space(8.0);
                     if ui
                         .add_enabled(app.history.can_redo(), tool_button_widget("↷"))

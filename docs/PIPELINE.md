@@ -25,6 +25,7 @@ display-ready image. This document follows that call from start to finish.
 | Stage | Kind | Halo (rows) | Present when |
 |---|---|---|---|
 | `SensorSource` | source | 2 (MHC, neighbour average), 0 otherwise | always |
+| `Retouch` | point | 0 | a removal has a fill (`render_with_fills`) |
 | `Develop` | point | 0 | always |
 | `LocalContrast` | spatial | 3 × box radius | Texture or Clarity ≠ 0 |
 | `Straighten` (bicubic) | spatial | the frame's tilt across the band, + 2 | crop angle ≠ 0 |
@@ -59,6 +60,17 @@ instead of turning magenta.
 Mosaic-based methods first build a **padded mosaic** for the band: normalized
 samples plus a mirrored halo, together with each padded sample's true colour.
 Demosaicing then reads a 5×5 neighbourhood per pixel.
+
+## 3b. Removal fills (`retouch.rs`)
+
+`render_with_fills` takes the removals' precomputed fills (`RetouchPatch`:
+linear camera RGB before white balance, on a sensor rectangle). The
+`Retouch` point stage samples each patch bilinearly, applies the white
+balance multipliers and clip exactly as the source does, and blends it in by
+the removal's brush weight. Because this happens before the develop stage,
+every adjustment applies to the fill as to the rest of the photo. Computing
+fills is non-local and happens outside the render; see
+[RETOUCH.md](RETOUCH.md). `render` is `render_with_fills` without fills.
 
 ## 4. Colour model (`camera.rs`)
 

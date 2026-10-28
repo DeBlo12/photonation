@@ -43,6 +43,17 @@ loop:
 encode → atomic write`. The CLI and the desktop export sheet both use it; the
 CLI's slider overrides arrive through the adjust hook.
 
+**File names** (`export_file_stem`, `output_path`). `ExportOptions::file_name`
+is a template: `{name}` becomes the original's file name without extension,
+`{n}` the photo's number in the batch (from 1, zero-padded to the batch
+size's width, so `Trip {n}` gives `Trip 01` … `Trip 12`). A batch whose
+template has neither token gets `-{n}` appended so the files stay distinct.
+The result is always one plain file name in the chosen folder: `/`, `\`, `:`
+and control characters become `-`, leading dots and surrounding spaces are
+dropped, it is cut at 200 characters, and an empty name falls back to the
+original's. Exports never replace a file (`unused_path` adds `-2`, `-3`, …).
+The CLI takes the template as `--name`.
+
 ## History (`history.rs`)
 
 Undo/redo of whole `Settings` values. Front ends call `commit(&settings)` when an

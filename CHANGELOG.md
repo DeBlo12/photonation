@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Export file names: the export sheet and `photonation export --name` take
+  a name, or a template with `{name}` (original name) and `{n}` (number in
+  the batch); the sheet previews the resulting file name.
 - Raw decoding for Bayer cameras, Fujifilm X-Trans and linear DNG (Apple ProRAW),
   with EXIF orientation and DNG baseline exposure.
 - Band-parallel develop pipeline: white balance, exposure, contrast,

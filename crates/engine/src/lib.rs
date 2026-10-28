@@ -15,8 +15,8 @@ mod service;
 
 pub use decoder::{Decoder, RawDecoder};
 pub use export::{
-    ExportError, ExportOptions, ExportReport, export_photo, export_photo_with, output_path,
-    unused_path,
+    ExportError, ExportOptions, ExportReport, NAME_TOKEN, NUMBER_TOKEN, export_file_stem,
+    export_photo, export_photo_with, output_path, unused_path,
 };
 pub use histogram::Histogram;
 pub use history::History;

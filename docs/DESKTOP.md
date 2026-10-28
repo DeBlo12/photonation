@@ -38,7 +38,7 @@ each other.
 | `photo_frame.rs` | Screen ↔ photo positions for the displayed crop (handles, overlay, crop tool) |
 | `gpu/mask_overlay.rs`, `.wgsl` | The selected mask's tint over the photo, evaluated per pixel on the GPU |
 | `gpu/mod.rs` | Graphics adapter choice and texture limits |
-| `panels/export.rs` | Export sheet (format, quality, size, colour space, scope) |
+| `panels/export.rs` | Export sheet (format, quality, size, colour space, scope, file name with a preview of the result) |
 | `widgets/*` | Custom controls: adjustment slider, section card, toggle, segmented control, curve editor, colour wheel, histogram |
 | `theme.rs` | Every colour and metric |
 

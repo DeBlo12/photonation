@@ -262,6 +262,7 @@ pub fn color_at(sensor: &SensorImage, settings: &Settings, point: [f64; 2]) -> O
     let size = source.size();
     let local = masks::LocalAdjust::new(
         &settings.masks,
+        &settings.mask_groups,
         sensor,
         masks::PixelToMask::new(sensor, source.region(), size),
     );
@@ -371,6 +372,7 @@ fn build_graph<'a>(
     );
     let local = masks::LocalAdjust::new(
         &settings.masks,
+        &settings.mask_groups,
         sensor,
         masks::PixelToMask::new(sensor, source_region, graph.size()),
     );

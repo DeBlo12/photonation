@@ -17,7 +17,7 @@ pub use histogram::histogram;
 pub use section::{SectionAction, section};
 pub use segmented::segmented;
 pub use slider::{SliderStyle, Track, adjustment_slider};
-pub use toggle::toggle;
+pub use toggle::{TOGGLE_SIZE, toggle};
 pub use wheel::color_wheel;
 
 use eframe::egui::{Color32, Rgba};

@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 The Photonation contributors
 
-use crate::{MAX_MASKS, MAX_POINT_COLORS, MAX_REMOVALS, Mask, PointColor, Removal};
+use crate::{
+    MAX_MASKS, MAX_POINT_COLORS, MAX_REMOVALS, Mask, MaskGroup, PointColor, Removal, rendered_masks,
+};
 use photonation_image::NormRect;
 use serde::{Deserialize, Serialize};
 
@@ -306,6 +308,10 @@ pub struct Settings {
     pub crop_angle: f32,
     /// Local adjustments, applied in order on top of the global ones.
     pub masks: Vec<Mask>,
+    /// Folders of masks (`Mask::group` indexes this list); left out of
+    /// sidecars while empty.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub mask_groups: Vec<MaskGroup>,
     /// Brushed areas replaced by a fill, applied in order before any
     /// adjustment.
     pub removals: Vec<Removal>,
@@ -335,12 +341,19 @@ impl Default for Settings {
             crop: None,
             crop_angle: 0.0,
             masks: Vec::new(),
+            mask_groups: Vec::new(),
             removals: Vec::new(),
         }
     }
 }
 
 impl Settings {
+    /// The masks as they render, with their groups' switches and amounts
+    /// applied ([`Mask::rendered`]).
+    pub fn rendered_masks(&self) -> Vec<Mask> {
+        rendered_masks(&self.masks, &self.mask_groups)
+    }
+
     /// Clamps every value into its control's range and repairs non-finite input.
     pub fn sanitized(&self) -> Settings {
         let mut s = self.clone();
@@ -403,6 +416,7 @@ impl Settings {
         s.point_colors = s.point_colors.iter().map(PointColor::sanitized).collect();
         s.masks.truncate(MAX_MASKS);
         s.masks = s.masks.iter().map(Mask::sanitized).collect();
+        crate::sanitize_groups(&mut s.masks, &mut s.mask_groups);
         s.removals.truncate(MAX_REMOVALS);
         s.removals = s.removals.iter().map(Removal::sanitized).collect();
         s
@@ -463,6 +477,63 @@ mod tests {
         }
         .sanitized();
         assert_eq!(s.masks.len(), MAX_MASKS);
+    }
+
+    #[test]
+    fn flat_mask_lists_from_older_sidecars_load_ungrouped_and_write_back_unchanged() {
+        let json = r#"{"masks": [
+            {"name": "Sky", "shape": {"kind": "linear"}, "adjustments": {"exposure": -0.5}},
+            {"name": "Face", "components": [{"shape": {"kind": "radial"}}], "amount": 40}
+        ]}"#;
+        let s: Settings = serde_json::from_str(json).expect("parse");
+        assert_eq!(s.masks.len(), 2);
+        assert!(s.masks.iter().all(|mask| mask.group.is_none()));
+        assert!(s.mask_groups.is_empty());
+        assert_eq!(s.rendered_masks(), s.masks, "they render as they are");
+        assert_eq!(s.sanitized().masks, s.masks);
+        // Without groups, sidecars look exactly like before groups existed.
+        let written = serde_json::to_string(&s).expect("serialize");
+        assert!(
+            !written.contains("group"),
+            "no group fields while ungrouped: {written}"
+        );
+    }
+
+    #[test]
+    fn grouped_masks_round_trip() {
+        let s = Settings {
+            masks: vec![
+                Mask::default(),
+                Mask {
+                    group: Some(0),
+                    ..Mask::default()
+                },
+            ],
+            mask_groups: vec![MaskGroup {
+                amount: 50.0,
+                ..MaskGroup::new("People")
+            }],
+            ..Settings::default()
+        };
+        let written = serde_json::to_string(&s).expect("serialize");
+        let back: Settings = serde_json::from_str(&written).expect("parse");
+        assert_eq!(back, s);
+        assert_eq!(back.sanitized(), s);
+    }
+
+    #[test]
+    fn sanitize_drops_groups_without_masks() {
+        let s = Settings {
+            masks: vec![Mask {
+                group: Some(1),
+                ..Mask::default()
+            }],
+            mask_groups: vec![MaskGroup::new("Empty"), MaskGroup::new("Used")],
+            ..Settings::default()
+        }
+        .sanitized();
+        assert_eq!(s.mask_groups, [MaskGroup::new("Used")]);
+        assert_eq!(s.masks[0].group, Some(0));
     }
 
     #[test]

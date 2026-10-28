@@ -6,17 +6,32 @@
 //! then quits. Used to check the UI and to produce documentation images.
 //! `PHOTONATION_SCREENSHOT_PANELS=Curves,Color Grading` chooses which
 //! adjustment cards are open; `PHOTONATION_SCREENSHOT_MASKS=1` opens the
-//! masks panel with the first mask selected; `PHOTONATION_SCREENSHOT_CROP=1`
+//! masks panel with the first mask selected (`=group`: the first mask
+//! group); `PHOTONATION_SCREENSHOT_CROP=1`
 //! opens the crop tool; `PHOTONATION_SCREENSHOT_POINT_COLOR=1` opens the
 //! Color Mixer's Point Color tab (`=range` also shows the first point
-//! colour's range); `PHOTONATION_SCREENSHOT_EXPORT=1` opens the export sheet.
+//! colour's range); `PHOTONATION_SCREENSHOT_SIDEBAR=280` starts the sidebar
+//! at that width; `PHOTONATION_SCREENSHOT_EXPORT=1` opens the export sheet.
 
 use eframe::egui;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 /// Give up waiting for everything to settle after this long.
 const TIMEOUT: Duration = Duration::from_secs(20);
+
+/// The sidebar's starting width: `PHOTONATION_SCREENSHOT_SIDEBAR`, so
+/// narrow and wide layouts can be checked, else the usual default.
+pub fn sidebar_width() -> f32 {
+    static WIDTH: OnceLock<f32> = OnceLock::new();
+    *WIDTH.get_or_init(|| {
+        std::env::var("PHOTONATION_SCREENSHOT_SIDEBAR")
+            .ok()
+            .and_then(|width| width.trim().parse().ok())
+            .unwrap_or(crate::theme::SIDEBAR_WIDTH)
+    })
+}
 
 pub struct Screenshot {
     path: PathBuf,
@@ -42,9 +57,13 @@ impl Screenshot {
         if std::env::var_os("PHOTONATION_SCREENSHOT_EXPORT").is_some() {
             view.show_export = true;
         }
-        if std::env::var_os("PHOTONATION_SCREENSHOT_MASKS").is_some() {
+        if let Some(masks) = std::env::var_os("PHOTONATION_SCREENSHOT_MASKS") {
             view.show_masks = true;
-            view.selected_mask = Some(crate::app::MaskSelection::mask(0));
+            if masks == "group" {
+                view.mask_groups.selected = Some(0);
+            } else {
+                view.selected_mask = Some(crate::app::MaskSelection::mask(0));
+            }
         }
         if let Some(point_color) = std::env::var_os("PHOTONATION_SCREENSHOT_POINT_COLOR") {
             view.mixer_tab = crate::app::POINT_COLOR_TAB;

@@ -3,8 +3,9 @@
 
 //! Small pictures of what each mask selects, for the layer list: a tint
 //! drawn over the photo's thumbnail. They are computed on the CPU at
-//! thumbnail size (a few thousand pixels) and cached until the mask, the
-//! crop or the size changes.
+//! thumbnail size (a few thousand pixels) and cached until the mask's
+//! shapes, the crop or the size changes; how strongly they are drawn
+//! follows the mask's amount and visibility ([`tint_strength`]).
 
 use crate::photo_frame::PhotoFrame;
 use crate::theme;
@@ -13,6 +14,25 @@ use photonation_develop::Mask;
 use photonation_pipeline::masks::MaskWeight;
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
+
+/// Pictures of masks that don't render (switched off, or in a group that
+/// is) are drawn this much as strongly.
+pub const HIDDEN_OPACITY: f32 = 0.4;
+/// The faintest tint, so a mask at 0 % still shows what it selects.
+const MIN_TINT_STRENGTH: f32 = 0.25;
+
+/// How strongly to draw a mask's tint, in its thumbnail and as the overlay
+/// on the photo, for the mask as it renders ([`Mask::rendered`]): by its
+/// amount (its own times its group's), and fainter when it is hidden.
+pub fn tint_strength(rendered: &Mask) -> f32 {
+    let amount = (rendered.amount / 100.0).clamp(0.0, 1.0);
+    let strength = MIN_TINT_STRENGTH + (1.0 - MIN_TINT_STRENGTH) * amount;
+    if rendered.enabled {
+        strength
+    } else {
+        strength * HIDDEN_OPACITY
+    }
+}
 
 /// Tint textures by what they show. Textures not asked for during a frame
 /// are dropped at its end.

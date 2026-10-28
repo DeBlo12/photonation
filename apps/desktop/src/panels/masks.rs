@@ -3,13 +3,18 @@
 
 //! The masks panel. While masking it takes the place of the adjustment
 //! cards in the sidebar: a layer list (what each mask selects over the
-//! photo, its name, shapes and amount, and a visibility switch; drag a row
-//! to reorder, right-click for more), then the selected mask's shapes,
-//! settings and local adjustments. Shapes are edited by dragging their
-//! handles in the viewer (`mask_handles.rs`). See docs/DESKTOP.md.
+//! photo, its name, shapes and amount, and a visibility switch; masks can
+//! be gathered in collapsible groups, `groups.rs`; drag a row to reorder,
+//! right-click for more), then the selected mask's shapes, settings and
+//! local adjustments, or the selected group's settings. Shapes are edited
+//! by dragging their handles in the viewer (`mask_handles.rs`). See
+//! docs/DESKTOP.md.
+
+pub mod groups;
 
 use crate::app::{MaskSelection, PhotonationApp, ViewState};
 use crate::panels::adjustments::{control_slider, style_for};
+use crate::panels::mask_thumbnails::{HIDDEN_OPACITY, tint_strength};
 use crate::panels::tool_button;
 use crate::panels::viewer::photo_frame;
 use crate::theme;
@@ -18,9 +23,11 @@ use eframe::egui::{
     self, Align, Color32, CornerRadius, Layout, Rect, RichText, Sense, Stroke, StrokeKind,
     TextureId, Ui, pos2, vec2,
 };
+use groups::{GROUP_INDENT, LayerAction, Layers, ListRow};
 use photonation_develop::{
     CombineMode, LOCAL_CONTROLS, LinearGradient, LocalAdjustments, MAX_MASK_COMPONENTS,
-    MAX_MASK_NAME_CHARS, MAX_MASKS, Mask, MaskComponent, MaskShape, RadialGradient,
+    MAX_MASK_GROUPS, MAX_MASK_NAME_CHARS, MAX_MASKS, Mask, MaskComponent, MaskGroup, MaskShape,
+    RadialGradient, group_members,
 };
 
 const ROW_HEIGHT: f32 = 46.0;
@@ -30,25 +37,38 @@ const THUMB_WIDTH: std::ops::RangeInclusive<f32> = 26.0..=60.0;
 /// Rendered mask tints are this many times the thumbnail's point size.
 const THUMB_PIXELS_PER_POINT: f32 = 2.0;
 
-/// Changes to the layer list, applied after it is drawn.
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum LayerAction {
-    Select(usize),
-    Duplicate(usize),
-    Delete(usize),
-    /// Move a mask to a slot `0..=len` (before the mask at that index).
-    Move {
-        from: usize,
-        to_slot: usize,
-    },
-}
-
 pub fn show(app: &mut PhotonationApp, ui: &mut Ui) {
     ui.spacing_mut().item_spacing.y = 8.0;
+    // A mask picked on the photo replaces a selected group.
+    if app.view.selected_mask.is_some() {
+        app.view.mask_groups.selected = None;
+    }
+    let mut action = None;
     card(ui, |ui| {
-        header(&mut app.settings.masks, &mut app.view, ui);
-        layer_list(app, ui);
+        action = header(&app.settings, &mut app.view, ui);
+        if let Some(chosen) = layer_list(app, ui) {
+            action = Some(chosen);
+        }
     });
+    if let Some(group) = app.view.mask_groups.selected
+        && group < app.settings.mask_groups.len()
+    {
+        let members = group_members(&app.settings.masks, group).len();
+        card(ui, |ui| {
+            if let Some(chosen) = groups::group_settings(
+                &mut app.settings.mask_groups[group],
+                group,
+                members,
+                &mut app.view.mask_groups.focus_name,
+                ui,
+            ) {
+                action = Some(chosen);
+            }
+        });
+    }
+    if let Some(action) = action {
+        layers(app).apply(action);
+    }
     let Some(selection) = app.view.selected_mask else {
         return;
     };
@@ -65,11 +85,16 @@ pub fn show(app: &mut PhotonationApp, ui: &mut Ui) {
     let mut delete = false;
     card(ui, |ui| delete = adjustments(mask, ui));
     if delete {
-        remove_mask(
-            &mut app.settings.masks,
-            &mut app.view.selected_mask,
-            selection.mask,
-        );
+        layers(app).apply(LayerAction::Delete(selection.mask));
+    }
+}
+
+fn layers(app: &mut PhotonationApp) -> Layers<'_> {
+    Layers {
+        masks: &mut app.settings.masks,
+        groups: &mut app.settings.mask_groups,
+        selection: &mut app.view.selected_mask,
+        view: &mut app.view.mask_groups,
     }
 }
 
@@ -80,7 +105,14 @@ pub fn card(ui: &mut Ui, content: impl FnOnce(&mut Ui)) {
     });
 }
 
-fn header(masks: &mut Vec<Mask>, view: &mut ViewState, ui: &mut Ui) {
+/// The title, Done, and the buttons that add masks and groups.
+fn header(
+    settings: &photonation_develop::Settings,
+    view: &mut ViewState,
+    ui: &mut Ui,
+) -> Option<LayerAction> {
+    let masks = &settings.masks;
+    let mut action = None;
     ui.horizontal(|ui| {
         ui.label(RichText::new("Masks").size(14.0).color(theme::TEXT));
         ui.label(
@@ -105,16 +137,29 @@ fn header(masks: &mut Vec<Mask>, view: &mut ViewState, ui: &mut Ui) {
                 )
                 .clicked()
                 {
-                    add_mask(masks, &mut view.selected_mask, shape);
+                    action = Some(LayerAction::Add(shape));
                     // Show what the new mask selects; its adjustments start neutral.
                     view.mask_overlay = true;
                 }
             }
         });
+        let selected = view.selected_mask.map(|selection| selection.mask);
+        ui.add_enabled_ui(
+            selected.is_some() && settings.mask_groups.len() < MAX_MASK_GROUPS,
+            |ui| {
+                if tool_button(ui, "+ Group", false, "Put the selected mask in a new group")
+                    .clicked()
+                    && let Some(mask) = selected
+                {
+                    action = Some(LayerAction::NewGroup(mask));
+                }
+            },
+        );
     });
     if masks.is_empty() {
         hint(ui, "Add a gradient, then drag its handles in the photo.");
     }
+    action
 }
 
 /// One of each shape, as new masks and new shapes start.
@@ -176,7 +221,9 @@ fn summary(mask: &Mask) -> String {
     parts.join(" · ")
 }
 
-fn layer_list(app: &mut PhotonationApp, ui: &mut Ui) {
+/// The rows: masks, and group headers with their masks beneath. Returns
+/// the edit the user asked for.
+fn layer_list(app: &mut PhotonationApp, ui: &mut Ui) -> Option<LayerAction> {
     // What the thumbnails need: the photo's thumbnail and where it sits.
     let photo = app
         .current
@@ -196,114 +243,169 @@ fn layer_list(app: &mut PhotonationApp, ui: &mut Ui) {
     let tint_size = [tint_pixels.x as usize, tint_pixels.y as usize];
 
     let masks = &mut app.settings.masks;
+    let groups = &mut app.settings.mask_groups;
     let view = &mut app.view;
     let selected = view.selected_mask.map(|selection| selection.mask);
-    let count = masks.len();
-    let mut rows = Vec::with_capacity(count);
+    let rows = groups::list_rows(masks, &view.mask_groups.collapsed);
+    let mut placed = Vec::with_capacity(rows.len());
     let mut action = None;
     // (row, pointer height) while a row is dragged, and when it is dropped.
     let mut dragging = None;
     let mut dropped = None;
-    for (index, mask) in masks.iter_mut().enumerate() {
-        let tint = frame.map(|frame| view.mask_thumbnails.tint(ui.ctx(), mask, frame, tint_size));
-        let picture = Picture {
-            photo,
-            tint,
-            size: thumb_size,
+    for row in rows {
+        let response = match row {
+            ListRow::Group(group) => {
+                let members = group_members(masks, group).len();
+                let collapsed = view.mask_groups.collapsed.contains(&group);
+                let (response, fold) = groups::group_row(
+                    ui,
+                    &mut groups[group],
+                    group,
+                    members,
+                    view.mask_groups.selected == Some(group),
+                    collapsed,
+                );
+                if fold {
+                    action = Some(LayerAction::ToggleCollapsed(group));
+                } else if response.double_clicked() {
+                    action = Some(LayerAction::RenameGroup(group));
+                } else if response.clicked() {
+                    action = Some(LayerAction::SelectGroup(group));
+                }
+                response.context_menu(|ui| {
+                    if let Some(chosen) = groups::group_menu(ui, group, collapsed) {
+                        action = Some(chosen);
+                        ui.close();
+                    }
+                });
+                response
+            }
+            ListRow::Mask(index) => {
+                let steps = [true, false].map(|up| groups::step_slot(masks, index, up));
+                let rendered = masks[index].rendered(groups);
+                let mask = &mut masks[index];
+                let tint =
+                    frame.map(|frame| view.mask_thumbnails.tint(ui.ctx(), mask, frame, tint_size));
+                let picture = Picture {
+                    photo,
+                    tint,
+                    size: thumb_size,
+                    shown: rendered.enabled,
+                    tint_strength: tint_strength(&rendered),
+                };
+                let grouped = mask.group.is_some();
+                let draw = |ui: &mut Ui| {
+                    layer_row(ui, &mut *mask, index, selected == Some(index), picture)
+                };
+                let response = if grouped {
+                    ui.horizontal(|ui| {
+                        ui.add_space(GROUP_INDENT - ui.spacing().item_spacing.x);
+                        draw(ui)
+                    })
+                    .inner
+                } else {
+                    draw(ui)
+                };
+                if response.clicked() {
+                    action = Some(LayerAction::Select(index));
+                }
+                response.context_menu(|ui| {
+                    if let Some(chosen) = row_menu(ui, masks, groups, index, steps) {
+                        action = Some(chosen);
+                        ui.close();
+                    }
+                });
+                response
+            }
         };
-        let response = layer_row(ui, mask, index, selected == Some(index), picture);
-        rows.push(response.rect);
-        if response.clicked() {
-            action = Some(LayerAction::Select(index));
-        }
         let pointer_y = response
             .interact_pointer_pos()
             .or_else(|| ui.input(|i| i.pointer.latest_pos()))
             .map(|p| p.y);
         if response.dragged() {
-            dragging = pointer_y.map(|y| (index, y));
+            dragging = pointer_y.map(|y| (row, y));
         }
         if response.drag_stopped() {
-            dropped = pointer_y.map(|y| (index, y));
+            dropped = pointer_y.map(|y| (row, y));
         }
-        response.context_menu(|ui| {
-            if let Some(chosen) = row_menu(ui, mask, index, count) {
-                action = Some(chosen);
-                ui.close();
-            }
-        });
+        placed.push((row, response.rect));
     }
     view.mask_thumbnails.end_frame();
-    // Slots need every row's place, so drags resolve after the list.
-    if let Some((from, y)) = dropped {
-        action = Some(LayerAction::Move {
-            from,
-            to_slot: drop_slot(&rows, y),
-        });
+    paint_group_guides(ui, masks, &placed);
+    // Targets need every row's place, so drags resolve after the list.
+    if let Some((row, y)) = dropped
+        && let Some(target) = groups::drop_target(masks, &placed, row, y)
+        && let Some(chosen) = target.action(masks, row)
+    {
+        action = Some(chosen);
     }
-    if let Some((from, y)) = dragging {
-        let slot = drop_slot(&rows, y);
-        paint_drop_line(ui, &rows, slot);
-        if slot != from && slot != from + 1 {
+    if let Some((row, y)) = dragging
+        && let Some(target) = groups::drop_target(masks, &placed, row, y)
+    {
+        target.paint(ui, &placed);
+        if target.action(masks, row).is_some() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
         }
     }
     if !masks.is_empty() {
         ui.add_space(2.0);
-        hint(ui, "Drag a row to reorder it; right-click for more.");
+        hint(
+            ui,
+            "Drag a row to reorder it, or onto a group to add it; right-click for more.",
+        );
     }
-    if let Some(action) = action {
-        apply(masks, &mut view.selected_mask, action);
+    action
+}
+
+/// A faint line left of each group's masks, joining them to the header.
+fn paint_group_guides(ui: &Ui, masks: &[Mask], rows: &[(ListRow, Rect)]) {
+    let gap = ui.spacing().item_spacing.y;
+    let grouped =
+        |row: &ListRow| matches!(row, ListRow::Mask(index) if masks[*index].group.is_some());
+    for (_, rect) in rows.iter().filter(|(row, _)| grouped(row)) {
+        let x = rect.left() - GROUP_INDENT / 2.0;
+        ui.painter().vline(
+            x,
+            rect.top() - gap..=rect.bottom(),
+            Stroke::new(1.0, theme::SEPARATOR),
+        );
     }
 }
 
-/// The slot (0..=rows) a row dropped at height `y` goes to.
-fn drop_slot(rows: &[Rect], y: f32) -> usize {
-    rows.iter().filter(|row| row.center().y < y).count()
-}
-
-fn paint_drop_line(ui: &Ui, rows: &[Rect], slot: usize) {
-    let (Some(first), Some(last)) = (rows.first(), rows.last()) else {
-        return;
-    };
-    let y = match rows.get(slot) {
-        Some(row) => row.top() - 2.0,
-        None => last.bottom() + 2.0,
-    };
-    ui.painter().hline(
-        first.left()..=first.right(),
-        y,
-        Stroke::new(2.0, theme::ACCENT),
-    );
-}
-
-fn row_menu(ui: &mut Ui, mask: &mut Mask, index: usize, count: usize) -> Option<LayerAction> {
+/// A mask row's right-click menu. `steps` are the slots Move Up and Move
+/// Down go to ([`groups::step_slot`]).
+fn row_menu(
+    ui: &mut Ui,
+    masks: &mut [Mask],
+    groups: &[MaskGroup],
+    index: usize,
+    steps: [Option<usize>; 2],
+) -> Option<LayerAction> {
     if ui.button("Select").clicked() {
         return Some(LayerAction::Select(index));
     }
-    if ui.checkbox(&mut mask.invert, "Inverted").changed() {
+    if ui.checkbox(&mut masks[index].invert, "Inverted").changed() {
         ui.close();
     }
     if ui.button("Duplicate").clicked() {
         return Some(LayerAction::Duplicate(index));
     }
-    if ui
-        .add_enabled(index > 0, egui::Button::new("Move Up"))
-        .clicked()
-    {
-        return Some(LayerAction::Move {
-            from: index,
-            to_slot: index - 1,
-        });
+    let group = masks[index].group;
+    for (step, label) in steps.into_iter().zip(["Move Up", "Move Down"]) {
+        if ui
+            .add_enabled(step.is_some(), egui::Button::new(label))
+            .clicked()
+            && let Some(to_slot) = step
+        {
+            return Some(LayerAction::Move {
+                from: index,
+                to_slot,
+                group,
+            });
+        }
     }
-    if ui
-        .add_enabled(index + 1 < count, egui::Button::new("Move Down"))
-        .clicked()
-    {
-        return Some(LayerAction::Move {
-            from: index,
-            to_slot: index + 2,
-        });
+    if let Some(action) = groups::mask_group_menu(ui, masks, groups, index) {
+        return Some(action);
     }
     ui.separator();
     if ui.button("Delete").clicked() {
@@ -312,24 +414,15 @@ fn row_menu(ui: &mut Ui, mask: &mut Mask, index: usize, count: usize) -> Option<
     None
 }
 
-fn apply(masks: &mut Vec<Mask>, selection: &mut Option<MaskSelection>, action: LayerAction) {
-    match action {
-        LayerAction::Select(index) => {
-            if selection.map(|s| s.mask) != Some(index) {
-                *selection = Some(MaskSelection::mask(index));
-            }
-        }
-        LayerAction::Duplicate(index) => duplicate_mask(masks, selection, index),
-        LayerAction::Delete(index) => remove_mask(masks, selection, index),
-        LayerAction::Move { from, to_slot } => move_mask(masks, selection, from, to_slot),
-    }
-}
-
 /// What a row's thumbnail shows.
 struct Picture {
     photo: Option<TextureId>,
     tint: Option<TextureId>,
     size: egui::Vec2,
+    /// Whether the mask renders (it and its group are switched on).
+    shown: bool,
+    /// The tint's opacity ([`tint_strength`]).
+    tint_strength: f32,
 }
 
 /// One layer: thumbnail, name and summary, and a visibility switch.
@@ -362,7 +455,7 @@ fn layer_row(
         pos2(rect.left() + 6.0, rect.center().y - picture.size.y / 2.0),
         picture.size,
     );
-    let visible = if mask.enabled { 1.0 } else { 0.4 };
+    let visible = if picture.shown { 1.0 } else { HIDDEN_OPACITY };
     let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
     match picture.photo {
         Some(photo) => {
@@ -373,7 +466,8 @@ fn layer_row(
         }
     }
     if let Some(tint) = picture.tint {
-        painter.image(tint, thumb, uv, Color32::WHITE.gamma_multiply(visible));
+        let strength = picture.tint_strength;
+        painter.image(tint, thumb, uv, Color32::WHITE.gamma_multiply(strength));
     }
     painter.rect_stroke(
         thumb,
@@ -382,21 +476,22 @@ fn layer_row(
         StrokeKind::Outside,
     );
 
-    let toggle_size = vec2(30.0, 17.0);
     let text_left = thumb.right() + 10.0;
-    let text_width = rect.right() - toggle_size.x - 14.0 - text_left;
-    let text_color = if mask.enabled {
+    let text_width = rect.right() - widgets::TOGGLE_SIZE.x - 14.0 - text_left;
+    let text_color = if picture.shown {
         theme::TEXT
     } else {
         theme::TEXT_TERTIARY
     };
-    let name = painter.layout(
+    let name = single_line(
+        painter,
         display_name(mask, index),
         theme::body(13.0),
         text_color,
         text_width,
     );
-    let details = painter.layout(
+    let details = single_line(
+        painter,
         summary(mask),
         theme::body(11.0),
         theme::TEXT_SECONDARY,
@@ -413,17 +508,33 @@ fn layer_row(
         theme::TEXT_SECONDARY,
     );
 
+    // A child Ui, unlike `ui.put`, leaves the list's cursor below the row.
     let toggle_rect = Rect::from_center_size(
-        pos2(rect.right() - 8.0 - toggle_size.x / 2.0, rect.center().y),
-        toggle_size,
+        pos2(
+            rect.right() - 8.0 - widgets::TOGGLE_SIZE.x / 2.0,
+            rect.center().y,
+        ),
+        widgets::TOGGLE_SIZE,
     );
-    ui.put(toggle_rect, |ui: &mut Ui| {
-        widgets::toggle(ui, &mut mask.enabled)
-    })
-    .on_hover_text("Show this mask's effect");
+    let mut toggle_ui = ui.new_child(egui::UiBuilder::new().max_rect(toggle_rect));
+    widgets::toggle(&mut toggle_ui, &mut mask.enabled).on_hover_text("Show this mask's effect");
     // Text is painted, so the row gets a hover tip with the full name.
     let tip = format!("{}\n{}", display_name(mask, index), summary(mask));
     response.on_hover_text(tip)
+}
+
+/// Row text on one line, ending in "…" where it does not fit, so it stays
+/// inside the row at any sidebar width.
+fn single_line(
+    painter: &egui::Painter,
+    text: String,
+    font: egui::FontId,
+    color: Color32,
+    width: f32,
+) -> std::sync::Arc<egui::Galley> {
+    let mut job = egui::text::LayoutJob::simple_singleline(text, font, color);
+    job.wrap = egui::text::TextWrapping::truncate_at_width(width);
+    painter.layout_job(job)
 }
 
 /// The selected mask's shapes and how they combine, then the selected
@@ -631,19 +742,17 @@ fn duplicate_mask(masks: &mut Vec<Mask>, selection: &mut Option<MaskSelection>, 
 }
 
 /// Moves mask `from` to `to_slot` (0..=len: before the mask at that index,
-/// or last), keeping the selection on the same mask.
+/// or last), keeping the selection on the same mask. Returns the mask's
+/// new index. `from` must be a mask's index.
 fn move_mask(
     masks: &mut Vec<Mask>,
     selection: &mut Option<MaskSelection>,
     from: usize,
     to_slot: usize,
-) {
-    if from >= masks.len() {
-        return;
-    }
+) -> usize {
     let to = if to_slot > from { to_slot - 1 } else { to_slot }.min(masks.len() - 1);
     if to == from {
-        return;
+        return to;
     }
     let mask = masks.remove(from);
     masks.insert(to, mask);
@@ -655,6 +764,7 @@ fn move_mask(
             other => other,
         };
     }
+    to
 }
 
 /// Adds a shape that adds to the selection, and selects it.
@@ -745,14 +855,43 @@ mod tests {
     }
 
     #[test]
-    fn drop_slots_follow_row_centres() {
-        let rows: Vec<Rect> = (0..3)
-            .map(|i| Rect::from_min_size(pos2(0.0, i as f32 * 50.0), vec2(100.0, 46.0)))
-            .collect();
-        assert_eq!(drop_slot(&rows, -10.0), 0);
-        assert_eq!(drop_slot(&rows, 30.0), 1);
-        assert_eq!(drop_slot(&rows, 70.0), 1);
-        assert_eq!(drop_slot(&rows, 500.0), 3);
+    fn rows_leave_room_for_each_other_and_the_hint_below() {
+        let ctx = egui::Context::default();
+        let mut masks = named(&[
+            "Sky",
+            "A name far too long to fit on one line of even the widest sidebar",
+            "Face",
+        ]);
+        for width in [280.0, 440.0] {
+            let input = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(width, 600.0))),
+                ..Default::default()
+            };
+            let mut output = ctx.run_ui(input, |ui| {
+                let mut previous_bottom = f32::NEG_INFINITY;
+                for (index, mask) in masks.iter_mut().enumerate() {
+                    let picture = Picture {
+                        photo: None,
+                        tint: None,
+                        size: vec2(50.0, THUMB_HEIGHT),
+                        shown: true,
+                        tint_strength: 1.0,
+                    };
+                    let row = layer_row(ui, mask, index, index == 1, picture).rect;
+                    assert_eq!(row.height(), ROW_HEIGHT);
+                    assert!(
+                        row.top() >= previous_bottom,
+                        "row {index} overlaps the one above"
+                    );
+                    assert!(
+                        ui.cursor().top() >= row.bottom(),
+                        "what follows row {index} would start inside it"
+                    );
+                    previous_bottom = row.bottom();
+                }
+            });
+            output.textures_delta.clear();
+        }
     }
 
     #[test]

@@ -34,7 +34,7 @@ const TINT_RANGE: std::ops::RangeInclusive<f32> = -150.0..=150.0;
 pub fn show(app: &mut PhotonationApp, ui: &mut Ui) {
     egui::Panel::right("adjustments")
         .resizable(true)
-        .default_size(theme::SIDEBAR_WIDTH)
+        .default_size(crate::screenshot::sidebar_width())
         .size_range(280.0..=440.0)
         .show_separator_line(false)
         .frame(

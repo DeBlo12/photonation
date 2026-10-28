@@ -55,6 +55,10 @@ struct ExportArgs {
     /// Longest edge in pixels (default: full resolution).
     #[arg(short, long)]
     long_edge: Option<usize>,
+    /// Output file name without extension: `{name}` is the original's
+    /// name, `{n}` the photo's number (e.g. "Trip {n}").
+    #[arg(short, long, default_value = photonation_engine::NAME_TOKEN)]
+    name: String,
     #[arg(long, value_enum, default_value_t = SpaceArg::Srgb)]
     color_space: SpaceArg,
     /// Bits per channel (PNG and TIFF; JPEG is always 8).
@@ -283,6 +287,7 @@ fn export(args: &ExportArgs) -> Result<()> {
         bit_depth,
         color_space: args.color_space.into(),
         long_edge: args.long_edge,
+        file_name: args.name.clone(),
     };
 
     let started = Instant::now();
@@ -292,7 +297,7 @@ fn export(args: &ExportArgs) -> Result<()> {
             .output
             .clone()
             .unwrap_or_else(|| path.parent().unwrap_or(Path::new(".")).to_path_buf());
-        let target = photonation_engine::output_path(path, &dir, format);
+        let target = photonation_engine::output_path(path, &dir, &options, n + 1, files.len());
         print!("[{}/{}] {} ", n + 1, files.len(), path.display());
         if target.exists() && !args.overwrite {
             println!(

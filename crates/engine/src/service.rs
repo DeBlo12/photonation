@@ -550,7 +550,8 @@ fn export_worker(
         let mut failures = Vec::new();
         for (done, (path, settings)) in job.photos.iter().enumerate() {
             sink.send(Event::ExportProgress { done, total });
-            let target = unused_path(&output_path(path, &job.directory, job.options.format));
+            let named = output_path(path, &job.directory, &job.options, done + 1, total);
+            let target = unused_path(&named);
             let exported = isolate_panics(|| {
                 export_photo_with(
                     decoder,

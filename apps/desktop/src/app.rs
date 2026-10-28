@@ -7,9 +7,10 @@ use crate::panels;
 use crate::theme;
 use crate::widgets::CurveChannel;
 use eframe::egui::{self, TextureHandle, TextureOptions};
-use photonation_develop::{AdjustmentGroup, Settings, sidecar_path};
+use photonation_develop::{AdjustmentGroup, BrushStroke, RemovalMethod, Settings, sidecar_path};
 use photonation_engine::{
-    Event, ExportOptions, Histogram, History, PhotoInfo, PreviewKind, PreviewRequest, RenderService,
+    Event, ExportOptions, Histogram, History, ModelStatus, PhotoInfo, PreviewKind, PreviewRequest,
+    RenderService,
 };
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -70,6 +71,30 @@ impl MaskSelection {
     }
 }
 
+/// How new removals are painted.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RemovalBrush {
+    pub method: RemovalMethod,
+    /// Brush radius as a percentage of the photo's long edge.
+    pub size_percent: f32,
+}
+
+impl Default for RemovalBrush {
+    fn default() -> Self {
+        RemovalBrush {
+            method: RemovalMethod::Generative,
+            size_percent: 2.0,
+        }
+    }
+}
+
+impl RemovalBrush {
+    /// Radius in long-edge units, as removals store it.
+    pub fn radius(self) -> f64 {
+        f64::from(self.size_percent) / 100.0
+    }
+}
+
 /// Transient view state (not saved with the photo).
 pub struct ViewState {
     pub expanded: HashSet<AdjustmentGroup>,
@@ -95,6 +120,14 @@ pub struct ViewState {
     pub mask_overlay: bool,
     pub filmstrip: panels::filmstrip::FilmstripReveal,
     pub mask_thumbnails: panels::mask_thumbnails::MaskThumbnails,
+    /// The Remove panel replaces the adjustments, and dragging on the photo
+    /// paints removals.
+    pub show_removals: bool,
+    /// Index into `settings.removals`.
+    pub selected_removal: Option<usize>,
+    pub removal_brush: RemovalBrush,
+    /// The stroke being painted; it joins the settings on release.
+    pub painting: Option<BrushStroke>,
 }
 
 impl Default for ViewState {
@@ -123,6 +156,10 @@ impl Default for ViewState {
             mask_overlay: true,
             filmstrip: Default::default(),
             mask_thumbnails: Default::default(),
+            show_removals: false,
+            selected_removal: None,
+            removal_brush: RemovalBrush::default(),
+            painting: None,
         }
     }
 }
@@ -160,6 +197,10 @@ pub struct PhotonationApp {
     pub gpu: Option<String>,
     /// The GPU mask overlay is installed (wgpu is rendering).
     pub mask_overlay_ready: bool,
+    /// Whether "Generative AI" removals run a model (None until reported).
+    pub model_status: Option<ModelStatus>,
+    /// Removals changed and their fills have not all arrived yet.
+    pub filling_removals: bool,
 }
 
 impl PhotonationApp {
@@ -189,7 +230,12 @@ impl PhotonationApp {
             screenshot: crate::screenshot::Screenshot::from_env(),
             gpu: None,
             mask_overlay_ready: false,
+            model_status: None,
+            filling_removals: false,
         };
+        // Load the inpainting model in the background, so the first
+        // generative removal doesn't wait for it.
+        app.engine.request_model_status();
         if let Some(render_state) = &cc.wgpu_render_state {
             crate::gpu::mask_overlay::install(render_state);
             let gpu = crate::gpu::describe(&render_state.adapter.get_info());
@@ -283,6 +329,9 @@ impl PhotonationApp {
         self.view.pan = egui::Vec2::ZERO;
         self.view.disabled.clear();
         self.view.selected_mask = None;
+        self.view.selected_removal = None;
+        self.view.painting = None;
+        self.filling_removals = false;
         self.refresh();
     }
 
@@ -415,6 +464,13 @@ impl PhotonationApp {
                     self.history.commit(&self.settings);
                     self.edited();
                 }
+                Event::RemovalsFilled { path } if Some(&path) == self.current_path() => {
+                    // Same generation, so the next frame asks again and the
+                    // new preview includes the fill.
+                    self.last_requested = None;
+                    self.filling_removals = false;
+                }
+                Event::ModelStatus(status) => self.model_status = Some(status),
                 Event::ExportProgress { done, total } => self.export_progress = Some((done, total)),
                 Event::ExportFinished { exported, failures } => {
                     self.export_progress = None;
@@ -436,6 +492,7 @@ impl PhotonationApp {
                         self.photos[index].unsupported = true;
                     }
                     if path.is_none() || path.as_ref() == self.current_path() {
+                        self.filling_removals = false;
                         self.notify(message);
                     }
                 }
@@ -494,14 +551,15 @@ impl PhotonationApp {
         use egui::{Key, Modifiers};
         // Plain keys belong to a focused text field (e.g. a mask's name).
         let typing = ctx.egui_wants_keyboard_input();
-        let (undo, redo, prev, next, compare, masks, export, open, reset_zoom) =
-            ctx.input_mut(|i| {
+        let (undo, redo, prev, next, compare, masks, removals, export, open, reset_zoom) = ctx
+            .input_mut(|i| {
                 let mut plain = |key| !typing && i.consume_key(Modifiers::NONE, key);
-                let (prev, next, compare, masks) = (
+                let (prev, next, compare, masks, removals) = (
                     plain(Key::ArrowLeft),
                     plain(Key::ArrowRight),
                     plain(Key::Backslash),
                     plain(Key::M),
+                    plain(Key::Q),
                 );
                 (
                     i.consume_key(Modifiers::COMMAND, Key::Z),
@@ -510,6 +568,7 @@ impl PhotonationApp {
                     next,
                     compare,
                     masks,
+                    removals,
                     i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::E),
                     i.consume_key(Modifiers::COMMAND, Key::O),
                     i.consume_key(Modifiers::COMMAND, Key::Num0),
@@ -532,7 +591,10 @@ impl PhotonationApp {
             self.view.compare = !self.view.compare;
         }
         if masks && self.current.is_some() {
-            self.view.show_masks = !self.view.show_masks;
+            self.toggle_masks();
+        }
+        if removals && self.current.is_some() {
+            self.toggle_removals();
         }
         if export && self.current.is_some() {
             self.view.show_export = true;
@@ -544,6 +606,19 @@ impl PhotonationApp {
             self.view.zoom = Zoom::Fit;
             self.view.pan = egui::Vec2::ZERO;
         }
+    }
+
+    /// Opens or closes the masks panel (closing the Remove panel).
+    pub fn toggle_masks(&mut self) {
+        self.view.show_masks = !self.view.show_masks;
+        self.view.show_removals = false;
+    }
+
+    /// Opens or closes the Remove panel (closing the masks panel).
+    pub fn toggle_removals(&mut self) {
+        self.view.show_removals = !self.view.show_removals;
+        self.view.show_masks = false;
+        self.view.painting = None;
     }
 
     pub fn pick_folder(&mut self) {
@@ -607,11 +682,18 @@ impl eframe::App for PhotonationApp {
         panels::viewer::show(self, ui);
         self.view.selected_mask =
             MaskSelection::validated(self.view.selected_mask, &self.settings.masks);
+        self.view.selected_removal = self
+            .view
+            .selected_removal
+            .filter(|index| *index < self.settings.removals.len());
         if self.view.show_export {
             panels::export::show(self, &ctx);
         }
 
         if self.settings != settings_before || self.view.disabled != disabled_before {
+            if self.settings.removals != settings_before.removals {
+                self.filling_removals = self.settings.removals.iter().any(|r| r.is_active());
+            }
             self.edited();
         }
         // One undo step per interaction: commit once the pointer is released.

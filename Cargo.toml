@@ -22,6 +22,7 @@ photonation-raw = { path = "crates/raw" }
 photonation-pipeline = { path = "crates/pipeline" }
 photonation-export = { path = "crates/export" }
 photonation-engine = { path = "crates/engine" }
+photonation-retouch = { path = "crates/retouch" }
 
 # foundation
 thiserror = "2"
@@ -41,6 +42,9 @@ jpeg-encoder = { version = "0.7", default-features = false, features = ["std"] }
 png = "0.18"
 tiff = "0.11"
 moxcms = { version = "0.9", default-features = false }
+
+# neural inpainting: pure-Rust ONNX runtime (MIT OR Apache-2.0)
+tract-onnx = "0.23.9"
 
 # desktop app
 eframe = "0.37"

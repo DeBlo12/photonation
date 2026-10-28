@@ -22,6 +22,10 @@ All notable changes to this project are documented here. The format follows
 - Masks: linear and radial gradients with invert, and local temperature, tint,
   exposure, contrast, highlights, shadows, dehaze and saturation. The desktop
   editor has a mask window (M), draggable handles and a GPU-drawn overlay.
+- Object removal: paint over a distraction (Remove panel, `Q`) and it is
+  replaced by a content-aware fill (PatchMatch) or, with an installed LaMa
+  or MI-GAN ONNX model, a generative fill. Fills are computed in the
+  background and cached; removals are stored in the sidecar.
 - The desktop editor prefers a discrete GPU, falling back to integrated
   graphics and then software rendering; `PHOTONATION_GPU` overrides the order.
 

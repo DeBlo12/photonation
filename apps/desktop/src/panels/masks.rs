@@ -685,7 +685,7 @@ fn label(ui: &mut Ui, text: &str) {
     ui.label(RichText::new(text).size(12.0).color(theme::TEXT_SECONDARY));
 }
 
-fn hint(ui: &mut Ui, text: &str) {
+pub(crate) fn hint(ui: &mut Ui, text: &str) {
     ui.label(RichText::new(text).size(11.0).color(theme::TEXT_TERTIARY));
 }
 

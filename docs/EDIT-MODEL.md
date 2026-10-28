@@ -18,7 +18,7 @@ balance.
 | Color Mixer | `color_mixer`: hue/saturation/luminance for red, orange, yellow, green, aqua, blue, purple, magenta |
 | Color Grading | `color_grading`: `shadows`, `midtones`, `highlights`, `global` wheels (hue, saturation, luminance), `blending`, `balance` |
 | Detail | `sharpening`: amount, radius |
-| — | `crop` (normalized, on the displayed image), `masks` (see below), `process` |
+| — | `crop` (normalized, on the displayed image), `masks` (see below), `removals` (see [RETOUCH.md](RETOUCH.md)), `process` |
 
 `Settings::sanitized()` clamps everything into range and repairs bad input; the
 pipeline always renders sanitized settings.
@@ -68,6 +68,15 @@ aspect ratio.
 **Sanitizing** caps the number of masks and shapes, truncates names, clamps
 every value and repairs non-finite numbers. The caps also bound the per-pixel
 cost a hostile sidecar can cause.
+
+## Removals (`removals.rs`)
+
+`settings.removals` lists brushed areas to replace with a fill, applied in
+order before any adjustment: at most `MAX_REMOVALS` (64), each with up to 32
+strokes of up to 1024 points, in mask space. The fill itself is not stored;
+it is recomputed from the raw file. Sanitizing caps the counts, drops
+non-finite points and clamps radii and feather. Details in
+[RETOUCH.md](RETOUCH.md).
 
 ## Controls
 

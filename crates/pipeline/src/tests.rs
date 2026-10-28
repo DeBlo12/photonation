@@ -410,3 +410,137 @@ mod masks {
         );
     }
 }
+
+mod removals {
+    use super::*;
+    use crate::retouch::{RemovalFills, removal_canvas, removal_jobs};
+    use photonation_develop::{BrushStroke, Removal, RemovalMethod};
+    use photonation_retouch::{ContentAwareFill, Inpainter};
+    use std::sync::Arc;
+
+    fn removal_at(center: [f64; 2], radius: f64) -> Removal {
+        Removal::new(
+            RemovalMethod::ContentAware,
+            BrushStroke {
+                points: vec![center, [center[0] + 0.05, center[1]]],
+                radius,
+            },
+        )
+    }
+
+    /// Fills every active removal of `settings` in order, like the engine.
+    fn fill_all(
+        img: &SensorImage,
+        settings: &Settings,
+        fill: impl Fn(&[f32]) -> Vec<f32>,
+    ) -> RemovalFills {
+        let mut fills = RemovalFills::new();
+        for job in removal_jobs(settings) {
+            let canvas = removal_canvas(img, settings, job.index, &fills).expect("canvas");
+            let patch = canvas.patch(&fill(&canvas.canvas.rgb));
+            fills.insert(job.key, Arc::new(patch));
+        }
+        fills
+    }
+
+    fn differing_pixels(a: &OutputImage, b: &OutputImage) -> Vec<(usize, usize)> {
+        let (Pixels::U8(a_samples), Pixels::U8(b_samples)) = (&a.pixels, &b.pixels) else {
+            panic!("8-bit")
+        };
+        (0..a.width * a.height)
+            .filter(|&pixel| {
+                (0..3).any(|c| a_samples[pixel * 3 + c].abs_diff(b_samples[pixel * 3 + c]) > 2)
+            })
+            .map(|pixel| (pixel % a.width, pixel / a.width))
+            .collect()
+    }
+
+    #[test]
+    fn an_unchanged_canvas_round_trips_to_the_original_photo() {
+        let img = synthetic(96, 80, Orientation::Rotate90);
+        let settings = Settings {
+            exposure: 0.4,
+            removals: vec![removal_at([0.4, 0.5], 0.08)],
+            ..Settings::default()
+        };
+        let fills = fill_all(&img, &settings, |rgb| rgb.to_vec());
+        assert_eq!(fills.len(), 1);
+        let opts = RenderOptions::default();
+        let plain = render(&img, &settings, &opts).expect("render");
+        let retouched = render_with_fills(&img, &settings, &fills, &opts).expect("render");
+        assert!(
+            differing_pixels(&plain, &retouched).is_empty(),
+            "encode/decode must invert"
+        );
+    }
+
+    #[test]
+    fn a_fill_changes_only_the_brushed_area_and_keeps_band_invariance() {
+        let img = synthetic(120, 90, Orientation::Normal);
+        let removal = removal_at([0.5, 0.5], 0.06);
+        let settings = Settings {
+            removals: vec![removal],
+            ..Settings::default()
+        };
+        // A flat mid-grey fill, easy to spot.
+        let fills = fill_all(&img, &settings, |rgb| vec![0.5; rgb.len()]);
+        let plain = render(&img, &settings, &RenderOptions::default()).expect("render");
+        let mut previous: Option<OutputImage> = None;
+        for band_rows in [1, 7, 10_000] {
+            let opts = RenderOptions {
+                band_rows: Some(band_rows),
+                ..RenderOptions::default()
+            };
+            let retouched = render_with_fills(&img, &settings, &fills, &opts).expect("render");
+            if let Some(previous) = &previous {
+                assert_eq!(previous, &retouched, "band {band_rows}");
+            }
+            previous = Some(retouched);
+        }
+        let changed = differing_pixels(&plain, &previous.expect("rendered"));
+        assert!(!changed.is_empty(), "the fill shows");
+        // Mask space spans the default crop (116 × 86); the brush reaches
+        // 0.06 · 116 ≈ 7 px around the stroke from x 0.5 to 0.55.
+        let (width, height) = (116.0, 86.0);
+        for (x, y) in changed {
+            let (u, v) = ((x as f64 + 0.5) / width, (y as f64 + 0.5) / height);
+            let along = u.clamp(0.5, 0.55);
+            let distance = ((u - along) * width).hypot((v - 0.5) * height);
+            assert!(
+                distance <= 0.06 * width + 1.5,
+                "({x}, {y}) is {distance} px away"
+            );
+        }
+    }
+
+    #[test]
+    fn content_aware_fill_runs_end_to_end_and_disabling_restores_the_photo() {
+        let img = synthetic(128, 96, Orientation::Normal);
+        let mut settings = Settings {
+            removals: vec![removal_at([0.3, 0.4], 0.04), removal_at([0.6, 0.6], 0.05)],
+            ..Settings::default()
+        };
+        let fill = ContentAwareFill::default();
+        let mut fills = RemovalFills::new();
+        for job in removal_jobs(&settings) {
+            let canvas = removal_canvas(&img, &settings, job.index, &fills).expect("canvas");
+            assert!(canvas.canvas.hole_pixels() > 0);
+            let filled = fill.inpaint(&canvas.canvas, 0).expect("fill");
+            fills.insert(job.key, Arc::new(canvas.patch(&filled)));
+        }
+        assert_eq!(fills.len(), 2, "both removals filled");
+        let opts = RenderOptions::default();
+        let output = render_with_fills(&img, &settings, &fills, &opts).expect("render");
+        assert_eq!((output.width, output.height), (124, 92));
+        settings
+            .removals
+            .iter_mut()
+            .for_each(|removal| removal.enabled = false);
+        assert!(removal_jobs(&settings).is_empty());
+        assert_eq!(
+            render(&img, &settings, &opts).expect("render"),
+            render_with_fills(&img, &settings, &fills, &opts).expect("render"),
+            "disabled removals ignore cached fills"
+        );
+    }
+}

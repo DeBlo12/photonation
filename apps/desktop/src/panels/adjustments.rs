@@ -52,6 +52,10 @@ pub fn show(app: &mut PhotonationApp, ui: &mut Ui) {
                         crate::panels::masks::show(app, ui);
                         return;
                     }
+                    if app.view.show_removals {
+                        crate::panels::removals::show(app, ui);
+                        return;
+                    }
                     ui.spacing_mut().item_spacing.y = 8.0;
                     let as_shot = app.info.as_ref().map_or((5500.0, 0.0), |i| i.as_shot);
                     for group in AdjustmentGroup::ALL {

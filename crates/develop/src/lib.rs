@@ -8,11 +8,12 @@
 //! on demand by `photonation-pipeline`. Every setting has a [`Control`]
 //! describing its id, range and default, so UIs, the CLI and future
 //! automation share one definition. [`Mask`]s add local adjustments on
-//! top of the global ones.
+//! top of the global ones; [`Removal`]s replace brushed areas with a fill.
 
 mod controls;
 mod groups;
 mod masks;
+mod removals;
 mod settings;
 mod sidecar;
 
@@ -24,6 +25,10 @@ pub use groups::AdjustmentGroup;
 pub use masks::{
     CombineMode, LinearGradient, LocalAdjustments, MAX_MASK_COMPONENTS, MAX_MASK_NAME_CHARS,
     MAX_MASKS, Mask, MaskComponent, MaskShape, MaskSpace, RadialGradient,
+};
+pub use removals::{
+    BrushStroke, MAX_BRUSH_RADIUS, MAX_REMOVAL_STROKES, MAX_REMOVALS, MAX_STROKE_POINTS,
+    MIN_BRUSH_RADIUS, Removal, RemovalMethod, removal_chain_fingerprints,
 };
 pub use settings::{
     ColorGrading, ColorMixer, GradingWheel, HslAdjustment, ParametricCurve, PointCurve,

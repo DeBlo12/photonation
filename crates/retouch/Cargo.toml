@@ -1,0 +1,22 @@
+[package]
+name = "photonation-retouch"
+description = "Inpainting for Photonation: content-aware fill and optional neural (ONNX) object removal"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+tract-onnx = { workspace = true, optional = true }
+
+[features]
+# Neural inpainting with an ONNX model (LaMa or MI-GAN), run by tract.
+onnx = ["dep:tract-onnx"]
+
+[lints]
+workspace = true

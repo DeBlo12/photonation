@@ -79,7 +79,16 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
                         .inner
                         .clicked()
                     {
-                        app.view.show_masks = !app.view.show_masks;
+                        app.toggle_masks();
+                    }
+                    if ui
+                        .add_enabled_ui(has_photo, |ui| {
+                            tool_button(ui, "Remove", app.view.show_removals, "Remove objects (Q)")
+                        })
+                        .inner
+                        .clicked()
+                    {
+                        app.toggle_removals();
                     }
                     ui.add_space(8.0);
                     if ui

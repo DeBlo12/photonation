@@ -4,7 +4,7 @@
 //! The develop pipeline.
 //!
 //! ```text
-//! sensor u16 ─▶ normalize + WB + demosaic ─▶ camera→Rec.2020 · exposure · tone · colour
+//! sensor u16 ─▶ normalize + WB + demosaic ─▶ [removal fills] ─▶ camera→Rec.2020 · exposure · tone · colour
 //!            ─▶ output primaries ─▶ [resize] ─▶ encode ─▶ [sharpen] ─▶ u8/u16 (oriented)
 //! ```
 //!
@@ -20,11 +20,15 @@ mod encode;
 mod local_contrast;
 pub mod masks;
 mod resize;
+pub mod retouch;
 mod sharpen;
 mod source;
 mod tone;
 
 pub use camera::{CameraModel, WORKING, neutral_to_temp_tint};
+pub use retouch::{
+    RemovalCanvas, RemovalFills, RemovalJob, RetouchPatch, removal_canvas, removal_jobs,
+};
 pub use source::Demosaic;
 pub use tone::BASELINE_EXPOSURE;
 
@@ -133,9 +137,21 @@ pub fn white_balance_at(
     Some(neutral_to_temp_tint(&sensor.color, neutral))
 }
 
+/// Renders without removal fills: removals show the original photo.
 pub fn render(
     sensor: &SensorImage,
     settings: &Settings,
+    opts: &RenderOptions,
+) -> Result<OutputImage, RenderError> {
+    render_with_fills(sensor, settings, &RemovalFills::new(), opts)
+}
+
+/// Renders with the removal fills in `fills` (see [`retouch`]); removals
+/// without a fill there show the original photo.
+pub fn render_with_fills(
+    sensor: &SensorImage,
+    settings: &Settings,
+    fills: &RemovalFills,
     opts: &RenderOptions,
 ) -> Result<OutputImage, RenderError> {
     let settings = settings.sanitized();
@@ -144,7 +160,7 @@ pub fn render(
         return Err(RenderError::Empty);
     }
     let target = scaled_size(region, opts.long_edge);
-    let graph = build_graph(sensor, region, target, &settings, opts);
+    let graph = build_graph(sensor, region, target, &settings, fills, opts);
 
     // Aim for ~256 source rows per band: big enough that halos are cheap,
     // small enough to stay cache- and memory-friendly.
@@ -172,6 +188,7 @@ fn build_graph<'a>(
     region: Rect,
     target: (usize, usize),
     settings: &Settings,
+    fills: &RemovalFills,
     opts: &RenderOptions,
 ) -> Graph<'a> {
     let half_size_is_enough = target.0 * 2 <= region.w && target.1 * 2 <= region.h;
@@ -181,6 +198,14 @@ fn build_graph<'a>(
     let source_region = source.region();
 
     let mut graph = Graph::new(Box::new(source));
+    retouch::push_retouch(
+        &mut graph,
+        sensor,
+        settings,
+        fills,
+        source_region,
+        camera.wb_multipliers,
+    );
     let local = masks::LocalAdjust::new(
         &settings.masks,
         sensor,

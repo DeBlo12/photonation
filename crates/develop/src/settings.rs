@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 The Photonation contributors
 
-use crate::{MAX_MASKS, Mask};
+use crate::{MAX_MASKS, MAX_REMOVALS, Mask, Removal};
 use photonation_image::NormRect;
 use serde::{Deserialize, Serialize};
 
@@ -297,6 +297,9 @@ pub struct Settings {
     pub crop: Option<NormRect>,
     /// Local adjustments, applied in order on top of the global ones.
     pub masks: Vec<Mask>,
+    /// Brushed areas replaced by a fill, applied in order before any
+    /// adjustment.
+    pub removals: Vec<Removal>,
 }
 
 impl Default for Settings {
@@ -321,6 +324,7 @@ impl Default for Settings {
             sharpening: Sharpening::default(),
             crop: None,
             masks: Vec::new(),
+            removals: Vec::new(),
         }
     }
 }
@@ -377,6 +381,8 @@ impl Settings {
         s.crop = s.crop.map(NormRect::clamped);
         s.masks.truncate(MAX_MASKS);
         s.masks = s.masks.iter().map(Mask::sanitized).collect();
+        s.removals.truncate(MAX_REMOVALS);
+        s.removals = s.removals.iter().map(Removal::sanitized).collect();
         s
     }
 }

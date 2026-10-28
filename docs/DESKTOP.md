@@ -20,7 +20,9 @@ follows Photomator: dark and image-first, with the controls in quiet cards.
 ```
 
 While masking (◎ or `M`) the sidebar shows the masks panel instead of the
-adjustment cards, and the photo shows the selected shape's handles.
+adjustment cards, and the photo shows the selected shape's handles. While
+removing (Remove or `Q`) it shows the Remove panel, and dragging on the photo
+paints a removal. The two tools are exclusive.
 
 | File | Region |
 |---|---|
@@ -31,6 +33,8 @@ adjustment cards, and the photo shows the selected shape's handles.
 | `panels/masks.rs` | Masks panel: layer list, the selected mask's shapes, settings and local adjustments |
 | `panels/mask_thumbnails.rs` | The layer list's pictures of what each mask selects |
 | `panels/mask_handles.rs` | On-canvas handles and pins for mask editing |
+| `panels/removals.rs` | Remove panel: method, brush size, model status, removal list, selected removal |
+| `panels/removal_brush.rs` | Painting removals on the canvas and drawing brushed areas |
 | `gpu/mask_overlay.rs`, `.wgsl` | The selected mask's tint over the photo, evaluated per pixel on the GPU |
 | `gpu/mod.rs` | Graphics adapter choice and texture limits |
 | `panels/export.rs` | Export sheet (format, quality, size, colour space, scope) |
@@ -107,6 +111,27 @@ handle drags at once, without waiting for the photo to re-render.
 **Thumbnails** (`panels/mask_thumbnails.rs`) are computed on the CPU at twice
 the row's point size and cached by the mask's shapes, inversion, crop and size.
 Textures not drawn in a frame are dropped.
+
+## Remove
+
+**Panel** (`panels/removals.rs`): the method for new removals (*Generative
+AI* or *Content-aware*), with the model's status under it (ready, loading,
+not installed: where to put it, or not built), and the brush size (% of the
+long edge). Then the list of removals (select, show/hide, ×), and for the
+selected one its method, Feather, *Try Another Fill* (content-aware only: a
+new seed) and Delete. A spinner by the title shows while fills are computed.
+
+**Canvas** (`panels/removal_brush.rs`): a drag paints a stroke, a click dabs
+once, ⇧ adds the stroke to the selected removal. The stroke lives in
+`ViewState::painting` and joins the settings on release, so each stroke is
+one undo step and one fill. The selected removal's area is drawn red, others
+grey, and a ring shows the brush under the pointer.
+
+**Fills** arrive in the background (docs/ENGINE.md): on
+`Event::RemovalsFilled` the app requests the current generation again. At
+start-up it asks the engine to load the generative model
+(`request_model_status`). The `ai` cargo feature (on by default) builds the
+neural inpainting; see [RETOUCH.md](RETOUCH.md).
 
 ## GPU selection (`gpu/mod.rs`)
 

@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 The Photonation contributors
 
-//! The image canvas: fit/zoom/pan, before/after split, eyedropper, and
-//! mask editing (handles and the GPU overlay) while the masks panel is open.
+//! The image canvas: fit/zoom/pan, before/after split, eyedropper, mask
+//! editing (handles and the GPU overlay) while the masks panel is open, and
+//! painting removals while the Remove panel is open.
 
 use crate::app::{PhotonationApp, Preview, ViewState, Zoom};
 use crate::gpu::mask_overlay::MaskOverlay;
-use crate::panels::mask_handles;
+use crate::panels::{mask_handles, removal_brush};
 use crate::photo_frame::PhotoFrame;
 use crate::theme;
 use eframe::egui::{self, Align2, Color32, CursorIcon, Rect, Sense, Stroke, Vec2, pos2, vec2};
@@ -70,6 +71,7 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
             };
             let displayed = image_size * points_per_image_pixel;
             let editing_masks = app.view.show_masks && !app.view.eyedropper;
+            let painting_removals = app.view.show_removals && !app.view.eyedropper;
             // A drag that grabs a mask handle edits the mask instead of panning.
             let mut dragging_mask = false;
             if editing_masks
@@ -81,6 +83,21 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
                 dragging_mask = mask_handles::interact(
                     &mut app.settings.masks,
                     &mut app.view.selected_mask,
+                    ui,
+                    &response,
+                    &frame,
+                );
+            }
+            if painting_removals
+                && let Some(frame) = photo_frame(
+                    app,
+                    Rect::from_center_size(canvas.center() + app.view.pan, displayed),
+                )
+            {
+                // A stroke owns the pointer like a mask handle drag does.
+                dragging_mask |= removal_brush::interact(
+                    &mut app.settings.removals,
+                    &mut app.view,
                     ui,
                     &response,
                     &frame,
@@ -119,7 +136,16 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
                     &frame,
                 );
             }
-            if app.is_rendering() {
+            if painting_removals && let Some(frame) = photo_frame(app, image_rect) {
+                removal_brush::paint(
+                    &app.settings.removals,
+                    &app.view,
+                    &painter,
+                    &frame,
+                    response.hover_pos(),
+                );
+            }
+            if app.is_rendering() || app.filling_removals {
                 let spinner = Rect::from_center_size(
                     pos2(canvas.right() - 22.0, canvas.top() + 22.0),
                     vec2(16.0, 16.0),

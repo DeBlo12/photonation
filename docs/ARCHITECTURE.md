@@ -14,6 +14,7 @@ WebAssembly build.
 | L1 | `photonation-develop` | The edit model: `Settings`, control specs, adjustment groups, sidecar files |
 | L1 | `photonation-raw` | Raw decoding (adapter over rawler) → `SensorImage` |
 | L1 | `photonation-export` | JPEG/PNG/TIFF encoders with ICC profiles (moxcms) |
+| L1 | `photonation-retouch` | Inpainting for removals: content-aware fill (PatchMatch) and, with feature `onnx`, neural models via tract. See [RETOUCH.md](RETOUCH.md) |
 | L2 | `photonation-pipeline` | The develop pipeline: `SensorImage` + `Settings` → `OutputImage` |
 | L3 | `photonation-engine` | Session services: background preview/thumbnail/export workers, history, histogram |
 | L4 | `apps/desktop` | The egui editor (`photonation-desktop` binary) |
@@ -29,6 +30,8 @@ apps/desktop ──┐        apps/cli
           │      │      │
           ▼      ▼      ▼
        develop ─▶ image ─▶ color
+          ▲
+   pipeline ─▶ retouch      (inpainting; no photo types)
 ```
 
 ## Data model

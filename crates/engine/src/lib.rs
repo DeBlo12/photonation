@@ -3,7 +3,7 @@
 
 //! Session services shared by every front end (desktop, CLI, later web):
 //! background rendering with latest-wins coalescing, thumbnails, export
-//! jobs, folder scanning, undo history and histograms. Nothing here knows
+//! jobs, removal fills, folder scanning, undo history and histograms. Nothing here knows
 //! about a UI toolkit; results arrive as [`Event`]s.
 
 mod decoder;
@@ -11,6 +11,7 @@ mod export;
 mod histogram;
 mod history;
 mod library;
+mod retouch;
 mod service;
 
 pub use decoder::{Decoder, RawDecoder};
@@ -21,4 +22,5 @@ pub use export::{
 pub use histogram::Histogram;
 pub use history::History;
 pub use library::scan_folder;
+pub use retouch::{MODEL_PATH_VARIABLE, ModelStatus, Retoucher, default_model_path};
 pub use service::{Event, PhotoInfo, PreviewKind, PreviewRequest, RenderService, RenderedImage};

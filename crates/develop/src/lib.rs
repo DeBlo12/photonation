@@ -9,13 +9,14 @@
 //! describing its id, range and default, so UIs, the CLI and future
 //! automation share one definition. [`Mask`]s add local adjustments on
 //! top of the global ones; [`PointColor`]s edit colours sampled from the
-//! photo.
+//! photo; [`Removal`]s replace brushed areas with a fill.
 
 mod controls;
 mod groups;
 mod lightroom;
 mod masks;
 mod point_colors;
+mod removals;
 mod settings;
 mod sidecar;
 
@@ -31,6 +32,10 @@ pub use masks::{
     MAX_MASKS, Mask, MaskComponent, MaskShape, MaskSpace, RadialGradient,
 };
 pub use point_colors::{MAX_POINT_COLORS, MAX_SAMPLED_CHROMA, OklabLch, PointColor};
+pub use removals::{
+    BrushStroke, MAX_BRUSH_RADIUS, MAX_REMOVAL_STROKES, MAX_REMOVALS, MAX_STROKE_POINTS,
+    MIN_BRUSH_RADIUS, Removal, RemovalMethod, removal_chain_fingerprints,
+};
 pub use settings::{
     ColorGrading, ColorMixer, GradingWheel, HslAdjustment, ParametricCurve, PointCurve,
     ProcessVersion, Settings, Sharpening, ToneCurve, WhiteBalance,

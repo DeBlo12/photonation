@@ -21,8 +21,9 @@ follows Photomator: dark and image-first, with the controls in quiet cards.
 
 While masking (◎ or `M`) the sidebar shows the masks panel instead of the
 adjustment cards, and the photo shows the selected shape's handles. The crop
-tool (⛶ or `R`) likewise swaps in the crop card; masking and cropping close
-each other.
+tool (⛶ or `R`) likewise swaps in the crop card, and the Remove tool (Remove
+or `Q`) the Remove panel, where dragging on the photo paints a removal. At
+most one of masks, crop and Remove is open.
 
 | File | Region |
 |---|---|
@@ -36,6 +37,8 @@ each other.
 | `panels/mask_handles.rs` | On-canvas handles and pins for mask editing |
 | `panels/crop.rs` | Crop tool: the frame on the canvas and the crop card |
 | `photo_frame.rs` | Screen ↔ photo positions for the displayed crop (handles, overlay, crop tool) |
+| `panels/removals.rs` | Remove panel: method, brush size, model status, removal list, selected removal |
+| `panels/removal_brush.rs` | Painting removals on the canvas and drawing brushed areas |
 | `gpu/mask_overlay.rs`, `.wgsl` | The selected mask's tint over the photo, evaluated per pixel on the GPU |
 | `gpu/mod.rs` | Graphics adapter choice and texture limits |
 | `panels/export.rs` | Export sheet (format, quality, size, colour space, scope, file name with a preview of the result) |
@@ -100,6 +103,22 @@ changes, to show where in the folder the new one is (`FilmstripReveal`). Only
 the resting strip is reserved in the layout. The open strip floats over the
 bottom of the viewer, so the photo neither moves nor re-renders as the strip
 opens and closes.
+
+It scrolls sideways, resting or open: a two-finger swipe, or the mouse wheel
+while the pointer is anywhere on it, margins included (the strip's area claims
+its whole rect so egui routes the wheel to it, the scroll area spans the whole
+strip, and its one scroll direction takes vertical wheel turns too).
+`FilmstripScroll` moves it by itself in two cases:
+
+- **The photo changes from elsewhere** (← →, opening a folder): the new photo
+  is centred, as far as the ends allow. A photo clicked in the strip is in view
+  already, so the strip stays put.
+- **Thumbnails change size** (opening, closing, thumbnails loading): the point
+  under the pointer, or the middle of the strip when the pointer is elsewhere,
+  stays on the same photo, so opening the strip grows it around what you are
+  pointing at and the photo just centred stays centred.
+
+Only thumbnails in view are drawn, so long folders stay cheap.
 
 ## Masks
 
@@ -169,6 +188,27 @@ its Lightroom edits (see EDIT-MODEL.md), and a toast names any edits that could
 not come along; it goes away when another photo is shown. Thumbnails and the
 filmstrip's edited dot use the same settings. Resetting such a photo keeps a
 default sidecar, so the Lightroom edits do not return.
+
+## Remove
+
+**Panel** (`panels/removals.rs`): the method for new removals (*Generative
+AI* or *Content-aware*), with the model's status under it (ready, loading,
+not installed: where to put it, or not built), and the brush size (% of the
+long edge). Then the list of removals (select, show/hide, ×), and for the
+selected one its method, Feather, *Try Another Fill* (content-aware only: a
+new seed) and Delete. A spinner by the title shows while fills are computed.
+
+**Canvas** (`panels/removal_brush.rs`): a drag paints a stroke, a click dabs
+once, ⇧ adds the stroke to the selected removal. The stroke lives in
+`ViewState::painting` and joins the settings on release, so each stroke is
+one undo step and one fill. The selected removal's area is drawn red, others
+grey, and a ring shows the brush under the pointer.
+
+**Fills** arrive in the background (docs/ENGINE.md): on
+`Event::RemovalsFilled` the app requests the current generation again. At
+start-up it asks the engine to load the generative model
+(`request_model_status`). The `ai` cargo feature (on by default) builds the
+neural inpainting; see [RETOUCH.md](RETOUCH.md).
 
 ## GPU selection (`gpu/mod.rs`)
 

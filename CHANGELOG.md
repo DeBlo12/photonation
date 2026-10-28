@@ -37,6 +37,10 @@ All notable changes to this project are documented here. The format follows
   saturation and luminance ranges and a "Visualize range" overlay (the Color
   Mixer's Point Color tab). The Mixer tab gets a picker that selects the band
   of a colour clicked in the photo.
+- Object removal: paint over a distraction (Remove panel, `Q`) and it is
+  replaced by a content-aware fill (PatchMatch) or, with an installed LaMa
+  or MI-GAN ONNX model, a generative fill. Fills are computed in the
+  background and cached; removals are stored in the sidecar.
 - The desktop editor prefers a discrete GPU, falling back to integrated
   graphics and then software rendering; `PHOTONATION_GPU` overrides the order.
 

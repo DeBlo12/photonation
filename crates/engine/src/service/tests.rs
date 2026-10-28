@@ -466,3 +466,53 @@ fn panic_messages_keep_their_detail() {
     assert!(panic_message(&*from_string).contains("bad crop"));
     assert!(panic_message(&*opaque).contains("unknown cause"));
 }
+
+#[test]
+fn removals_are_filled_in_the_background_then_rendered() {
+    use photonation_develop::{BrushStroke, Removal, RemovalMethod};
+    let h = harness(FakeDecoder::default());
+    let settings = Settings {
+        removals: vec![Removal::new(
+            RemovalMethod::ContentAware,
+            BrushStroke {
+                points: vec![[0.5, 0.5]],
+                radius: 0.08,
+            },
+        )],
+        ..Settings::default()
+    };
+    let request = |generation| PreviewRequest {
+        path: "a.cr3".into(),
+        settings: settings.clone(),
+        long_edge: None,
+        generation,
+        kind: PreviewKind::Edited,
+        point_color_overlay: None,
+    };
+    h.service.request_preview(request(1));
+    let events = h.events_until(|e| matches!(e, Event::RemovalsFilled { .. }));
+    let Some(Event::Preview {
+        image: unfilled, ..
+    }) = events.iter().find(|e| is_preview(e))
+    else {
+        panic!("the first preview does not wait for the fill: {events:?}")
+    };
+    let unfilled = unfilled.rgb.clone();
+    h.service.request_preview(request(2));
+    let events = h.events_until(is_preview);
+    let Some(Event::Preview {
+        generation: 2,
+        image,
+        ..
+    }) = events.last()
+    else {
+        panic!("{events:?}")
+    };
+    assert_ne!(image.rgb, unfilled, "the second preview shows the fill");
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, Event::RemovalsFilled { .. })),
+        "the fill is cached, not recomputed"
+    );
+}

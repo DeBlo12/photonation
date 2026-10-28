@@ -16,6 +16,8 @@
   live thumbnails, reordering and a GPU overlay
 - Crop and straighten tool (aspect ratios, angle, drag to turn)
 - Lightroom XMP import: global develop settings and crops open with the photo
+- Object removal: painted removals filled by content-aware fill (PatchMatch)
+  or a neural inpainting model (LaMa / MI-GAN via tract), in the background
 - Desktop editor (toolbar, viewer with zoom/compare, filmstrip, adjustment cards, export sheet)
 - CLI: info, export, edit
 
@@ -36,6 +38,10 @@
 7. **Better demosaicing**: RCD or AMaZE for Bayer, Markesteijn for X-Trans.
 8. **Presets** and copy/paste of settings across photos.
 9. **EXIF/XMP metadata in exports**; AVIF and JPEG XL export.
+
+10. **Better removals**: one-click people selection (segmentation), dust
+    spot and wire/fence detection, full-resolution tiled fills, a disk cache
+    for fills. See [RETOUCH.md](RETOUCH.md).
 
 ## Platform
 

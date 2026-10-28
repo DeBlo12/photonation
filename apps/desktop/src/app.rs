@@ -160,6 +160,7 @@ pub struct ViewState {
     pub cropping: bool,
     pub crop_tool: panels::crop::CropTool,
     pub filmstrip: panels::filmstrip::FilmstripReveal,
+    pub filmstrip_scroll: panels::filmstrip::FilmstripScroll,
     pub mask_thumbnails: panels::mask_thumbnails::MaskThumbnails,
     /// The Remove panel replaces the adjustments, and dragging on the photo
     /// paints removals.
@@ -201,6 +202,7 @@ impl Default for ViewState {
             cropping: false,
             crop_tool: Default::default(),
             filmstrip: Default::default(),
+            filmstrip_scroll: Default::default(),
             mask_thumbnails: Default::default(),
             show_removals: false,
             selected_removal: None,
@@ -302,36 +304,8 @@ pub struct PhotonationApp {
 
 impl PhotonationApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> PhotonationApp {
-        theme::install(&cc.egui_ctx);
-        let ctx = cc.egui_ctx.clone();
-        let mut app = PhotonationApp {
-            engine: RenderService::new(move || ctx.request_repaint()),
-            folder: None,
-            photos: Vec::new(),
-            current: None,
-            settings: Settings::default(),
-            history: History::default(),
-            info: None,
-            view: ViewState::default(),
-            preview: None,
-            before: None,
-            histogram: None,
-            generation: 0,
-            rendered_generation: 0,
-            last_requested: None,
-            pending_color_pick: None,
-            before_requested: None,
-            pending_save: None,
-            status: None,
-            status_is_about_photo: false,
-            export_progress: None,
-            thumbnails_by_path: HashMap::new(),
-            screenshot: crate::screenshot::Screenshot::from_env(),
-            gpu: None,
-            mask_overlay_ready: false,
-            model_status: None,
-            filling_removals: false,
-        };
+        let mut app = PhotonationApp::empty(&cc.egui_ctx);
+        app.screenshot = crate::screenshot::Screenshot::from_env();
         // Load the inpainting model in the background, so the first
         // generative removal doesn't wait for it.
         app.engine.request_model_status();
@@ -360,6 +334,41 @@ impl PhotonationApp {
             screenshot.prepare(&mut app.view);
         }
         app
+    }
+
+    /// No folder open, no GPU and no command line: what `new` starts from,
+    /// and what tests draw panels with.
+    pub fn empty(ctx: &egui::Context) -> PhotonationApp {
+        theme::install(ctx);
+        let ctx = ctx.clone();
+        PhotonationApp {
+            engine: RenderService::new(move || ctx.request_repaint()),
+            folder: None,
+            photos: Vec::new(),
+            current: None,
+            settings: Settings::default(),
+            history: History::default(),
+            info: None,
+            view: ViewState::default(),
+            preview: None,
+            before: None,
+            histogram: None,
+            generation: 0,
+            rendered_generation: 0,
+            last_requested: None,
+            pending_color_pick: None,
+            before_requested: None,
+            pending_save: None,
+            status: None,
+            status_is_about_photo: false,
+            export_progress: None,
+            thumbnails_by_path: HashMap::new(),
+            screenshot: None,
+            gpu: None,
+            mask_overlay_ready: false,
+            model_status: None,
+            filling_removals: false,
+        }
     }
 
     pub fn open_folder(&mut self, folder: PathBuf) {

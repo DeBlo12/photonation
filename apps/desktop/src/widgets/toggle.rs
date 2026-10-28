@@ -2,12 +2,14 @@
 // Copyright (C) 2026 The Photonation contributors
 
 use crate::theme;
-use eframe::egui::{Response, Sense, Ui, pos2, vec2};
+use eframe::egui::{Response, Sense, Ui, Vec2, pos2, vec2};
+
+/// How much room a switch takes.
+pub const TOGGLE_SIZE: Vec2 = vec2(30.0, 17.0);
 
 /// iOS-style switch.
 pub fn toggle(ui: &mut Ui, on: &mut bool) -> Response {
-    let size = vec2(30.0, 17.0);
-    let (rect, mut response) = ui.allocate_exact_size(size, Sense::click());
+    let (rect, mut response) = ui.allocate_exact_size(TOGGLE_SIZE, Sense::click());
     if response.clicked() {
         *on = !*on;
         response.mark_changed();

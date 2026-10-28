@@ -2,10 +2,14 @@
 // Copyright (C) 2026 The Photonation contributors
 
 //! Encoders for rendered images. Every file carries the ICC profile of its
-//! colour space so viewers display it correctly.
+//! colour space so viewers display it correctly, and the photo's metadata
+//! as EXIF (see [`exif`]) and XMP (see [`xmp`]).
+
+mod exif;
+mod xmp;
 
 use photonation_color::ColorSpace;
-use photonation_image::{BitDepth, OutputImage, Pixels};
+use photonation_image::{BitDepth, CameraInfo, OutputImage, Pixels};
 use std::borrow::Cow;
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -63,7 +67,15 @@ pub fn icc_profile(space: ColorSpace) -> Vec<u8> {
 /// or symlink planted in a shared folder is never written through),
 /// flushed to disk, then renamed over `path`. A failed export leaves
 /// nothing behind.
-pub fn write(path: &Path, img: &OutputImage, format: Format) -> Result<(), ExportError> {
+///
+/// `metadata` is written as EXIF and XMP; fields left empty are left out,
+/// and an empty `metadata` writes neither.
+pub fn write(
+    path: &Path,
+    img: &OutputImage,
+    format: Format,
+    metadata: &CameraInfo,
+) -> Result<(), ExportError> {
     if !format.supports(img.bit_depth()) {
         return Err(ExportError::Depth {
             format,
@@ -85,7 +97,7 @@ pub fn write(path: &Path, img: &OutputImage, format: Format) -> Result<(), Expor
     #[cfg(unix)]
     temporary.permissions(std::os::unix::fs::PermissionsExt::from_mode(0o666));
     let mut file = temporary.tempfile_in(directory).map_err(io_error)?;
-    encode_to(file.as_file_mut(), path, img, format)?;
+    encode_to(file.as_file_mut(), path, img, format, metadata)?;
     file.persist(path).map_err(|e| io_error(e.error))?;
     Ok(())
 }
@@ -96,6 +108,7 @@ fn encode_to(
     path: &Path,
     img: &OutputImage,
     format: Format,
+    metadata: &CameraInfo,
 ) -> Result<(), ExportError> {
     let io_error = |source| ExportError::Io {
         path: path.into(),
@@ -106,6 +119,8 @@ fn encode_to(
         message: e.to_string(),
     };
     let icc = icc_profile(img.color_space);
+    let exif = exif::Directories::new(metadata, img);
+    let xmp = xmp::packet(metadata);
     let mut out = BufWriter::new(file);
 
     match (format, &img.pixels) {
@@ -116,6 +131,18 @@ fn encode_to(
             e.set_optimized_huffman_tables(true);
             if quality >= 90 {
                 e.set_sampling_factor(jpeg_encoder::SamplingFactor::F_1_1);
+            }
+            // The APP1 segments (EXIF, then XMP) go before the APP2 ICC
+            // profile segments.
+            if let Some(exif) = &exif {
+                let segment = [exif::JPEG_APP1_PREFIX, &exif.tiff_stream()].concat();
+                e.add_app_segment(1, segment)
+                    .map_err(|e| encode_error(&e))?;
+            }
+            if let Some(xmp) = &xmp {
+                let segment = [xmp::JPEG_APP1_PREFIX, xmp.as_bytes()].concat();
+                e.add_app_segment(1, segment)
+                    .map_err(|e| encode_error(&e))?;
             }
             if !icc.is_empty() {
                 e.add_icc_profile(&icc).map_err(|e| encode_error(&e))?;
@@ -128,6 +155,11 @@ fn encode_to(
             info.color_type = png::ColorType::Rgb;
             if !icc.is_empty() {
                 info.icc_profile = Some(Cow::Borrowed(&icc));
+            }
+            info.exif_metadata = exif.as_ref().map(|exif| Cow::Owned(exif.tiff_stream()));
+            if let Some(xmp) = &xmp {
+                info.utf8_text
+                    .push(png::text_metadata::ITXtChunk::new(xmp::PNG_KEYWORD, xmp));
             }
             let data: Cow<[u8]> = match pixels {
                 Pixels::U8(px) => {
@@ -145,14 +177,24 @@ fn encode_to(
             w.write_image_data(&data).map_err(|e| encode_error(&e))?;
             w.finish().map_err(|e| encode_error(&e))?;
         }
-        (Format::Tiff, Pixels::U8(px)) => {
-            write_tiff::<_, tiff::encoder::colortype::RGB8>(&mut out, img, px, &icc)
-                .map_err(|e| encode_error(&e))?
-        }
-        (Format::Tiff, Pixels::U16(px)) => {
-            write_tiff::<_, tiff::encoder::colortype::RGB16>(&mut out, img, px, &icc)
-                .map_err(|e| encode_error(&e))?
-        }
+        (Format::Tiff, Pixels::U8(px)) => write_tiff::<_, tiff::encoder::colortype::RGB8>(
+            &mut out,
+            img,
+            px,
+            &icc,
+            exif.as_ref(),
+            xmp.as_deref(),
+        )
+        .map_err(|e| encode_error(&e))?,
+        (Format::Tiff, Pixels::U16(px)) => write_tiff::<_, tiff::encoder::colortype::RGB16>(
+            &mut out,
+            img,
+            px,
+            &icc,
+            exif.as_ref(),
+            xmp.as_deref(),
+        )
+        .map_err(|e| encode_error(&e))?,
         (format, _) => {
             return Err(ExportError::Depth {
                 format,
@@ -172,6 +214,8 @@ fn write_tiff<W, C>(
     img: &OutputImage,
     samples: &[C::Inner],
     icc: &[u8],
+    exif: Option<&exif::Directories>,
+    xmp: Option<&str>,
 ) -> tiff::TiffResult<()>
 where
     W: Write + std::io::Seek,
@@ -180,11 +224,22 @@ where
 {
     let mut encoder = tiff::encoder::TiffEncoder::new(out)?
         .with_compression(tiff::encoder::Compression::Deflate(Default::default()));
+    // The Exif and GPS directories are written first, so the image's own
+    // directory (IFD0) can point to them.
+    let mut primary = exif
+        .map(|exif| exif::write_tiff_sub_directories(&mut encoder, exif))
+        .transpose()?;
+    if let (Some(primary), Some(xmp)) = (&mut primary, xmp) {
+        primary.push((xmp::TIFF_TAG, exif::Value::Byte(xmp.as_bytes().to_vec())));
+    }
     let mut image = encoder.new_image::<C>(img.width as u32, img.height as u32)?;
     if !icc.is_empty() {
         image
             .encoder()
             .write_tag(tiff::tags::Tag::IccProfile, icc)?;
+    }
+    if let Some(primary) = &primary {
+        exif::write_tiff_fields(image.encoder(), primary)?;
     }
     image.write_data(samples)
 }
@@ -234,19 +289,155 @@ mod tests {
             (Format::Tiff, BitDepth::Sixteen),
         ] {
             let path = dir.join(format!("t-{depth:?}.{}", format.extension()));
-            write(&path, &tiny(depth), format).expect("write");
+            write(&path, &tiny(depth), format, &CameraInfo::default()).expect("write");
             assert!(std::fs::metadata(&path).expect("exists").len() > 100);
         }
         assert!(matches!(
             write(
                 &dir.join("x.jpg"),
                 &tiny(BitDepth::Sixteen),
-                Format::Jpeg { quality: 90 }
+                Format::Jpeg { quality: 90 },
+                &CameraInfo::default()
             ),
             Err(ExportError::Depth { .. })
         ));
         // Only the finished files remain; no temporary files are left over.
         assert_eq!(std::fs::read_dir(dir).expect("list").count(), 4);
+    }
+
+    /// What an exported file embeds; `None` where it has none.
+    struct Embedded {
+        /// The EXIF TIFF stream.
+        exif: Option<Vec<u8>>,
+        xmp: Option<String>,
+        icc: Option<Vec<u8>>,
+    }
+
+    fn embedded(bytes: &[u8], format: Format) -> Embedded {
+        let utf8 = |bytes: &[u8]| String::from_utf8(bytes.to_vec()).expect("UTF-8 XMP");
+        match format {
+            Format::Jpeg { .. } => {
+                let (mut exif, mut xmp, mut icc) = (None, None, Vec::new());
+                let mut at = 2; // after SOI
+                while bytes[at] == 0xFF && (0xE0..=0xEF).contains(&bytes[at + 1]) {
+                    let length = u16::from_be_bytes([bytes[at + 2], bytes[at + 3]]) as usize;
+                    let data = &bytes[at + 4..at + 2 + length];
+                    if let Some(stream) = data.strip_prefix(exif::JPEG_APP1_PREFIX) {
+                        exif = Some(stream.to_vec());
+                    }
+                    if let Some(packet) = data.strip_prefix(xmp::JPEG_APP1_PREFIX) {
+                        xmp = Some(utf8(packet));
+                    }
+                    if let Some(chunk) = data.strip_prefix(b"ICC_PROFILE\0") {
+                        icc.extend(&chunk[2..]); // after sequence number and count
+                    }
+                    at += 2 + length;
+                }
+                Embedded {
+                    exif,
+                    xmp,
+                    icc: (!icc.is_empty()).then_some(icc),
+                }
+            }
+            Format::Png => {
+                let reader = png::Decoder::new(std::io::Cursor::new(bytes))
+                    .read_info()
+                    .expect("png");
+                let info = reader.info();
+                Embedded {
+                    exif: info.exif_metadata.as_ref().map(|e| e.to_vec()),
+                    xmp: info
+                        .utf8_text
+                        .iter()
+                        .find(|chunk| chunk.keyword == xmp::PNG_KEYWORD)
+                        .map(|chunk| chunk.get_text().expect("text")),
+                    icc: info.icc_profile.as_ref().map(|p| p.to_vec()),
+                }
+            }
+            Format::Tiff => {
+                let mut decoder =
+                    tiff::decoder::Decoder::new(std::io::Cursor::new(bytes)).expect("tiff");
+                assert_eq!(decoder.dimensions().expect("size"), (6, 4));
+                decoder.read_image().expect("pixels decode");
+                // The file itself is the TIFF stream.
+                let primary = exif::read_back::read(bytes).primary;
+                Embedded {
+                    exif: primary
+                        .contains_key(&exif::tag::EXIF_IFD)
+                        .then(|| bytes.to_vec()),
+                    xmp: primary.get(&xmp::TIFF_TAG).map(|field| utf8(&field.bytes)),
+                    icc: primary
+                        .get(&ICC_PROFILE_TAG)
+                        .map(|field| field.bytes.clone()),
+                }
+            }
+        }
+    }
+
+    const ICC_PROFILE_TAG: u16 = 34675;
+
+    /// Equal ICC profiles, ignoring the creation time in the header
+    /// (bytes 24..36), which is stamped when the profile is encoded.
+    fn same_profile(a: &[u8], b: &[u8]) -> bool {
+        a.len() == b.len() && a[..24] == b[..24] && a[36..] == b[36..]
+    }
+
+    const EVERY_FORMAT: [(Format, BitDepth); 4] = [
+        (Format::Jpeg { quality: 90 }, BitDepth::Eight),
+        (Format::Png, BitDepth::Sixteen),
+        (Format::Tiff, BitDepth::Eight),
+        (Format::Tiff, BitDepth::Sixteen),
+    ];
+
+    #[test]
+    fn every_format_carries_metadata_and_keeps_its_icc_profile() {
+        use exif::tag;
+        let temp = tempfile::tempdir().expect("temp dir");
+        let metadata = exif::read_back::sample_metadata();
+        for (format, depth) in EVERY_FORMAT {
+            let path = temp
+                .path()
+                .join(format!("m-{depth:?}.{}", format.extension()));
+            write(&path, &tiny(depth), format, &metadata).expect("write");
+            let found = embedded(&std::fs::read(&path).expect("read"), format);
+            let icc = found.icc.expect("ICC present");
+            assert!(
+                same_profile(&icc, &icc_profile(ColorSpace::DisplayP3)),
+                "{format:?}"
+            );
+
+            let exif = exif::read_back::read(&found.exif.expect("EXIF present"));
+            let primary = &exif.primary;
+            assert_eq!(primary[&tag::MODEL].text(), "Canon EOS 250D", "{format:?}");
+            assert_eq!(primary[&tag::ORIENTATION].short(), 1, "{format:?}");
+            assert_eq!(primary[&tag::ARTIST].text(), "Ada Lovelace");
+            assert_eq!(primary[&tag::COPYRIGHT].text(), "© 2026 Ada Lovelace");
+            let lens = exif.exif[&tag::LENS_MODEL].text();
+            assert_eq!(lens, "Canon EF 50mm f/1.8 STM");
+            let taken = exif.exif[&tag::DATE_TIME_ORIGINAL].text();
+            assert_eq!(taken, "2026:06:20 18:02:23");
+            assert_eq!(exif.exif[&tag::EXPOSURE_TIME].rational(0), 1.0 / 4000.0);
+            assert_eq!(exif.gps[&tag::GPS_LATITUDE_REF].text(), "N", "{format:?}");
+
+            let xmp = found.xmp.expect("XMP present");
+            assert!(xmp.contains("<rdf:li>Ada Lovelace</rdf:li>"), "{format:?}");
+            assert!(xmp.contains("aux:Lens=\"Canon EF 50mm f/1.8 STM\""));
+        }
+    }
+
+    #[test]
+    fn exports_without_metadata_carry_none() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        for (format, depth) in EVERY_FORMAT {
+            let path = temp
+                .path()
+                .join(format!("plain-{depth:?}.{}", format.extension()));
+            write(&path, &tiny(depth), format, &CameraInfo::default()).expect("write");
+            let found = embedded(&std::fs::read(&path).expect("read"), format);
+            assert!(found.exif.is_none(), "{format:?}");
+            assert!(found.xmp.is_none(), "{format:?}");
+            assert!(found.icc.is_some(), "{format:?}");
+        }
     }
 
     #[cfg(unix)]
@@ -260,7 +451,13 @@ mod tests {
         let target = temp.path().join("out.png");
         std::os::unix::fs::symlink(&victim, &target).expect("symlink");
         std::os::unix::fs::symlink(&victim, temp.path().join("out.png.partial")).expect("symlink");
-        write(&target, &tiny(BitDepth::Eight), Format::Png).expect("write");
+        write(
+            &target,
+            &tiny(BitDepth::Eight),
+            Format::Png,
+            &CameraInfo::default(),
+        )
+        .expect("write");
         assert_eq!(
             std::fs::read_to_string(&victim).expect("read victim"),
             "precious"
@@ -283,7 +480,12 @@ mod tests {
         };
         let target = temp.path().join("wide.jpg");
         assert!(matches!(
-            write(&target, &too_wide, Format::Jpeg { quality: 90 }),
+            write(
+                &target,
+                &too_wide,
+                Format::Jpeg { quality: 90 },
+                &CameraInfo::default()
+            ),
             Err(ExportError::Encode { .. })
         ));
         assert_eq!(std::fs::read_dir(temp.path()).expect("list").count(), 0);

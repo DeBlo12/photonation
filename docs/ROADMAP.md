@@ -9,7 +9,8 @@
 - Presence: texture, clarity, dehaze
 - Colour: vibrance, saturation, 8-band colour mixer with a band picker, point colours, colour grading wheels
 - Tone curve: parametric, RGB and per-channel point curves
-- Sharpening; Lanczos resizing; JPEG/PNG/TIFF export with ICC profiles
+- Sharpening; Lanczos resizing; JPEG/PNG/TIFF export with ICC profiles and
+  EXIF/XMP metadata (camera and capture, creator and copyright, optional GPS)
 - JSON sidecars, process versions, undo/redo
 - Masks: linear and radial gradients combined per mask (add, subtract,
   intersect), with invert, amount and eight local adjustments; layer panel with
@@ -37,7 +38,8 @@
    round trip, to speed up masked renders.
 7. **Better demosaicing**: RCD or AMaZE for Bayer, Markesteijn for X-Trans.
 8. **Presets** and copy/paste of settings across photos.
-9. **EXIF/XMP metadata in exports**; AVIF and JPEG XL export.
+9. **AVIF and JPEG XL export**; IPTC fields (title, caption, keywords) in
+   export metadata.
 
 10. **Better removals**: one-click people selection (segmentation), dust
     spot and wire/fence detection, full-resolution tiled fills, a disk cache

@@ -44,16 +44,22 @@ impl ModelStatus {
     }
 }
 
-/// `$PHOTONATION_INPAINT_MODEL`, or `inpaint.onnx` in the platform's data
-/// directory (`~/Library/Application Support/Photonation/models` on macOS,
-/// `$XDG_DATA_HOME/photonation/models` or `~/.local/share/...` on Linux,
-/// `%APPDATA%\Photonation\models` on Windows).
+/// `$PHOTONATION_INPAINT_MODEL`, or `models/inpaint.onnx` in the
+/// [`data_directory`].
 pub fn default_model_path() -> Option<PathBuf> {
     if let Some(path) = std::env::var_os(MODEL_PATH_VARIABLE) {
         return Some(PathBuf::from(path));
     }
+    data_directory().map(|directory| directory.join("models").join("inpaint.onnx"))
+}
+
+/// The platform's place for Photonation's own files (models, preferences):
+/// `~/Library/Application Support/Photonation` on macOS,
+/// `$XDG_DATA_HOME/photonation` or `~/.local/share/photonation` on Linux,
+/// `%APPDATA%\Photonation` on Windows.
+pub fn data_directory() -> Option<PathBuf> {
     let home = std::env::var_os("HOME").map(PathBuf::from);
-    let data_directory = if cfg!(target_os = "macos") {
+    if cfg!(target_os = "macos") {
         home.map(|home| home.join("Library/Application Support/Photonation"))
     } else if cfg!(windows) {
         std::env::var_os("APPDATA").map(|appdata| PathBuf::from(appdata).join("Photonation"))
@@ -62,8 +68,7 @@ pub fn default_model_path() -> Option<PathBuf> {
             .map(PathBuf::from)
             .or_else(|| home.map(|home| home.join(".local/share")))
             .map(|data| data.join("photonation"))
-    };
-    data_directory.map(|directory| directory.join("models").join("inpaint.onnx"))
+    }
 }
 
 /// The neural inpainter, loaded on first use.

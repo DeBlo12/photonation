@@ -5,7 +5,7 @@ use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use photonation_color::ColorSpace;
 use photonation_develop::{Settings, WhiteBalance, load_photo_settings, sidecar_path};
-use photonation_engine::ExportOptions;
+use photonation_engine::{ExportOptions, MetadataOptions, MetadataPreset};
 use photonation_export::Format;
 use photonation_image::BitDepth;
 use std::path::{Path, PathBuf};
@@ -74,7 +74,51 @@ struct ExportArgs {
     #[arg(long)]
     overwrite: bool,
     #[command(flatten)]
+    metadata: MetadataArgs,
+    #[command(flatten)]
     adjust: Adjustments,
+}
+
+/// What metadata the exported files carry, as EXIF.
+#[derive(Args)]
+struct MetadataArgs {
+    /// Metadata to write: camera, capture and copyright (`all`), only
+    /// artist and copyright (`copyright`), or nothing (`none`).
+    #[arg(long, value_enum, default_value_t = MetadataArg::All)]
+    metadata: MetadataArg,
+    /// Also write the GPS position (left out by default for privacy).
+    #[arg(long)]
+    location: bool,
+    /// Artist to write instead of the raw file's.
+    #[arg(long)]
+    creator: Option<String>,
+    /// Copyright notice to write instead of the raw file's.
+    #[arg(long)]
+    copyright: Option<String>,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum MetadataArg {
+    All,
+    Copyright,
+    None,
+}
+
+impl MetadataArgs {
+    fn options(&self) -> MetadataOptions {
+        let mut options = MetadataOptions {
+            creator: self.creator.clone().unwrap_or_default(),
+            copyright_notice: self.copyright.clone().unwrap_or_default(),
+            ..MetadataOptions::default()
+        };
+        options.apply(match self.metadata {
+            MetadataArg::All => MetadataPreset::All,
+            MetadataArg::Copyright => MetadataPreset::CopyrightOnly,
+            MetadataArg::None => MetadataPreset::None,
+        });
+        options.location = self.location;
+        options
+    }
 }
 
 /// Slider overrides; applied on top of the sidecar or settings file.
@@ -227,11 +271,26 @@ fn info(files: &[PathBuf]) -> Result<()> {
         if let Some(fl) = i.focal_length {
             exposure.push(format!("{fl:.0} mm"));
         }
+        if let Some(bias) = i.exposure_bias.filter(|b| *b != 0.0) {
+            exposure.push(format!("{bias:+.1} EV"));
+        }
         if !exposure.is_empty() {
             println!("  exposure     {}", exposure.join("  "));
         }
         if let Some(d) = &i.date_time {
-            println!("  taken        {d}");
+            println!(
+                "  taken        {d} {}",
+                i.time_offset.as_deref().unwrap_or("")
+            );
+        }
+        if let Some(artist) = &i.artist {
+            println!("  artist       {artist}");
+        }
+        if let Some(copyright) = &i.copyright {
+            println!("  copyright    {copyright}");
+        }
+        if let Some(gps) = &i.gps {
+            println!("  location     {:.5}, {:.5}", gps.latitude, gps.longitude);
         }
         let (w, h) = img.orientation.display_size(img.crop.w, img.crop.h);
         println!(
@@ -288,6 +347,7 @@ fn export(args: &ExportArgs) -> Result<()> {
         color_space: args.color_space.into(),
         long_edge: args.long_edge,
         file_name: args.name.clone(),
+        metadata: args.metadata.options(),
     };
 
     let started = Instant::now();

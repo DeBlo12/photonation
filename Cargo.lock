@@ -3288,6 +3288,8 @@ dependencies = [
  "photonation-pipeline",
  "png",
  "rfd",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -3313,6 +3315,7 @@ dependencies = [
  "photonation-pipeline",
  "photonation-raw",
  "photonation-retouch",
+ "serde",
  "tempfile",
  "thiserror 2.0.21",
 ]

@@ -24,6 +24,8 @@ photonation-engine.workspace = true
 eframe.workspace = true
 rfd.workspace = true
 png.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 
 [features]
 default = ["ai"]

@@ -18,6 +18,7 @@ photonation-raw.workspace = true
 photonation-pipeline.workspace = true
 photonation-export.workspace = true
 photonation-retouch.workspace = true
+serde.workspace = true
 thiserror.workspace = true
 
 [features]

@@ -16,5 +16,6 @@ pub use crop::CropFrame;
 pub use geometry::{NormRect, Orientation, Rect};
 pub use output::{BitDepth, OutputImage, Pixels};
 pub use sensor::{
-    CalibrationMatrix, CameraColor, CameraInfo, CfaColor, CfaPattern, SensorImage, SensorLayout,
+    CalibrationMatrix, CameraColor, CameraInfo, CfaColor, CfaPattern, GpsPosition, SensorImage,
+    SensorLayout,
 };

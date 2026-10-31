@@ -8,6 +8,24 @@ changes to CI alone are not released.
 
 ## [Unreleased]
 
+## [0.15.1] - 2026-10-31
+
+### Changed
+
+- Without a generative model, the Remove panel links the LaMa download, shows
+  its SHA-256 to check it against, opens the models folder and checks again
+  without a restart. The download can keep its own name
+  (`lama_fp32.onnx`) when it is the only model in the folder.
+
+### Fixed
+
+- With the masks, crop or Remove tool open, the grid button (or G, N, the
+  filter chip) flashed the grid for a moment and closed it again. Now the
+  grid waits: a message names the tool to finish first, and its panel is
+  outlined. ([#20](https://github.com/DeBlo12/photonation/pull/20))
+
+## [0.15.0] - 2026-10-31
+
 ### Added
 
 - Culling: rate photos 0–5 stars (0–5, `]` `[`), pick (P), reject (X) or
@@ -27,32 +45,28 @@ changes to CI alone are not released.
   while it moves: drag it to cross a long folder, with the photo's name and
   date shown as you go.
 - Export can cover the selected or the shown photos.
-- Curves draw the photo's histogram behind the curve: brightness behind the
-  parametric and RGB curves, the channel itself behind the red, green and
-  blue ones.
 
 ### Changed
-
-- Without a generative model, the Remove panel links the LaMa download, shows
-  its SHA-256 to check it against, opens the models folder and checks again
-  without a restart. The download can keep its own name
-  (`lama_fp32.onnx`) when it is the only model in the folder.
 
 - Thumbnails show the camera's embedded preview at once, then
   Photonation's rendering, which is kept in a disk cache (up to 512 MB) so
   folders open with their renders next time.
+  ([#19](https://github.com/DeBlo12/photonation/pull/19))
+
+## [0.14.0] - 2026-10-31
+
+### Added
+
+- Curves draw the photo's histogram behind the curve: brightness behind the
+  parametric and RGB curves, the channel itself behind the red, green and
+  blue ones.
 
 ### Fixed
-
-- With the masks, crop or Remove tool open, the grid button (or G, N, the
-  filter chip) flashed the grid for a moment and closed it again. Now the
-  grid waits: a message names the tool to finish first, and its panel is
-  outlined.
 
 - Curve points follow the pointer for the whole drag; before, they stopped
   after the first few pixels. A quick drag on a point moves it instead of
   adding a new one, and dragging a point placed right next to another no
-  longer crashes the editor.
+  longer crashes the editor. ([#18](https://github.com/DeBlo12/photonation/pull/18))
 
 ## [0.13.0] - 2026-10-31
 
@@ -288,7 +302,10 @@ changes to CI alone are not released.
 
 - Licensed under GPL-3.0-or-later.
 
-[Unreleased]: https://github.com/DeBlo12/photonation/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/DeBlo12/photonation/compare/v0.15.1...HEAD
+[0.15.1]: https://github.com/DeBlo12/photonation/compare/v0.15.0...v0.15.1
+[0.15.0]: https://github.com/DeBlo12/photonation/compare/v0.14.0...v0.15.0
+[0.14.0]: https://github.com/DeBlo12/photonation/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/DeBlo12/photonation/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/DeBlo12/photonation/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/DeBlo12/photonation/compare/v0.10.0...v0.11.0

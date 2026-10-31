@@ -12,6 +12,7 @@ use crate::panels::mask_thumbnails::tint_strength;
 use crate::panels::{crop, mask_handles, removal_brush};
 use crate::photo_frame::PhotoFrame;
 use crate::theme;
+use crate::widgets::{self, Icon};
 use eframe::egui::{self, Align2, Color32, CursorIcon, Rect, Sense, Stroke, Vec2, pos2, vec2};
 use photonation_develop::MaskSpace;
 use photonation_image::CropFrame;
@@ -379,11 +380,10 @@ fn compare_overlay(
     );
     let handle = pos2(split_x, image_rect.center().y);
     painter.circle_filled(handle, 14.0, theme::KNOB);
-    painter.text(
-        handle,
-        Align2::CENTER_CENTER,
-        "⇔",
-        theme::body(13.0),
+    widgets::paint_icon(
+        painter,
+        Rect::from_center_size(handle, Vec2::splat(16.0)),
+        Icon::SplitHandle,
         theme::WINDOW,
     );
     painter.text(

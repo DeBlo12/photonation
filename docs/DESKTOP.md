@@ -44,7 +44,7 @@ most one of masks, crop and Remove is open.
 | `gpu/mod.rs` | Graphics adapter choice and texture limits |
 | `panels/export.rs` | Export sheet (format, quality, size, colour space, scope, file name with a preview of the result, metadata) |
 | `preferences.rs` | Choices remembered between launches (`preferences.json` in the data directory): the export metadata |
-| `widgets/*` | Custom controls: adjustment slider, section card, toggle, segmented control, curve editor, colour wheel, histogram |
+| `widgets/*` | Custom controls: adjustment slider, section card, toggle, segmented control, curve editor, colour wheel, histogram; the brand's stroke icons (`icon.rs`, SVG path data drawn as vectors) |
 | `theme.rs` | Every colour and metric |
 
 ## Per-frame control flow (`app.rs: PhotonationApp::ui`)

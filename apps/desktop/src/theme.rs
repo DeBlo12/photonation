@@ -36,8 +36,25 @@ pub const TOOLBAR_HEIGHT: f32 = 46.0;
 pub const FILMSTRIP_HEIGHT: f32 = 104.0;
 /// The filmstrip at rest: a thin row of tiny thumbnails.
 pub const FILMSTRIP_RESTING_HEIGHT: f32 = 26.0;
-/// Room for the macOS traffic lights in the transparent title bar.
-pub const TRAFFIC_LIGHT_INSET: f32 = 78.0;
+/// Room for the macOS traffic lights in the transparent title bar. Other
+/// platforms keep their native title bar above the toolbar.
+pub const TRAFFIC_LIGHT_INSET: f32 = if cfg!(target_os = "macos") { 78.0 } else { 0.0 };
+
+/// Shortcut labels for tooltips, in the platform's notation.
+pub const SHORTCUT_OPEN: &str = shortcut("⌘O", "Ctrl+O");
+pub const SHORTCUT_EXPORT: &str = shortcut("⇧⌘E", "Ctrl+Shift+E");
+pub const SHORTCUT_FIT: &str = shortcut("⌘0", "Ctrl+0");
+pub const SHORTCUT_UNDO: &str = shortcut("⌘Z", "Ctrl+Z");
+pub const SHORTCUT_REDO: &str = shortcut("⇧⌘Z", "Ctrl+Shift+Z");
+pub const SHIFT_KEY: &str = shortcut("⇧", "Shift");
+
+const fn shortcut(mac: &'static str, other: &'static str) -> &'static str {
+    if cfg!(target_os = "macos") {
+        mac
+    } else {
+        other
+    }
+}
 
 pub fn body(size: f32) -> FontId {
     FontId::proportional(size)
@@ -95,7 +112,8 @@ pub fn install(ctx: &egui::Context) {
 }
 
 /// Uses the macOS system font when present (loaded at runtime, never
-/// bundled); otherwise egui's built-in fonts.
+/// bundled); otherwise egui's built-in fonts. Icons are drawn as vectors
+/// (`widgets::icon`), not from fonts.
 fn install_fonts(ctx: &egui::Context) {
     const SYSTEM_FONTS: [&str; 2] = [
         "/System/Library/Fonts/SFNS.ttf",
@@ -152,13 +170,12 @@ mod tests {
         found
     }
 
-    /// Icons outside egui's bundled fonts, drawn through eframe's system
-    /// font fallback. Each was checked in a screenshot on macOS; some
-    /// symbols come out as stacked bars instead (the fullwidth `＋` and
-    /// `✕` did), so a new one goes here only after it was seen drawn.
-    const SYSTEM_FONT_ICONS: &[char] = &[
-        '↶', '↷', '↺', '⇔', '⇧', '⌖', '⌘', '▤', '◎', '◐', '◯', '⛶', '📁',
-    ];
+    /// Symbols outside egui's bundled fonts, drawn through eframe's system
+    /// font fallback: only the macOS shortcut keys. Each was checked in a
+    /// screenshot on macOS; some symbols come out as stacked bars instead
+    /// (the fullwidth `＋` and `✕` did), so a new one goes here only after
+    /// it was seen drawn. Icons are brand vectors (`widgets::Icon`).
+    const SYSTEM_FONT_ICONS: &[char] = &['⇧', '⌘'];
 
     /// A label or icon character in neither egui's bundled fonts nor
     /// [`SYSTEM_FONT_ICONS`] may draw as an empty box or as garbage.

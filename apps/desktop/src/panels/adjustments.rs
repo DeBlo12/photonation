@@ -7,7 +7,9 @@
 
 use crate::app::{Eyedropper, MIXER_TABS, POINT_COLOR_TAB, PhotonationApp, ViewState};
 use crate::theme;
-use crate::widgets::{self, CurveChannel, SectionAction, SliderStyle, Track, adjustment_slider};
+use crate::widgets::{
+    self, CurveChannel, Icon, SectionAction, SliderStyle, Track, adjustment_slider,
+};
 use eframe::egui::{self, Color32, RichText, Ui};
 use photonation_develop::{
     AdjustmentGroup, BASIC_CONTROLS, ColorMixer, Control, DETAIL_CONTROLS, GRADING_BLEND_CONTROLS,
@@ -321,7 +323,7 @@ fn curves(ui: &mut Ui, settings: &mut Settings, view: &mut ViewState) {
 /// Toggles a picker; the viewer measures the next click on the photo.
 fn eyedropper_button(ui: &mut Ui, view: &mut ViewState, purpose: Eyedropper) {
     let active = view.eyedropper == Some(purpose);
-    if crate::panels::tool_button(ui, "⌖", active, purpose.tooltip()).clicked() {
+    if crate::panels::icon_button(ui, Icon::Focus, None, active, purpose.tooltip()).clicked() {
         view.eyedropper = (!active).then_some(purpose);
     }
 }

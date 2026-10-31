@@ -9,10 +9,10 @@
 
 use crate::app::PhotonationApp;
 use crate::panels::masks::card;
-use crate::panels::tool_button;
+use crate::panels::{icon_button, tool_button};
 use crate::photo_frame::PhotoFrame;
 use crate::theme;
-use crate::widgets::{SliderStyle, adjustment_slider};
+use crate::widgets::{Icon, SliderStyle, adjustment_slider};
 use eframe::egui::{
     self, Align, Align2, Color32, CursorIcon, Layout, Mesh, Painter, Pos2, RichText, Shape, Stroke,
     Ui, Vec2, pos2,
@@ -275,7 +275,7 @@ pub fn sidebar(app: &mut PhotonationApp, ui: &mut Ui) {
                     }
                 }
             }
-            let swap = tool_button(ui, "⇔", false, "Swap portrait and landscape");
+            let swap = icon_button(ui, Icon::Flip, None, false, "Swap portrait and landscape");
             if swap.clicked() {
                 let [width, height] = frame.size();
                 store(

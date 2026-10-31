@@ -177,10 +177,10 @@ fn shape_name(shape: &MaskShape) -> &'static str {
     }
 }
 
-fn shape_icon(shape: &MaskShape) -> &'static str {
+fn shape_icon(shape: &MaskShape) -> widgets::Icon {
     match shape {
-        MaskShape::Linear(_) => "▤",
-        MaskShape::Radial(_) => "◯",
+        MaskShape::Linear(_) => widgets::Icon::LinearGradient,
+        MaskShape::Radial(_) => widgets::Icon::RadialGradient,
     }
 }
 
@@ -562,13 +562,22 @@ fn shapes(mask: &mut Mask, selected: &mut usize, ui: &mut Ui) {
     let removable = mask.components.len() > 1;
     for (index, component) in mask.components.iter_mut().enumerate() {
         ui.horizontal(|ui| {
-            let label = format!(
-                "{}  {} {}",
-                shape_icon(&component.shape),
-                shape_name(&component.shape),
-                index + 1
-            );
-            if ui.selectable_label(*selected == index, label).clicked() {
+            let label = format!("{} {}", shape_name(&component.shape), index + 1);
+            let icon_id = egui::IdSalt::new(("shape-icon", index));
+            let row = egui::Button::selectable(
+                *selected == index,
+                (egui::Atom::custom(icon_id, vec2(14.0, 14.0)), label),
+            )
+            .atom_ui(ui);
+            if let Some(rect) = row.rect(icon_id) {
+                widgets::paint_icon(
+                    ui.painter(),
+                    rect,
+                    shape_icon(&component.shape),
+                    theme::TEXT,
+                );
+            }
+            if row.response.clicked() {
                 *selected = index;
             }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -644,7 +653,10 @@ fn shape_options(shape: &mut MaskShape, ui: &mut Ui) {
             }
             hint(
                 ui,
-                "Drag the centre to move, the edge handles to resize (⇧ keeps it round).",
+                &format!(
+                    "Drag the centre to move, the edge handles to resize ({} keeps it round).",
+                    theme::SHIFT_KEY
+                ),
             );
         }
     }

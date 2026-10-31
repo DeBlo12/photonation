@@ -1,3 +1,5 @@
+<img src="assets/icon/photonation-256.png" alt="Photonation icon" width="96" height="96">
+
 # Photonation
 
 [![CI](https://github.com/DeBlo12/photonation/actions/workflows/ci.yml/badge.svg)](https://github.com/DeBlo12/photonation/actions/workflows/ci.yml)
@@ -46,6 +48,15 @@ cargo run --release -p photonation-cli -- export ~/Pictures/Raw -o ~/Pictures/Ex
 ```
 
 Batch-exports every raw in a folder, applying each photo's sidecar edits.
+
+### Windows
+
+Build an installer (`photonation-<version>-windows-x64-setup.exe`) for
+Windows 10/11 with
+`packaging\windows\build-installer.ps1`; see
+[DEVELOPMENT.md](docs/DEVELOPMENT.md#windows-installer). It installs the
+editor (Start menu: Photonation) and, optionally, puts the `photonation` CLI
+on `PATH`. Shortcuts use Ctrl where the table below shows ⌘, and Alt for ⌥.
 
 ### CLI
 

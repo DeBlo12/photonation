@@ -3253,7 +3253,7 @@ dependencies = [
 
 [[package]]
 name = "photonation-cli"
-version = "0.1.0"
+version = "0.13.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -3269,14 +3269,14 @@ dependencies = [
 
 [[package]]
 name = "photonation-color"
-version = "0.1.0"
+version = "0.13.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "photonation-desktop"
-version = "0.1.0"
+version = "0.13.0"
 dependencies = [
  "eframe",
  "kurbo",
@@ -3296,7 +3296,7 @@ dependencies = [
 
 [[package]]
 name = "photonation-develop"
-version = "0.1.0"
+version = "0.13.0"
 dependencies = [
  "photonation-image",
  "roxmltree",
@@ -3308,7 +3308,7 @@ dependencies = [
 
 [[package]]
 name = "photonation-engine"
-version = "0.1.0"
+version = "0.13.0"
 dependencies = [
  "photonation-color",
  "photonation-develop",
@@ -3325,7 +3325,7 @@ dependencies = [
 
 [[package]]
 name = "photonation-export"
-version = "0.1.0"
+version = "0.13.0"
 dependencies = [
  "jpeg-encoder",
  "moxcms 0.9.1",
@@ -3339,7 +3339,7 @@ dependencies = [
 
 [[package]]
 name = "photonation-gpu"
-version = "0.1.0"
+version = "0.13.0"
 dependencies = [
  "naga",
  "photonation-color",
@@ -3353,7 +3353,7 @@ dependencies = [
 
 [[package]]
 name = "photonation-image"
-version = "0.1.0"
+version = "0.13.0"
 dependencies = [
  "photonation-color",
  "serde",
@@ -3361,7 +3361,7 @@ dependencies = [
 
 [[package]]
 name = "photonation-pipeline"
-version = "0.1.0"
+version = "0.13.0"
 dependencies = [
  "photonation-color",
  "photonation-develop",
@@ -3373,7 +3373,7 @@ dependencies = [
 
 [[package]]
 name = "photonation-raw"
-version = "0.1.0"
+version = "0.13.0"
 dependencies = [
  "photonation-color",
  "photonation-image",
@@ -3383,7 +3383,7 @@ dependencies = [
 
 [[package]]
 name = "photonation-retouch"
-version = "0.1.0"
+version = "0.13.0"
 dependencies = [
  "thiserror 2.0.21",
  "tract-onnx",

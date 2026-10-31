@@ -951,6 +951,12 @@ fn content(page: Page) -> Content {
                      curve, then the RGB curve, then the channel's own curve. Point curves \
                      are smooth splines that never overshoot between their points.",
                 ),
+                text(
+                    "Behind each curve is the photo's histogram as it looks now: \
+                     brightness behind the parametric and RGB curves, the channel itself \
+                     behind the red, green and blue ones. Place points under the tones you \
+                     want to move.",
+                ),
                 tip("Lightroom's parametric and point curves import into this card."),
             ],
             see_also: &[Page::Light, Page::ColorGrading],

@@ -15,6 +15,7 @@ use photonation_develop::{
     AdjustmentGroup, BASIC_CONTROLS, ColorMixer, Control, DETAIL_CONTROLS, GRADING_BLEND_CONTROLS,
     GRADING_CONTROLS, MIXER_CONTROLS, PARAMETRIC_CURVE_CONTROLS, Settings, WhiteBalance,
 };
+use photonation_engine::Histogram;
 use photonation_pipeline::curve::Parametric;
 
 pub const CURVE_MODES: [&str; 5] = ["Parametric", "RGB", "Red", "Green", "Blue"];
@@ -77,6 +78,7 @@ fn inspector(app: &mut PhotonationApp, ui: &mut Ui) {
             }
             ui.spacing_mut().item_spacing.y = 8.0;
             let as_shot = app.info.as_ref().map_or((5500.0, 0.0), |i| i.as_shot);
+            let histogram = app.histogram.as_ref();
             for group in AdjustmentGroup::ALL {
                 group_card(
                     ui,
@@ -92,7 +94,7 @@ fn inspector(app: &mut PhotonationApp, ui: &mut Ui) {
                             control_sliders(ui, settings, &BASIC_CONTROLS[6..9])
                         }
                         AdjustmentGroup::Color => color(ui, settings),
-                        AdjustmentGroup::ToneCurve => curves(ui, settings, view),
+                        AdjustmentGroup::ToneCurve => curves(ui, settings, view, histogram),
                         AdjustmentGroup::ColorMixer => color_mixer(ui, settings, view),
                         AdjustmentGroup::ColorGrading => color_grading(ui, settings, view),
                         AdjustmentGroup::Detail => control_sliders(ui, settings, DETAIL_CONTROLS),
@@ -301,13 +303,19 @@ fn color(ui: &mut Ui, settings: &mut Settings) {
     }
 }
 
-fn curves(ui: &mut Ui, settings: &mut Settings, view: &mut ViewState) {
+fn curves(
+    ui: &mut Ui,
+    settings: &mut Settings,
+    view: &mut ViewState,
+    histogram: Option<&Histogram>,
+) {
     widgets::segmented(ui, &CURVE_MODES, &mut view.curve_mode);
     ui.add_space(6.0);
     match view.curve_channel() {
         None => {
             let parametric = Parametric::new(&settings.tone_curve.parametric);
-            widgets::curve_editor(ui, None, Some(&|v| parametric.eval(v)), theme::TEXT);
+            let bins = histogram.map(|h| CurveChannel::Rgb.bins(h));
+            widgets::curve_editor(ui, None, Some(&|v| parametric.eval(v)), bins, theme::TEXT);
             control_sliders(ui, settings, PARAMETRIC_CURVE_CONTROLS);
         }
         Some(channel) => {
@@ -318,7 +326,8 @@ fn curves(ui: &mut Ui, settings: &mut Settings, view: &mut ViewState) {
                 CurveChannel::Green => &mut curves.green,
                 CurveChannel::Blue => &mut curves.blue,
             };
-            widgets::curve_editor(ui, Some(curve), None, channel.color());
+            let bins = histogram.map(|h| channel.bins(h));
+            widgets::curve_editor(ui, Some(curve), None, bins, channel.color());
             ui.label(
                 RichText::new("Click to add · drag to move · double-click to remove")
                     .size(11.0)

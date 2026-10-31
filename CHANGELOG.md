@@ -8,6 +8,19 @@ changes to CI alone are not released.
 
 ## [Unreleased]
 
+### Added
+
+- Curves draw the photo's histogram behind the curve: brightness behind the
+  parametric and RGB curves, the channel itself behind the red, green and
+  blue ones.
+
+### Fixed
+
+- Curve points follow the pointer for the whole drag; before, they stopped
+  after the first few pixels. A quick drag on a point moves it instead of
+  adding a new one, and dragging a point placed right next to another no
+  longer crashes the editor.
+
 ## [0.13.0] - 2026-10-31
 
 ### Added

@@ -67,7 +67,7 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
                         app.view.show_export = true;
                     }
                     ui.add_space(4.0);
-                    crate::panels::help::button(ui);
+                    crate::panels::help::button(ui, &mut app.view);
                     ui.add_space(4.0);
                     let is_actual =
                         matches!(app.view.zoom, Zoom::Scale(s) if (s - 1.0).abs() < 1e-3);

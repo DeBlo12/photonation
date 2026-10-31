@@ -20,9 +20,14 @@ All notable changes to this project are documented here. The format follows
   slider fills, selections, the Export button, with Ink text on amber), text
   is Paper, and the bundled Inter and Sora fonts replace the system font on
   every platform. The welcome screen shows the iris and the wordmark.
-- Help: a ? button in the toolbar opens a popover that explains how a photo
-  is developed (the order of the steps) and what each card, slider, mask,
-  crop, removal and export setting changes. Toolbar tooltips now say what
+- Help window: the ? button, Help ▸ Photonation Help or F1 opens a window
+  with one page per feature, listed on the left: getting started, how a
+  photo is developed (the order of the steps), each adjustment card, masks
+  and mask groups, crop and straighten, Remove, compare and zoom, export
+  (formats, colour spaces, file name templates, metadata), Settings,
+  Lightroom import and the keyboard shortcuts. It opens on the page of the
+  tool in use (masks, crop, Remove, the export sheet or Settings) and
+  otherwise where it was left; Esc closes it. Toolbar tooltips now say what
   each tool does, and appear on disabled tools as well.
 - Settings (File ▸ Settings…, Ctrl+, / ⌘,): choose the graphics processor
   (automatic, integrated first, software, or a specific adapter; applied at
@@ -30,7 +35,7 @@ All notable changes to this project are documented here. The format follows
   or where exports go without asking), and the format, size, colour space,
   file name and metadata new exports start with. Saved between launches.
 - Menu bar with File, Edit, View and Help menus listing every action and its
-  shortcut, and an About window.
+  shortcut, and an About window. Help ▸ Keyboard Shortcuts lists them all.
 
 - Windows installer: `packaging\windows\build-installer.ps1` builds
   `photonation-<version>-windows-x64-setup.exe` (Inno Setup), a per-user

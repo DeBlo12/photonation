@@ -12,7 +12,8 @@
 //! Color Mixer's Point Color tab (`=range` also shows the first point
 //! colour's range); `PHOTONATION_SCREENSHOT_SIDEBAR=280` starts the sidebar
 //! at that width; `PHOTONATION_SCREENSHOT_EXPORT=1` opens the export sheet;
-//! `PHOTONATION_SCREENSHOT_HELP=1` opens the Help popover;
+//! `PHOTONATION_SCREENSHOT_HELP=1` opens the Help window (`=Masks and mask
+//! groups`, or any page's title, opens that page);
 //! `PHOTONATION_SCREENSHOT_SETTINGS=general` (or `=export`) opens Settings.
 
 use eframe::egui;
@@ -52,10 +53,7 @@ impl Screenshot {
     }
 
     /// Applies the requested panel layout.
-    pub fn prepare(&self, view: &mut crate::app::ViewState, ctx: &egui::Context) {
-        if std::env::var_os("PHOTONATION_SCREENSHOT_HELP").is_some() {
-            crate::panels::help::open(ctx);
-        }
+    pub fn prepare(&self, view: &mut crate::app::ViewState) {
         if let Some(tab) = std::env::var_os("PHOTONATION_SCREENSHOT_SETTINGS") {
             view.show_settings = true;
             view.settings_tab = usize::from(tab == "export");
@@ -79,6 +77,14 @@ impl Screenshot {
             view.expanded
                 .insert(photonation_develop::AdjustmentGroup::ColorMixer);
             view.point_color_overlay = point_color == "range";
+        }
+        // After the tools, so Help opens on the page of the one shown.
+        if let Ok(page) = std::env::var("PHOTONATION_SCREENSHOT_HELP") {
+            use crate::panels::help;
+            match help::Page::from_title(&page) {
+                Some(page) => help::open_page(view, page),
+                None => help::open(view),
+            }
         }
         let Ok(panels) = std::env::var("PHOTONATION_SCREENSHOT_PANELS") else {
             return;

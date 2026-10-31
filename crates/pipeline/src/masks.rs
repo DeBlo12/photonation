@@ -7,11 +7,13 @@
 //! adjustments of all masks add up, and the develop stage applies the sum
 //! with the global ones.
 //!
-//! [`MaskWeight::at`] is the reference for the mask overlay the desktop
-//! editor draws on the GPU (`apps/desktop/src/gpu/mask_overlay.wgsl`);
-//! keep the two in step.
+//! [`MaskWeight::at`] and [`LocalAdjust::at`] are the reference for the
+//! GPU: the desktop editor's mask overlay
+//! (`apps/desktop/src/gpu/mask_overlay.wgsl`) and the GPU renderer
+//! (`crates/gpu/src/develop.wgsl`); keep them in step.
 
 use crate::color::smoothstep;
+use crate::plan::{LocalPlan, MaskPlan};
 use photonation_develop::{CombineMode, LocalAdjustments, Mask, MaskGroup, MaskShape, MaskSpace};
 use photonation_image::{Rect, SensorImage};
 
@@ -279,6 +281,25 @@ impl LocalAdjust {
             })
             .collect();
         (!masks.is_empty()).then_some(LocalAdjust { masks, positions })
+    }
+
+    /// The masks and pixel mapping as data. `limits` are the develop
+    /// stage's caps on the summed amounts.
+    pub fn plan(&self, limits: crate::plan::LocalLimits) -> LocalPlan {
+        LocalPlan {
+            origin: self.positions.origin,
+            step_x: self.positions.step_x,
+            step_y: self.positions.step_y,
+            masks: self
+                .masks
+                .iter()
+                .map(|mask| MaskPlan {
+                    weight: mask.weight.clone(),
+                    amounts: mask.amounts,
+                })
+                .collect(),
+            limits,
+        }
     }
 
     /// The summed adjustments at stage pixel `(x, y)`.

@@ -12,6 +12,7 @@ mod histogram;
 mod history;
 mod library;
 mod metadata;
+mod preview;
 mod retouch;
 mod service;
 
@@ -24,6 +25,7 @@ pub use histogram::Histogram;
 pub use history::History;
 pub use library::scan_folder;
 pub use metadata::{MetadataOptions, MetadataPreset};
+pub use preview::GPU_RENDER_VARIABLE;
 pub use retouch::{
     MODEL_PATH_VARIABLE, ModelStatus, Retoucher, data_directory, default_model_path,
 };

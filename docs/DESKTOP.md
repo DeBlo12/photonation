@@ -352,8 +352,10 @@ Shortcuts opens the last one.
 
 ## GPU selection (`gpu/mod.rs`)
 
-wgpu draws the UI, previews and the overlay; the develop pipeline itself runs
-on the CPU. Adapters are ranked discrete → integrated → virtual → software,
+wgpu draws the UI, previews and the overlay. Previews are also rendered on
+the GPU where possible (docs/ENGINE.md, *GPU previews*), on a separate
+device of the fastest hardware adapter; `PHOTONATION_GPU_RENDER=off`
+renders them on the CPU. Adapters are ranked discrete → integrated → virtual → software,
 skipping those that can't draw to the window and preferring native backends
 (Metal, Vulkan, DX12) over OpenGL. Settings ▸ Graphics processor can put
 integrated graphics or software rendering first, or name one adapter (the

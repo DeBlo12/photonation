@@ -7,6 +7,7 @@
 //! add up, so the order of the point colours does not matter.
 
 use crate::color::smoothstep;
+use crate::plan::SelectionPlan;
 use photonation_develop::{OklabLch, PointColor};
 
 /// Hue change at Hue Shift ±100, degrees.
@@ -64,6 +65,21 @@ impl PointSelection {
         }
     }
 
+    pub fn plan(&self) -> SelectionPlan {
+        SelectionPlan {
+            target: [self.target.lightness, self.target.chroma, self.target.hue],
+            hue_relevance: self.hue_relevance,
+            hue_reach: self.hue_reach,
+            chroma_reach: self.chroma_reach,
+            lightness_reach: self.lightness_reach,
+            solid_share: SOLID_SHARE,
+            grey_chroma: GREY_CHROMA,
+            hue_shift: self.hue_shift,
+            chroma_gain: self.chroma_gain,
+            lightness_shift: self.lightness_shift,
+        }
+    }
+
     /// How strongly a colour is selected, 0..1.
     #[inline]
     pub fn weight(&self, color: &OklabLch) -> f32 {
@@ -114,6 +130,14 @@ impl PointColors {
             selections,
             overlay,
         })
+    }
+
+    /// The active selections and the overlay's.
+    pub fn plan(&self) -> (Vec<SelectionPlan>, Option<SelectionPlan>) {
+        (
+            self.selections.iter().map(PointSelection::plan).collect(),
+            self.overlay.as_ref().map(PointSelection::plan),
+        )
     }
 
     /// Applies the shifts to an Oklab colour.

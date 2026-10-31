@@ -8,8 +8,11 @@
 //! midtones; Texture a small one. Radii scale with the image, so a preview
 //! and a full-size export look the same. Blurs are three box passes
 //! (≈ Gaussian) with running sums: O(1) per pixel regardless of radius.
+//! The GPU renderer transcribes it (`crates/gpu/src/local_contrast.wgsl`);
+//! keep the two in step.
 
 use crate::band::{Band, Stage, clamp_index};
+use crate::plan::LocalContrastPlan;
 use std::ops::Range;
 
 /// Box radii as a fraction of the long edge.
@@ -42,6 +45,17 @@ impl LocalContrast {
             clarity_radius: radius(CLARITY_RADIUS),
             texture_radius: radius(TEXTURE_RADIUS),
         })
+    }
+
+    pub fn plan(&self) -> LocalContrastPlan {
+        LocalContrastPlan {
+            clarity: self.clarity,
+            texture: self.texture,
+            clarity_radius: self.clarity_radius,
+            texture_radius: self.texture_radius,
+            box_passes: BOX_PASSES,
+            luma: LUMA,
+        }
     }
 
     fn halo(&self) -> usize {

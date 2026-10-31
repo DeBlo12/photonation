@@ -3,12 +3,14 @@
 
 //! The fused per-pixel develop stage: camera RGB in, display-linear RGB in
 //! the output primaries out. Masks' local adjustments join the global ones
-//! at each step. See docs/PIPELINE.md for the order of operations.
+//! at each step. See docs/PIPELINE.md for the order of operations; the GPU
+//! renderer transcribes it (`crates/gpu/src/develop.wgsl`).
 
 use crate::band::PointOp;
 use crate::camera::WORKING;
 use crate::color::{ColorAdjust, DEHAZE_SATURATION, smoothstep};
 use crate::masks::{LocalAdjust, LocalAmounts};
+use crate::plan::{DevelopPlan, LocalLimits};
 use crate::tone::{BASELINE_EXPOSURE, MID_GREY, ToneLuts};
 use photonation_color::{ColorSpace, Mat3, Oklab, apply3, bradford, xy_to_xyz};
 use photonation_develop::Settings;
@@ -85,6 +87,34 @@ impl Develop {
     pub fn with_local_adjustments(mut self, local: Option<LocalAdjust>) -> Develop {
         self.local = local;
         self
+    }
+
+    /// The develop steps as data.
+    pub fn plan(&self) -> DevelopPlan {
+        DevelopPlan {
+            camera_to_working: self.camera_to_working,
+            working_luminance: self.working_luminance,
+            haze: self.haze,
+            highlights: self.highlights,
+            shadows: self.shadows,
+            mid_grey: MID_GREY as f32,
+            max_tone_shift_ev: MAX_TONE_SHIFT_EV,
+            tone: self.tone.plan(),
+            oklab: self.oklab.matrices(),
+            color: self.color.as_ref().map(ColorAdjust::plan),
+            local: self.local.as_ref().map(|local| {
+                local.plan(LocalLimits {
+                    max_haze: MAX_HAZE,
+                    max_white_balance_ev: MAX_LOCAL_WHITE_BALANCE_EV,
+                    max_contrast: MAX_LOCAL_CONTRAST,
+                    max_exposure_ev: MAX_LOCAL_EXPOSURE_EV,
+                    max_tone_amount: MAX_TONE_AMOUNT,
+                    dehaze_saturation: DEHAZE_SATURATION,
+                })
+            }),
+            working_to_output: self.working_to_output,
+            output_luminance: self.output_luminance,
+        }
     }
 
     /// Positive haze is subtracted smoothly (`x² / (x + h)` never goes

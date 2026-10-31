@@ -11,6 +11,7 @@
 
 mod app;
 mod gpu;
+mod library;
 mod panels;
 mod photo_frame;
 mod preferences;

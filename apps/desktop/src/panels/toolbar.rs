@@ -4,7 +4,7 @@
 use crate::app::{PhotonationApp, ViewState, Zoom};
 use crate::panels::{hover_tip, icon_button, tool_button};
 use crate::theme;
-use crate::widgets::Icon;
+use crate::widgets::{Icon, rating_control};
 use eframe::egui::{self, Align, Layout, RichText};
 
 /// A tool with its own sidebar: icon, whether it is open, tooltip, toggle.
@@ -36,6 +36,7 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
                 {
                     app.pick_folder();
                 }
+                library_buttons(app, ui);
                 ui.add_space(12.0);
                 if let Some(index) = app.current {
                     ui.label(
@@ -43,6 +44,11 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
                             .size(13.5)
                             .color(theme::TEXT),
                     );
+                    ui.add_space(6.0);
+                    if let Some(change) = rating_control(ui, app.photos[index].library) {
+                        app.change_library(change);
+                    }
+                    ui.add_space(6.0);
                     if let Some(info) = &app.info {
                         ui.label(
                             RichText::new(camera_summary(info))
@@ -176,6 +182,36 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
                 });
             });
         });
+}
+
+/// The grid and, while a filter hides photos, a reminder of it.
+fn library_buttons(app: &mut PhotonationApp, ui: &mut egui::Ui) {
+    if app.photos.is_empty() {
+        return;
+    }
+    let library = &app.view.library;
+    let grid_tip = "Grid (G)\nAll the folder's photos at once, to rate, flag, label and compare \
+                    them. E or a double-click opens one in the editor.";
+    if icon_button(
+        ui,
+        Icon::Grid,
+        None,
+        library.grid || library.survey,
+        grid_tip,
+    )
+    .clicked()
+    {
+        app.toggle_grid();
+    }
+    let library = &app.view.library;
+    if library.filter.is_active() && !library.grid && !library.survey {
+        let text = format!("{} of {}", library.shown.len(), app.photos.len());
+        let tip = "Filtered\nThe filmstrip and ← → go through the photos the filter shows. \
+                   Click to change the filter in the grid.";
+        if tool_button(ui, &text, true, tip).clicked() {
+            app.view.library.grid = true;
+        }
+    }
 }
 
 fn camera_summary(info: &photonation_engine::PhotoInfo) -> String {

@@ -71,6 +71,89 @@ pub fn decode_file(path: &Path) -> Result<SensorImage, RawError> {
     Ok(sensor)
 }
 
+/// A JPEG the camera embedded in a raw file, decoded to 8-bit sRGB and
+/// turned upright.
+#[derive(Clone, Debug, PartialEq)]
+pub struct EmbeddedPreview {
+    pub width: usize,
+    pub height: usize,
+    /// Interleaved RGB.
+    pub rgb: Vec<u8>,
+}
+
+/// The largest preview the camera embedded in the file, scaled down to at
+/// most `long_edge` pixels and oriented for display; `Ok(None)` when the
+/// file has none rawler can read. Far cheaper than decoding the raw, so
+/// culling a folder can start before thumbnails are rendered.
+pub fn embedded_preview(
+    path: &Path,
+    long_edge: usize,
+) -> Result<Option<EmbeddedPreview>, RawError> {
+    let source = RawSource::new(path).map_err(|source| RawError::Io {
+        path: path.into(),
+        source,
+    })?;
+    let params = RawDecodeParams::default();
+    // Decoder bugs on unusual files must not take the caller down.
+    let found = catch_unwind(AssertUnwindSafe(|| {
+        let decoder = rawler::get_decoder(&source).ok()?;
+        let image = decoder
+            .preview_image(&source, &params)
+            .ok()
+            .flatten()
+            .or_else(|| decoder.thumbnail_image(&source, &params).ok().flatten())?;
+        let orientation = decoder
+            .raw_metadata(&source, &params)
+            .ok()
+            .and_then(|meta| meta.exif.orientation)
+            .map_or(Orientation::Normal, Orientation::from_exif);
+        let long_edge = long_edge.max(1) as u32;
+        let image = if image.width().max(image.height()) > long_edge {
+            image.thumbnail(long_edge, long_edge)
+        } else {
+            image
+        };
+        let image = match orientation {
+            Orientation::Normal => image,
+            Orientation::FlipH => image.fliph(),
+            Orientation::Rotate180 => image.rotate180(),
+            Orientation::FlipV => image.flipv(),
+            Orientation::Transpose => image.rotate90().fliph(),
+            Orientation::Rotate90 => image.rotate90(),
+            Orientation::Transverse => image.rotate270().fliph(),
+            Orientation::Rotate270 => image.rotate270(),
+        };
+        let rgb = image.to_rgb8();
+        Some(EmbeddedPreview {
+            width: rgb.width() as usize,
+            height: rgb.height() as usize,
+            rgb: rgb.into_raw(),
+        })
+    }));
+    Ok(found
+        .ok()
+        .flatten()
+        .filter(|preview| preview.width > 0 && preview.height > 0))
+}
+
+/// When the photo was taken, as EXIF writes it ("YYYY:MM:DD HH:MM:SS",
+/// local time), read from the file's metadata without decoding the image.
+pub fn capture_time(path: &Path) -> Option<String> {
+    let source = RawSource::new(path).ok()?;
+    let params = RawDecodeParams::default();
+    let metadata = catch_unwind(AssertUnwindSafe(|| {
+        rawler::get_decoder(&source).and_then(|d| d.raw_metadata(&source, &params))
+    }))
+    .ok()?
+    .ok()?;
+    metadata
+        .exif
+        .date_time_original
+        .as_deref()
+        .or(metadata.exif.create_date.as_deref())
+        .and_then(clean_text)
+}
+
 /// DNG `BaselineExposure` (stops), read from the root IFD.
 fn dng_baseline_exposure(path: &Path) -> Option<f32> {
     use rawler::formats::tiff::reader::TiffReader;

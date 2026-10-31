@@ -5,7 +5,10 @@
 //! photos edited in Lightroom open with their edits. Import only: the XMP
 //! file is never written. Documented in docs/EDIT-MODEL.md.
 
-use crate::{GradingWheel, HslAdjustment, PointCurve, Settings, WhiteBalance};
+use crate::{
+    ColorLabel, Flag, GradingWheel, HslAdjustment, LibraryInfo, MAX_RATING, PointCurve, Settings,
+    WhiteBalance,
+};
 use photonation_image::{CropFrame, NormRect, Orientation};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -14,6 +17,7 @@ const CAMERA_RAW_NAMESPACE: &str = "http://ns.adobe.com/camera-raw-settings/1.0/
 const TIFF_NAMESPACE: &str = "http://ns.adobe.com/tiff/1.0/";
 const EXIF_NAMESPACE: &str = "http://ns.adobe.com/exif/1.0/";
 const RDF_NAMESPACE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
+const XMP_NAMESPACE: &str = "http://ns.adobe.com/xap/1.0/";
 
 /// Lightroom's sidecar for a raw file: `IMG_0001.CR3` → `IMG_0001.xmp`.
 pub fn lightroom_xmp_path(original: &Path) -> PathBuf {
@@ -155,6 +159,35 @@ pub fn import_lightroom_xmp(text: &str) -> Result<Option<LightroomImport>, XmpEr
         settings: settings.sanitized(),
         not_imported: not_imported(&properties),
     }))
+}
+
+/// The rating and colour label in a Lightroom `.xmp` sidecar (`xmp:Rating`,
+/// where -1 means rejected, and `xmp:Label`). Lightroom keeps pick flags
+/// in its catalog, so none arrive.
+pub fn import_lightroom_library(text: &str) -> Result<LibraryInfo, XmpError> {
+    let options = roxmltree::ParsingOptions {
+        allow_dtd: false,
+        ..roxmltree::ParsingOptions::default()
+    };
+    let document = roxmltree::Document::parse_with_options(text, options)
+        .map_err(|error| XmpError(error.to_string()))?;
+    let properties = Properties::read(&document);
+    let rating = properties
+        .text(XMP_NAMESPACE, "Rating")
+        .and_then(|rating| rating.trim().parse::<f64>().ok())
+        .filter(|rating| rating.is_finite());
+    let mut info = LibraryInfo {
+        label: properties
+            .text(XMP_NAMESPACE, "Label")
+            .and_then(ColorLabel::from_name),
+        ..LibraryInfo::default()
+    };
+    match rating {
+        Some(rating) if rating < 0.0 => info.flag = Flag::Reject,
+        Some(rating) => info.rating = rating.round().min(f64::from(MAX_RATING)) as u8,
+        None => {}
+    }
+    Ok(info)
 }
 
 fn basic(properties: &Properties, settings: &mut Settings) {

@@ -9,10 +9,12 @@
 //! describing its id, range and default, so UIs, the CLI and future
 //! automation share one definition. [`Mask`]s add local adjustments on
 //! top of the global ones, optionally in [`MaskGroup`]s; [`PointColor`]s edit colours sampled from the
-//! photo; [`Removal`]s replace brushed areas with a fill.
+//! photo; [`Removal`]s replace brushed areas with a fill. A photo's rating,
+//! flag and label ([`LibraryInfo`]) share its sidecar without being edits.
 
 mod controls;
 mod groups;
+mod library;
 mod lightroom;
 mod mask_groups;
 mod masks;
@@ -27,7 +29,10 @@ pub use controls::{
     POINT_COLOR_CONTROLS, all_controls,
 };
 pub use groups::AdjustmentGroup;
-pub use lightroom::{LightroomImport, XmpError, import_lightroom_xmp, lightroom_xmp_path};
+pub use library::{ColorLabel, Flag, LibraryInfo, MAX_RATING};
+pub use lightroom::{
+    LightroomImport, XmpError, import_lightroom_library, import_lightroom_xmp, lightroom_xmp_path,
+};
 pub use mask_groups::{
     MAX_MASK_GROUP_NAME_CHARS, MAX_MASK_GROUPS, MaskGroup, group_members, remove_group,
     rendered_masks, sanitize_groups, tidy_groups,
@@ -46,6 +51,6 @@ pub use settings::{
     ProcessVersion, Settings, Sharpening, ToneCurve, WhiteBalance,
 };
 pub use sidecar::{
-    MAX_SIDECAR_BYTES, PhotoSettings, SIDECAR_EXTENSION, SettingsOrigin, SidecarError,
-    load_photo_settings, sidecar_path,
+    MAX_SIDECAR_BYTES, PhotoSettings, PhotoSidecar, SIDECAR_EXTENSION, SettingsOrigin,
+    SidecarError, load_photo, load_photo_settings, save_photo, sidecar_path,
 };

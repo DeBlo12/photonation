@@ -15,6 +15,7 @@ mod metadata;
 mod preview;
 mod retouch;
 mod service;
+mod thumbnails;
 
 pub use decoder::{Decoder, RawDecoder};
 pub use export::{

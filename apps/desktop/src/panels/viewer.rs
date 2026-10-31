@@ -283,31 +283,34 @@ fn paint(painter: &egui::Painter, preview: &Preview, rect: Rect, clip: Rect) {
         .image(preview.texture.id(), rect, uv, Color32::WHITE);
 }
 
+/// The welcome screen: the brand's iris and wordmark over the open button.
 fn empty_state(app: &mut PhotonationApp, ui: &mut egui::Ui, canvas: Rect) {
     let painter = ui.painter();
+    widgets::paint_brand_mark(
+        painter,
+        canvas.center() - vec2(0.0, 76.0),
+        88.0,
+        theme::WINDOW,
+    );
     painter.text(
-        canvas.center() - vec2(0.0, 40.0),
+        canvas.center() + vec2(0.0, 6.0),
         Align2::CENTER_CENTER,
-        "Photonation",
-        theme::body(28.0),
+        "photonation",
+        theme::display(30.0),
         theme::TEXT,
     );
     painter.text(
-        canvas.center() - vec2(0.0, 8.0),
+        canvas.center() + vec2(0.0, 40.0),
         Align2::CENTER_CENTER,
         "Open a folder of raw photos to start editing",
         theme::body(14.0),
         theme::TEXT_SECONDARY,
     );
-    let button_rect = Rect::from_center_size(canvas.center() + vec2(0.0, 36.0), vec2(150.0, 34.0));
-    let button = egui::Button::new(
-        egui::RichText::new("Open Folder…")
-            .size(14.0)
-            .color(theme::TEXT),
-    )
-    .fill(theme::ACCENT)
-    .corner_radius(8);
-    if ui.put(button_rect, button).clicked() {
+    let button_rect = Rect::from_center_size(canvas.center() + vec2(0.0, 84.0), vec2(160.0, 34.0));
+    if ui
+        .put(button_rect, theme::primary_button("Open Folder…"))
+        .clicked()
+    {
         app.pick_folder();
     }
 }

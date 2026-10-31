@@ -57,7 +57,7 @@ pub fn section(
             pos2(header.left() + 18.0, header.center().y),
             Align2::LEFT_CENTER,
             title,
-            theme::body(14.0),
+            theme::title(13.5),
             title_color,
         );
         if modified && *enabled {

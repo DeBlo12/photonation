@@ -8,6 +8,24 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Photonation look: the editor keeps Photomator's layout (photo first, a
+  rounded inspector floating at the right) in the brand's colours and type.
+  Surfaces lean toward Ink, Photon amber marks what is on (tools, switches,
+  slider fills, selections, the Export button, with Ink text on amber), text
+  is Paper, and the bundled Inter and Sora fonts replace the system font on
+  every platform. The welcome screen shows the iris and the wordmark.
+- Help: a ? button in the toolbar opens a popover that explains how a photo
+  is developed (the order of the steps) and what each card, slider, mask,
+  crop, removal and export setting changes. Toolbar tooltips now say what
+  each tool does, and appear on disabled tools as well.
+- Settings (File ▸ Settings…, Ctrl+, / ⌘,): choose the graphics processor
+  (automatic, integrated first, software, or a specific adapter; applied at
+  the next start), a default export folder (where the folder dialog starts,
+  or where exports go without asking), and the format, size, colour space,
+  file name and metadata new exports start with. Saved between launches.
+- Menu bar with File, Edit, View and Help menus listing every action and its
+  shortcut, and an About window.
+
 - Windows installer: `packaging\windows\build-installer.ps1` builds
   `photonation-<version>-windows-x64-setup.exe` (Inno Setup), a per-user
   install with a Start menu entry, an optional desktop shortcut, the CLI

@@ -21,6 +21,14 @@ rawler (https://github.com/dnglab/dnglab), LGPL-2.1
   Camera raw decoding, used by crates/raw. LGPL-2.1 section 3 permits applying
   the GPL (version 2 or later) instead, so it combines with this GPL-3.0 work.
 
+Inter (https://github.com/rsms/inter), SIL Open Font License 1.1
+  Copyright 2020 The Inter Project Authors. The interface font, embedded in the
+  desktop binary; the licence is in assets/fonts/OFL-Inter.txt.
+
+Sora (https://github.com/sora-xor/sora-font), SIL Open Font License 1.1
+  Copyright 2019 The Sora Project Authors. The display font for the wordmark,
+  embedded in the desktop binary; the licence is in assets/fonts/OFL-Sora.txt.
+
 egui default fonts (epaint_default_fonts): Ubuntu Font Licence 1.0 and
 SIL Open Font License 1.1
   Embedded in the desktop binary as fallback fonts. Both licences explicitly
@@ -38,9 +46,6 @@ tract (https://github.com/sonos/tract), MIT OR Apache-2.0
   (bytes, nom, libm, metrics, derive-new, ...), Apache-2.0-only (prost,
   prost-derive), Zlib (foldhash) and Unicode-3.0 (unicode-ident). None of
   these crates ships an Apache NOTICE file that would have to be passed on.
-
-On macOS the desktop app loads the system font at run time; no system fonts
-are distributed with Photonation.
 
 Obligations when distributing binaries
 --------------------------------------

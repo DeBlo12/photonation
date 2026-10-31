@@ -9,12 +9,15 @@ pub mod adjustments;
 pub mod crop;
 pub mod export;
 pub mod filmstrip;
+pub mod help;
 pub mod mask_handles;
 pub mod mask_thumbnails;
 pub mod masks;
+pub mod menu_bar;
 pub mod point_colors;
 pub mod removal_brush;
 pub mod removals;
+pub mod settings;
 pub mod toolbar;
 pub mod viewer;
 
@@ -36,13 +39,13 @@ pub fn tool_button(ui: &mut Ui, label: &str, active: bool, tooltip: &str) -> Res
     } else {
         egui::Color32::TRANSPARENT
     };
-    ui.add(
+    let response = ui.add(
         Button::new(text)
             .fill(fill)
             .corner_radius(theme::CONTROL_RADIUS)
             .min_size(egui::vec2(30.0, 26.0)),
-    )
-    .on_hover_text(tooltip)
+    );
+    hover_tip(response, tooltip)
 }
 
 /// [`tool_button`] showing a brand icon, before `label` if there is one.
@@ -73,5 +76,33 @@ pub fn icon_button(
     if let Some(rect) = response.rect(id) {
         paint_icon(ui.painter(), rect, icon, color);
     }
-    response.response.on_hover_text(tooltip)
+    hover_tip(response.response, tooltip)
 }
+
+/// Shows `tip` while the pointer is on `response`, also when the control
+/// is disabled, so a greyed-out tool still says what it is. The first line
+/// is the control's name; any further lines explain it.
+pub fn hover_tip(response: Response, tip: &str) -> Response {
+    if tip.is_empty() {
+        return response;
+    }
+    let (name, detail) = tip.split_once('\n').unwrap_or((tip, ""));
+    let show = move |ui: &mut Ui| {
+        ui.set_max_width(TIP_WIDTH);
+        ui.label(
+            RichText::new(name)
+                .font(theme::title(12.5))
+                .color(theme::TEXT),
+        );
+        if !detail.is_empty() {
+            ui.label(
+                RichText::new(detail)
+                    .font(theme::body(12.0))
+                    .color(theme::TEXT_SECONDARY),
+            );
+        }
+    };
+    response.on_hover_ui(show).on_disabled_hover_ui(show)
+}
+
+const TIP_WIDTH: f32 = 260.0;

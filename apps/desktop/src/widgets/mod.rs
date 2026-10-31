@@ -4,6 +4,7 @@
 //! Custom controls. Each widget draws itself with the painter for full
 //! control over the look, and reports changes through `egui::Response`.
 
+mod brand_mark;
 mod curve_editor;
 mod histogram;
 mod icon;
@@ -13,6 +14,7 @@ mod slider;
 mod toggle;
 mod wheel;
 
+pub use brand_mark::paint_brand_mark;
 pub use curve_editor::{CurveChannel, curve_editor};
 pub use histogram::histogram;
 pub use icon::{Icon, paint_icon};

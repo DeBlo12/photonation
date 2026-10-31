@@ -41,60 +41,68 @@ pub fn show(app: &mut PhotonationApp, ui: &mut Ui) {
         .show_separator_line(false)
         .frame(
             egui::Frame::NONE
-                .fill(theme::SIDEBAR)
-                .inner_margin(egui::Margin::symmetric(12, 12)),
+                .fill(theme::WINDOW)
+                .inner_margin(egui::Margin {
+                    left: 0,
+                    right: 10,
+                    top: 0,
+                    bottom: 10,
+                }),
         )
         .show(ui, |ui| {
-            widgets::histogram(ui, app.histogram.as_ref());
-            ui.add_space(10.0);
-            egui::ScrollArea::vertical()
-                .auto_shrink([false; 2])
-                .show(ui, |ui| {
-                    if app.view.cropping {
-                        crate::panels::crop::sidebar(app, ui);
-                        return;
-                    }
-                    if app.view.show_masks {
-                        crate::panels::masks::show(app, ui);
-                        return;
-                    }
-                    if app.view.show_removals {
-                        crate::panels::removals::show(app, ui);
-                        return;
-                    }
-                    ui.spacing_mut().item_spacing.y = 8.0;
-                    let as_shot = app.info.as_ref().map_or((5500.0, 0.0), |i| i.as_shot);
-                    for group in AdjustmentGroup::ALL {
-                        group_card(
-                            ui,
-                            &mut app.settings,
-                            &mut app.view,
-                            group,
-                            |ui, settings, view| match group {
-                                AdjustmentGroup::WhiteBalance => {
-                                    white_balance(ui, settings, view, as_shot)
-                                }
-                                AdjustmentGroup::Light => {
-                                    control_sliders(ui, settings, &BASIC_CONTROLS[0..6])
-                                }
-                                AdjustmentGroup::Presence => {
-                                    control_sliders(ui, settings, &BASIC_CONTROLS[6..9])
-                                }
-                                AdjustmentGroup::Color => color(ui, settings),
-                                AdjustmentGroup::ToneCurve => curves(ui, settings, view),
-                                AdjustmentGroup::ColorMixer => color_mixer(ui, settings, view),
-                                AdjustmentGroup::ColorGrading => color_grading(ui, settings, view),
-                                AdjustmentGroup::Detail => {
-                                    control_sliders(ui, settings, DETAIL_CONTROLS)
-                                }
-                            },
-                        );
-                    }
-                    ui.add_space(8.0);
-                    if ui.button("Reset All").clicked() {
-                        app.settings = Settings::default();
-                    }
-                });
+            theme::inspector_frame().show(ui, |ui| {
+                ui.set_min_size(ui.available_size());
+                inspector(app, ui);
+            });
+        });
+}
+
+fn inspector(app: &mut PhotonationApp, ui: &mut Ui) {
+    widgets::histogram(ui, app.histogram.as_ref());
+    ui.add_space(10.0);
+    egui::ScrollArea::vertical()
+        .auto_shrink([false; 2])
+        .show(ui, |ui| {
+            if app.view.cropping {
+                crate::panels::crop::sidebar(app, ui);
+                return;
+            }
+            if app.view.show_masks {
+                crate::panels::masks::show(app, ui);
+                return;
+            }
+            if app.view.show_removals {
+                crate::panels::removals::show(app, ui);
+                return;
+            }
+            ui.spacing_mut().item_spacing.y = 8.0;
+            let as_shot = app.info.as_ref().map_or((5500.0, 0.0), |i| i.as_shot);
+            for group in AdjustmentGroup::ALL {
+                group_card(
+                    ui,
+                    &mut app.settings,
+                    &mut app.view,
+                    group,
+                    |ui, settings, view| match group {
+                        AdjustmentGroup::WhiteBalance => white_balance(ui, settings, view, as_shot),
+                        AdjustmentGroup::Light => {
+                            control_sliders(ui, settings, &BASIC_CONTROLS[0..6])
+                        }
+                        AdjustmentGroup::Presence => {
+                            control_sliders(ui, settings, &BASIC_CONTROLS[6..9])
+                        }
+                        AdjustmentGroup::Color => color(ui, settings),
+                        AdjustmentGroup::ToneCurve => curves(ui, settings, view),
+                        AdjustmentGroup::ColorMixer => color_mixer(ui, settings, view),
+                        AdjustmentGroup::ColorGrading => color_grading(ui, settings, view),
+                        AdjustmentGroup::Detail => control_sliders(ui, settings, DETAIL_CONTROLS),
+                    },
+                );
+            }
+            ui.add_space(8.0);
+            if ui.button("Reset All").clicked() {
+                app.settings = Settings::default();
+            }
         });
 }
 

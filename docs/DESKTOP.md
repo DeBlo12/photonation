@@ -1,13 +1,16 @@
 # Desktop editor
 
-Crate: `apps/desktop` (binary `photonation-desktop`), built on eframe/egui. The look
-follows Photomator: dark and image-first, with the controls in quiet cards.
+Crate: `apps/desktop` (binary `photonation-desktop`), built on eframe/egui. The layout
+follows Photomator: dark and image-first, with the controls in quiet cards on
+a floating inspector. The look is Photonation's brand (see *Look* below).
 
 ## Layout
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
-│ ● ● ●  Open  IMG_0001.CR3  camera · exposure  ↶ ↷ ⛶ ◎ ◐ Fit 1:1 [Export] │  toolbar
+│ ● ● ●  File  Edit  View  Help                                    │  menu bar
+├─────────────────────────────────────────────────────────────┤
+│ Open  IMG_0001.CR3  camera · exposure  ↶ ↷ ⛶ ◎ ◐ Fit 1:1 [Export] │  toolbar
 ├───────────────────────────────────────────┬─────────────────┤
 │                                           │ histogram       │
 │                                           │ ▸ White Balance │
@@ -28,10 +31,13 @@ most one of masks, crop and Remove is open.
 | File | Region |
 |---|---|
 | `panels/toolbar.rs` | Open, photo name and exposure info, undo/redo, compare, zoom, export |
+| `panels/menu_bar.rs` | File, Edit, View and Help menus; each item does what its button or shortcut does |
+| `panels/settings.rs` | Settings window (graphics processor, export folder, export defaults) and About |
+| `panels/help.rs` | The Help popover (the ? button): how a photo is developed and what each setting changes, written from the pipeline and panels |
 | `panels/viewer.rs` | Canvas: fit/zoom/pan, before/after divider, eyedroppers, status toast |
 | `panels/adjustments.rs` | Histogram and one card per `AdjustmentGroup` |
 | `panels/point_colors.rs` | The Color Mixer's Point Color tab: picked colours, before/after swatch, shifts, ranges, range overlay |
-| `panels/filmstrip.rs` | Thumbnails; edited photos carry a blue dot. Rests as a thin strip (see below) |
+| `panels/filmstrip.rs` | Thumbnails; edited photos carry an amber dot. Rests as a thin strip (see below) |
 | `panels/masks.rs` | Masks panel: layer list, the selected mask's shapes, settings and local adjustments |
 | `panels/masks/groups.rs` | Mask groups in the layer list: rows, drop targets, group edits, the group row and card |
 | `panels/mask_thumbnails.rs` | The layer list's pictures of what each mask selects |
@@ -43,9 +49,32 @@ most one of masks, crop and Remove is open.
 | `gpu/mask_overlay.rs`, `.wgsl` | The selected mask's tint over the photo, evaluated per pixel on the GPU |
 | `gpu/mod.rs` | Graphics adapter choice and texture limits |
 | `panels/export.rs` | Export sheet (format, quality, size, colour space, scope, file name with a preview of the result, metadata) |
-| `preferences.rs` | Choices remembered between launches (`preferences.json` in the data directory): the export metadata |
-| `widgets/*` | Custom controls: adjustment slider, section card, toggle, segmented control, curve editor, colour wheel, histogram; the brand's stroke icons (`icon.rs`, SVG path data drawn as vectors) |
-| `theme.rs` | Every colour and metric |
+| `preferences.rs` | Choices remembered between launches (`preferences.json` in the data directory): Settings and the export metadata |
+| `widgets/*` | Custom controls: adjustment slider, section card, toggle, segmented control, curve editor, colour wheel, histogram; the brand's stroke icons (`icon.rs`, SVG path data drawn as vectors) and iris mark (`brand_mark.rs`) |
+| `theme.rs` | Every colour, font and metric |
+
+## Look (`theme.rs`)
+
+Photomator's arrangement in the Photonation brand:
+
+- **Surfaces** are near-neutral greys leaning slightly toward the brand's Ink
+  (`#0E1322`), so the window reads as Photonation without tinting how a photo
+  is judged. The toolbar, viewer and filmstrip share the window colour; the
+  adjustments, masks, crop and Remove panels sit in a rounded inspector that
+  floats over it.
+- **Photon amber** (`#FFB224`) means "on": active tools, switches, slider
+  fills from the default, the modified dot on a card, selections and the
+  primary button. Text and icons on an amber fill are Ink (`ON_ACCENT`),
+  because Paper on amber fails contrast. Text is Paper (`#F6F5F1`).
+- **Type**: Inter for the interface (regular; semibold for card and sheet
+  titles), Sora semibold for the wordmark. Both are variable fonts bundled
+  from `assets/fonts` and instanced by weight; egui's own fonts stay behind
+  them as fallbacks.
+- **Tooltips** (`panels::hover_tip`): toolbar and panel buttons name
+  themselves and, after a first line, say what they do. They show on
+  disabled tools too, so the welcome screen explains tools that need a photo.
+- **Welcome screen**: the iris from the app icon, drawn as vectors, over the
+  wordmark and an amber Open Folder… button.
 
 ## Per-frame control flow (`app.rs: PhotonationApp::ui`)
 
@@ -177,7 +206,7 @@ collapsed set follow the renumbering.
 
 **Canvas** (`panels/mask_handles.rs`). The selected shape shows its lines or
 ellipse with handles (drag to move or resize; ⇧ keeps a circle round). Hollow
-blue rings mark the selected mask's other shapes; solid pins mark the other
+amber rings mark the selected mask's other shapes; solid pins mark the other
 masks. Clicking either selects it. A drag that starts on a handle edits the
 shape instead of panning.
 
@@ -268,13 +297,44 @@ export starts and loaded when the app opens (`preferences.rs`), so they are
 remembered between exports and launches. A missing or unreadable file means
 the defaults (All, location off, nothing entered).
 
+## Settings (`panels/settings.rs`, `preferences.rs`)
+
+File ▸ Settings… (Ctrl+, / ⌘,) opens a window with two tabs:
+
+- **General.** The graphics processor (see *GPU selection*), with the
+  adapter in use and a note when the choice waits for a restart. The export
+  folder: the export's folder dialog starts there, and with *Export straight
+  to this folder* the export sheet skips the dialog and says where files go.
+  A folder that no longer exists means the dialog again.
+- **Export.** The options every new export sheet starts with: format,
+  quality or bit depth, size, colour space, file name and metadata. The
+  sheet and this tab share their controls (`export::format_controls`,
+  `file_name_field`, `metadata`). Changing them in the sheet affects only
+  that session; the metadata choice is also remembered when an export starts,
+  as before.
+
+Everything is saved to `preferences.json` when the window closes, and the
+current export options are reset to the new defaults. Missing fields take
+their defaults, so older files load.
+
+**Menu bar** (`panels/menu_bar.rs`). File (Open Folder, Export, Export All
+Photos, Settings, Quit), Edit (Undo, Redo, Reset All Adjustments), View (Fit,
+Actual Pixels, Compare, Masks, Crop and Straighten, Remove Objects, previous
+and next photo) and Help (How Photonation Works, About). Items show their
+shortcuts and are disabled when they cannot apply. On macOS the bar starts
+right of the window buttons.
+
 ## GPU selection (`gpu/mod.rs`)
 
 wgpu draws the UI, previews and the overlay; the develop pipeline itself runs
 on the CPU. Adapters are ranked discrete → integrated → virtual → software,
 skipping those that can't draw to the window and preferring native backends
-(Metal, Vulkan, DX12) over OpenGL. `PHOTONATION_GPU=integrated` or `software`
-changes the order. The device requests the adapter's largest texture side (up
+(Metal, Vulkan, DX12) over OpenGL. Settings ▸ Graphics processor can put
+integrated graphics or software rendering first, or name one adapter (the
+list is the adapters that could draw the window at start-up); a named adapter
+that is gone falls back to the automatic order. The choice is read when the
+window is created, so it applies from the next start.
+`PHOTONATION_GPU=integrated` or `software` overrides it. The device requests the adapter's largest texture side (up
 to 16384). Previews never exceed it, so 1:1 views of high-resolution cameras
 don't fail.
 
@@ -295,4 +355,5 @@ the masks panel with the first mask selected (`=group` selects the first mask
 group instead); `PHOTONATION_SCREENSHOT_CROP=1` opens the crop tool;
 `PHOTONATION_SCREENSHOT_SIDEBAR=280` starts the sidebar at that width
 (280–440), to check narrow and wide layouts; `PHOTONATION_SCREENSHOT_EXPORT=1`
-opens the export sheet.
+opens the export sheet; `PHOTONATION_SCREENSHOT_HELP=1` the Help popover;
+`PHOTONATION_SCREENSHOT_SETTINGS=general` (or `=export`) the Settings window.

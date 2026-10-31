@@ -61,7 +61,8 @@ fn file(app: &mut PhotonationApp, ui: &mut Ui) {
         app.view.export_all = false;
         app.view.show_export = true;
     }
-    if item(ui, "Export All Photos…", "", app.photos.len() > 1) {
+    let (batch, kind) = app.export_batch();
+    if item(ui, kind.menu_label(), "", batch.len() > 1) {
         app.view.export_all = true;
         app.view.show_export = true;
     }

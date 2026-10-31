@@ -739,18 +739,16 @@ impl PhotonationApp {
                         self.photos[index].captured = Some(captured);
                     }
                 }
-                Event::SurveyImage { path, image } => {
-                    if self.survey_requested.contains_key(&path) {
-                        let color_image =
-                            egui::ColorImage::from_rgb([image.width, image.height], &image.rgb);
-                        let texture = ctx.load_texture(
-                            format!("survey-{}", path.display()),
-                            color_image,
-                            TextureOptions::LINEAR,
-                        );
-                        let size = [image.width, image.height];
-                        self.survey_images.insert(path, Preview { texture, size });
-                    }
+                Event::SurveyImage { path, image } if self.survey_requested.contains_key(&path) => {
+                    let color_image =
+                        egui::ColorImage::from_rgb([image.width, image.height], &image.rgb);
+                    let texture = ctx.load_texture(
+                        format!("survey-{}", path.display()),
+                        color_image,
+                        TextureOptions::LINEAR,
+                    );
+                    let size = [image.width, image.height];
+                    self.survey_images.insert(path, Preview { texture, size });
                 }
                 Event::WhiteBalancePicked {
                     path,
@@ -1098,8 +1096,10 @@ impl eframe::App for PhotonationApp {
         if !ctx.input(|i| i.pointer.any_down()) {
             self.history.commit(&self.settings);
         }
-        let settled = !self.is_rendering()
-            && self.preview.is_some()
+        // The grid and survey views draw no preview.
+        let library_view = self.view.library.grid || self.view.library.survey;
+        let settled = (library_view || (!self.is_rendering() && self.preview.is_some()))
+            && (!self.view.library.survey || self.survey_images.len() >= 2)
             && self
                 .photos
                 .iter()

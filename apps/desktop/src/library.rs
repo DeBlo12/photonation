@@ -241,6 +241,33 @@ pub fn capture_time_label(captured: &str) -> Option<String> {
     Some(format!("{day} {month} {year}, {}", time.get(..5)?))
 }
 
+/// Which photos a batch export covers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Batch {
+    Selected,
+    Shown,
+    Folder,
+}
+
+impl Batch {
+    /// The export sheet's choice for `count` photos.
+    pub fn sheet_label(self, count: usize) -> String {
+        match self {
+            Batch::Selected => format!("Export the {count} selected photos"),
+            Batch::Shown => format!("Export the {count} shown photos"),
+            Batch::Folder => format!("Export all {count} photos in this folder"),
+        }
+    }
+
+    pub fn menu_label(self) -> &'static str {
+        match self {
+            Batch::Selected => "Export Selected Photos…",
+            Batch::Shown => "Export Shown Photos…",
+            Batch::Folder => "Export All Photos…",
+        }
+    }
+}
+
 /// A change to the rating, flag or label of the photos it applies to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LibraryChange {
@@ -439,6 +466,26 @@ impl PhotonationApp {
                 "Select 2 to {MAX_SURVEY} photos to compare them: {}-click or Shift-click",
                 crate::theme::COMMAND_KEY
             ));
+        }
+    }
+
+    /// The photos a batch export covers, in shown order: the selected
+    /// photos while several are selected, else the shown ones (all of the
+    /// folder's without a filter).
+    pub fn export_batch(&self) -> (Vec<usize>, Batch) {
+        let library = &self.view.library;
+        if !library.selection.is_empty() {
+            let selected = library
+                .shown
+                .iter()
+                .copied()
+                .filter(|i| Some(*i) == self.current || library.selection.contains(i))
+                .collect();
+            (selected, Batch::Selected)
+        } else if library.filter.is_active() {
+            (library.shown.clone(), Batch::Shown)
+        } else {
+            (library.shown.clone(), Batch::Folder)
         }
     }
 
@@ -721,5 +768,97 @@ mod tests {
         );
         assert_eq!(capture_time_label("2026:13:20 18:02:23"), None);
         assert_eq!(capture_time_label("garbage"), None);
+    }
+
+    /// An app on a folder of `count` (unreadable) raw files.
+    fn app_on_folder(count: usize) -> (PhotonationApp, tempfile::TempDir) {
+        let folder = tempfile::tempdir().expect("temporary folder");
+        for i in 0..count {
+            std::fs::write(folder.path().join(format!("IMG_{i}.CR3")), b"not a raw")
+                .expect("write photo");
+        }
+        let mut app = PhotonationApp::empty(&egui::Context::default());
+        app.open_folder(folder.path().to_path_buf());
+        app.arrange_photos();
+        (app, folder)
+    }
+
+    fn saved(app: &PhotonationApp, index: usize) -> LibraryInfo {
+        photonation_develop::load_photo(&app.photos[index].path)
+            .expect("read sidecar")
+            .library
+    }
+
+    #[test]
+    fn ratings_are_saved_and_auto_advance_moves_on() {
+        let (mut app, _folder) = app_on_folder(3);
+        app.view.library.auto_advance = true;
+        app.change_library(LibraryChange::Rating(4));
+        assert_eq!(saved(&app, 0).rating, 4);
+        assert_eq!(app.current, Some(1));
+        app.change_library(LibraryChange::ToggleLabel(ColorLabel::Green));
+        assert_eq!(app.current, Some(1), "labels don't advance");
+        assert_eq!(saved(&app, 1).label, Some(ColorLabel::Green));
+        app.change_library(LibraryChange::ToggleLabel(ColorLabel::Green));
+        assert!(
+            !sidecar_path(&app.photos[1].path).exists(),
+            "an unrated, unedited photo keeps no sidecar"
+        );
+    }
+
+    #[test]
+    fn ratings_apply_to_every_selected_photo() {
+        let (mut app, _folder) = app_on_folder(5);
+        app.click_photo(1, Modifiers::COMMAND);
+        app.click_photo(3, Modifiers::COMMAND);
+        assert_eq!(app.current, Some(3));
+        assert_eq!(app.rating_targets(), [0, 1, 3]);
+        app.view.library.auto_advance = true;
+        app.change_library(LibraryChange::Flag(Flag::Pick));
+        assert_eq!(app.current, Some(3), "a batch doesn't advance");
+        let picked: Vec<usize> = (0..5)
+            .filter(|&i| saved(&app, i).flag == Flag::Pick)
+            .collect();
+        assert_eq!(picked, [0, 1, 3]);
+
+        app.click_photo(4, Modifiers::SHIFT);
+        assert_eq!(app.current, Some(3));
+        assert_eq!(app.rating_targets(), [3, 4]);
+        app.click_photo(2, Modifiers::NONE);
+        assert_eq!(app.rating_targets(), [2]);
+    }
+
+    #[test]
+    fn navigation_follows_the_filter() {
+        let (mut app, _folder) = app_on_folder(4);
+        for (index, flag) in [(1, Flag::Reject), (2, Flag::Reject)] {
+            app.select(index);
+            app.change_library(LibraryChange::Flag(flag));
+        }
+        app.select(0);
+        app.view.library.filter.flag = FlagFilter::NotRejected;
+        app.arrange_photos();
+        assert_eq!(app.view.library.shown, [0, 3]);
+        app.step(1);
+        assert_eq!(app.current, Some(3));
+        app.step(1);
+        assert_eq!(app.current, Some(3), "the last shown photo stays");
+        app.step(-5);
+        assert_eq!(app.current, Some(0));
+    }
+
+    #[test]
+    fn export_batches_follow_the_selection_and_filter() {
+        let (mut app, _folder) = app_on_folder(4);
+        assert_eq!(app.export_batch(), (vec![0, 1, 2, 3], Batch::Folder));
+        app.select(2);
+        app.change_library(LibraryChange::Rating(3));
+        app.view.library.filter.min_rating = 3;
+        app.arrange_photos();
+        assert_eq!(app.export_batch(), (vec![2], Batch::Shown));
+        app.view.library.filter = LibraryFilter::default();
+        app.arrange_photos();
+        app.click_photo(0, Modifiers::COMMAND);
+        assert_eq!(app.export_batch(), (vec![0, 2], Batch::Selected));
     }
 }

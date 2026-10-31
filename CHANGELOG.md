@@ -8,6 +8,32 @@ changes to CI alone are not released.
 
 ## [Unreleased]
 
+### Added
+
+- Culling: rate photos 0–5 stars (0–5, `]` `[`), pick (P), reject (X) or
+  unflag (U) them and give them a colour label (6–9), from the keyboard,
+  the stars next to the photo name or the new Library menu. Ratings are
+  saved in the sidecar at once and are not edits. Ratings and labels from
+  Lightroom XMP sidecars come along.
+- Auto-advance moves to the next photo after a rating or flag.
+- Filter (stars, flag, label, edited) and sort (file name, capture time,
+  rating, edited first); the filmstrip, ← → and batch export follow them.
+- Grid view (G) with Ctrl/⌘- and Shift-click selection, Select All and a
+  thumbnail size slider; ratings apply to every selected photo.
+- Survey view (N): 2–8 selected photos side by side, rated one at a time.
+- Library › Move Rejected Photos to Recycle Bin (Trash on a Mac) moves the
+  rejects and their sidecars to the bin after asking.
+- The filmstrip shows stars, flags and labels while open, and a scroll bar
+  while it moves: drag it to cross a long folder, with the photo's name and
+  date shown as you go.
+- Export can cover the selected or the shown photos.
+
+### Changed
+
+- Thumbnails show the camera's embedded preview at once, then
+  Photonation's rendering, which is kept in a disk cache (up to 512 MB) so
+  folders open with their renders next time.
+
 ## [0.13.0] - 2026-10-31
 
 ### Added

@@ -39,6 +39,7 @@ const DATA_FOLDER: &str = if cfg!(target_os = "macos") {
 pub enum Page {
     #[default]
     GettingStarted,
+    Library,
     Developing,
     WhiteBalance,
     Light,
@@ -60,7 +61,10 @@ pub enum Page {
 
 /// The navigation list: a group label and its pages.
 const CHAPTERS: [(&str, &[Page]); 4] = [
-    ("Basics", &[Page::GettingStarted, Page::Developing]),
+    (
+        "Basics",
+        &[Page::GettingStarted, Page::Library, Page::Developing],
+    ),
     (
         "Adjustments",
         &[
@@ -90,8 +94,9 @@ const CHAPTERS: [(&str, &[Page]); 4] = [
 ];
 
 impl Page {
-    pub const ALL: [Page; 18] = [
+    pub const ALL: [Page; 19] = [
         Page::GettingStarted,
+        Page::Library,
         Page::Developing,
         Page::WhiteBalance,
         Page::Light,
@@ -114,6 +119,7 @@ impl Page {
     pub fn title(self) -> &'static str {
         match self {
             Page::GettingStarted => "Getting started",
+            Page::Library => "Rating and culling",
             Page::Developing => "How a photo is developed",
             Page::WhiteBalance => "White Balance",
             Page::Light => "Light",
@@ -138,6 +144,7 @@ impl Page {
     fn icon(self) -> Option<Icon> {
         match self {
             Page::GettingStarted => Some(Icon::Library),
+            Page::Library => Some(Icon::Grid),
             Page::Detail => Some(Icon::Focus),
             Page::Masks => Some(Icon::Layers),
             Page::Crop => Some(Icon::Crop),
@@ -181,6 +188,8 @@ pub fn tool_page(view: &ViewState) -> Option<Page> {
         Some(Page::Crop)
     } else if view.show_removals {
         Some(Page::Remove)
+    } else if view.library.grid || view.library.survey {
+        Some(Page::Library)
     } else {
         None
     }
@@ -621,8 +630,15 @@ fn content(page: Page) -> Content {
                 ),
                 term(
                     "An amber dot",
-                    "marks photos you have edited. Files Photonation cannot read say \
-                     Unsupported.",
+                    "marks photos you have edited; stars, a pick or reject mark and a \
+                     coloured line show how you rated them (see Rating and culling). Files \
+                     Photonation cannot read say Unsupported.",
+                ),
+                term(
+                    "The scroll bar",
+                    "along the bottom of the strip shows while it moves. Drag it to cross \
+                     a long folder quickly; the photo under the middle of the strip is named \
+                     above it as you drag.",
                 ),
                 Block::Heading("Edits are non-destructive"),
                 term(
@@ -669,6 +685,77 @@ fn content(page: Page) -> Content {
                 ),
             ],
             see_also: &[Page::Developing, Page::Shortcuts, Page::Lightroom],
+        },
+        Page::Library => Content {
+            lede: "Go through a folder quickly: rate, pick and reject photos with single \
+                   keys, compare a burst side by side, then show only the keepers."
+                .into(),
+            blocks: vec![
+                Block::Heading("Rating, flags and labels"),
+                term(
+                    "Stars:",
+                    "0 to 5 set the rating (0 clears it); ] and [ add or take away a star. \
+                     The stars in the toolbar do the same with a click.",
+                ),
+                term(
+                    "Flags:",
+                    "P picks a keeper, X rejects a photo, U removes the flag. Rejected \
+                     photos are dimmed.",
+                ),
+                term(
+                    "Labels:",
+                    "6, 7, 8 and 9 put a red, yellow, green or blue label on the photo (the \
+                     same key again takes it off); purple is in the toolbar and Library › \
+                     Label.",
+                ),
+                term(
+                    "Auto-advance",
+                    "(Library › Auto-Advance, or the button above the grid) moves to the \
+                     next photo after you rate or flag one, so a folder is one key per photo.",
+                ),
+                text(
+                    "Ratings are saved in the photo's sidecar at once. They are not edits: \
+                     a rated photo has no amber dot, and undo leaves ratings alone. Ratings \
+                     and labels from Lightroom's XMP sidecars come along (a Lightroom reject \
+                     is a reject here).",
+                ),
+                Block::Heading("Grid and survey"),
+                term(
+                    "Grid",
+                    "(G, or the grid button in the toolbar) shows every photo at once. \
+                     Click to choose one; Ctrl-click (⌘ on a Mac) adds or removes a photo, \
+                     Shift-click selects a run. Ratings apply to every selected photo. \
+                     Arrow keys move around; E, Return or a double-click opens the photo in \
+                     the editor.",
+                ),
+                term(
+                    "Survey",
+                    "(N) puts the selected photos side by side, as large as fits, to find \
+                     the best of a burst. ← → move between them and ratings apply to the one \
+                     outlined; the × on a photo takes it out. Esc goes back to the grid.",
+                ),
+                Block::Heading("Filter and sort"),
+                text(
+                    "The bar above the grid (and Library › Filter) shows only photos with \
+                     enough stars, a flag, a label or edits. The filmstrip, ← → and the grid \
+                     all follow the filter and the sort order (file name, capture time, \
+                     rating, or edited first). The photo you are on stays until you move \
+                     on, even when a new rating no longer matches.",
+                ),
+                Block::Heading("Throwing rejects away"),
+                text(&format!(
+                    "Library › Move Rejected Photos to {bin}… moves every rejected photo, \
+                     with its sidecars, to the {bin}, after asking. They can be put back \
+                     from there.",
+                    bin = crate::panels::library_bar::BIN_NAME
+                )),
+                tip(
+                    "Thumbnails first show the preview the camera stored in the raw file, \
+                     then Photonation's own rendering once it is ready; renders are kept, so \
+                     the folder opens at once next time.",
+                ),
+            ],
+            see_also: &[Page::GettingStarted, Page::Export, Page::Shortcuts],
         },
         Page::Developing => Content {
             lede: "Every preview, thumbnail and export runs the same steps in the same \
@@ -1353,7 +1440,9 @@ fn content(page: Page) -> Content {
                     "Export asks for a folder, starting in the one chosen in Settings, or, \
                      if Settings says so, exports straight to it. With more than one photo \
                      in the folder, the sheet can export them all (File › Export All \
-                     Photos…). Exports run in the background, and the toolbar shows their \
+                     Photos…): the selected photos while several are selected, else the \
+                     ones the filter shows, so exporting the picks takes a filter and one \
+                     click. Exports run in the background, and the toolbar shows their \
                      progress.",
                 ),
                 tip("New exports start with the defaults in Settings › Export."),
@@ -1447,9 +1536,28 @@ fn content(page: Page) -> Content {
                 Block::Heading("Photos"),
                 keys(&[theme::SHORTCUT_OPEN], "Open a folder"),
                 keys(&["←", "→"], "Previous or next photo"),
+                keys(&["G"], "Grid"),
+                keys(&["N"], "Survey the selected photos"),
+                keys(&["E", "Return"], "Open the photo in the editor"),
                 keys(&[theme::SHORTCUT_EXPORT], "Export"),
                 keys(&[theme::SHORTCUT_SETTINGS], "Settings"),
                 keys(&[theme::SHORTCUT_QUIT], "Quit"),
+                Block::Heading("Rating"),
+                keys(
+                    &["0", "1", "2", "3", "4", "5"],
+                    "Set the stars (0 clears them)",
+                ),
+                keys(&["]", "["], "One star more or fewer"),
+                keys(&["P"], "Pick"),
+                keys(&["X"], "Reject"),
+                keys(&["U"], "Remove the flag"),
+                keys(&["6", "7", "8", "9"], "Red, yellow, green or blue label"),
+                keys(
+                    &[theme::SHORTCUT_SELECT_ALL],
+                    "Select every shown photo (grid)",
+                ),
+                keys(&["↑", "↓"], "Move a row up or down (grid)"),
+                keys(&["Esc"], "Leave the survey, or clear the selection"),
                 Block::Heading("Editing"),
                 keys(&[theme::SHORTCUT_UNDO], "Undo"),
                 keys(&[theme::SHORTCUT_REDO], "Redo"),

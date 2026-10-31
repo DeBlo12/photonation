@@ -14,7 +14,9 @@
 //! at that width; `PHOTONATION_SCREENSHOT_EXPORT=1` opens the export sheet;
 //! `PHOTONATION_SCREENSHOT_HELP=1` opens the Help window (`=Masks and mask
 //! groups`, or any page's title, opens that page);
-//! `PHOTONATION_SCREENSHOT_SETTINGS=general` (or `=export`) opens Settings.
+//! `PHOTONATION_SCREENSHOT_SETTINGS=general` (or `=export`) opens Settings;
+//! `PHOTONATION_SCREENSHOT_LIBRARY=grid` shows the grid, `=survey` the
+//! first three photos in the survey view.
 
 use eframe::egui;
 use std::path::PathBuf;
@@ -54,6 +56,13 @@ impl Screenshot {
 
     /// Applies the requested panel layout.
     pub fn prepare(&self, view: &mut crate::app::ViewState) {
+        if let Some(library) = std::env::var_os("PHOTONATION_SCREENSHOT_LIBRARY") {
+            view.library.grid = true;
+            if library == "survey" {
+                view.library.survey = true;
+                view.library.selection = [1, 2].into();
+            }
+        }
         if let Some(tab) = std::env::var_os("PHOTONATION_SCREENSHOT_SETTINGS") {
             view.show_settings = true;
             view.settings_tab = usize::from(tab == "export");

@@ -8,13 +8,41 @@ Crate: `photonation-engine`. Front ends talk to `RenderService` and receive
 | Worker | Threads | Input | Output events |
 |---|---|---|---|
 | Preview | 1 | `PreviewJob::Render(PreviewRequest)`, `PreviewJob::Pick` (white balance or colour) | `PhotoLoaded`, `Preview`, `WhiteBalancePicked`, `ColorPicked`, `Error` |
-| Thumbnails | 2 | `ThumbnailJob` | `Thumbnail`, `Error` |
+| Thumbnails | 2 | `ThumbnailJob` (`Survey`, `Quick`, `Render`) | `Thumbnail`, `CaptureTime`, `SurveyImage`, `Error` |
 | Export | 1 | `ExportJob` (a batch) | `ExportProgress`, `ExportFinished` |
 | Retouch | 1 | `RetouchJob::Fill`, `RetouchJob::Status` | `RemovalsFilled`, `ModelStatus`, `Error` |
 
 Every event send also calls the `notify` callback the front end passed in (the
 desktop app passes `ctx.request_repaint`), so the UI wakes up only when there is
 something to show.
+
+## Thumbnails (`thumbnails.rs`)
+
+`request_thumbnail` queues two passes for a photo in one `ThumbnailQueue`
+(a mutex and condvar shared by the workers), which hands out survey images
+first, then quick passes, then renders:
+
+1. **Quick**: read the capture time (`CaptureTime`), then send the cached
+   render if there is one (`Thumbnail { rendered: true }`) and stop, else
+   the camera's embedded JPEG preview, scaled to 320 px and turned upright
+   (`Thumbnail { rendered: false }`).
+2. **Render**: decode and develop at 320 px, send it, store it in the cache.
+
+The queue keeps the newest settings per photo, so `refresh_thumbnail`
+(after a save) overtakes a render still queued with older settings, and a
+finished render whose settings are no longer the newest is not sent.
+`cancel_thumbnails` drops everything queued when another folder opens.
+`request_survey_image` renders one photo at the survey view's size
+(`SurveyImage`): the camera's embedded preview for an unedited photo,
+a render for an edited one.
+
+**Disk cache** (`ThumbnailCache`): JPEGs in `thumbnails` under the data
+directory (`%APPDATA%\Photonation` on Windows), named by a hash of the
+photo's path, size and modification time, its settings, the crate version
+and the size. A folder seen before opens with its renders at once. When it
+grows past 512 MB the least recently used files go, down to 384 MB, on a
+thread of its own at start-up. Services made for tests (`with_parts`) have
+no cache.
 
 ## Preview control flow (`service.rs: preview_worker`)
 

@@ -24,6 +24,10 @@
 - CLI: info, export, edit
 - GPU previews (wgpu compute) for every global adjustment, masks, Texture
   and Clarity, checked against the CPU pipeline
+- Culling: star ratings, pick/reject flags and colour labels in the
+  sidecar (Lightroom's imported), auto-advance, filter and sort, a grid
+  with multi-select, a survey view of 2–8 photos, rejects to the system
+  bin; embedded-preview thumbnails with a disk cache; a filmstrip scroll bar
 
 ## Next
 
@@ -44,8 +48,8 @@
    round trip, to speed up masked renders.
 8. **Better demosaicing**: RCD or AMaZE for Bayer, Markesteijn for X-Trans.
 9. **Presets** and copy/paste of settings across photos.
-10. **AVIF and JPEG XL export**; IPTC fields (title, caption, keywords) in
-    export metadata.
+10. **AVIF and JPEG XL export**; IPTC fields (title, caption, keywords) and
+    the rating and label (`xmp:Rating`, `xmp:Label`) in export metadata.
 11. **Better removals**: one-click people selection (segmentation), dust
     spot and wire/fence detection, full-resolution tiled fills, a disk cache
     for fills. See [RETOUCH.md](RETOUCH.md).
@@ -59,7 +63,8 @@
 - **Web app**: build the egui UI and engine for `wasm32` (WebGL/WebGPU, files
   through the browser's file APIs, OPFS for sidecars and caches). The core
   crates are already free of platform code; threads need a Web Worker pool.
-- **Library**: catalog with ratings, flags, keywords and search across folders.
+- **Library**: a catalog across folders, with keywords, collections and search
+  (ratings, flags and labels are per folder today).
 - **More raw formats**: contribute missing cameras upstream to rawler or add a
   second decoder behind `photonation-raw`.
 - **Packaging**: signed macOS app bundle (with `assets/icon/photonation.icns`);

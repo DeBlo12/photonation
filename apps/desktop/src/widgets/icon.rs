@@ -24,13 +24,14 @@ pub enum Icon {
     Undo,
     Redo,
     Compare,
+    Help,
     LinearGradient,
     RadialGradient,
     SplitHandle,
 }
 
 impl Icon {
-    const COUNT: usize = 13;
+    const COUNT: usize = 14;
 
     /// SVG path data on the 24 u grid.
     fn path(self) -> &'static str {
@@ -57,6 +58,10 @@ impl Icon {
             Icon::Undo => "M9 14.5 4.5 10 9 5.5M4.5 10h10a5 5 0 0 1 0 10H12",
             Icon::Redo => "M15 14.5 19.5 10 15 5.5M19.5 10h-10a5 5 0 0 0 0 10H12",
             Icon::Compare => "M6 4h12q2 0 2 2v12q0 2 -2 2h-12q-2 0 -2 -2v-12q0 -2 2 -2zM12 2v20",
+            Icon::Help => {
+                "M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0\
+                 M9.6 9.4a2.5 2.5 0 1 1 3.2 2.4c-.5.2-.8.6-.8 1.2v.9M12 16.6h.01"
+            }
             Icon::LinearGradient => {
                 "M6 4h12q2 0 2 2v12q0 2 -2 2h-12q-2 0 -2 -2v-12q0 -2 2 -2zM4 9.5h16M4 14.5h16"
             }
@@ -178,6 +183,7 @@ mod tests {
         Icon::Undo,
         Icon::Redo,
         Icon::Compare,
+        Icon::Help,
         Icon::LinearGradient,
         Icon::RadialGradient,
         Icon::SplitHandle,

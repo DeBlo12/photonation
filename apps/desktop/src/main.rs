@@ -30,7 +30,7 @@ fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport,
         renderer: eframe::Renderer::Wgpu,
-        wgpu_options: gpu::wgpu_configuration(gpu::GpuPreference::from_env()),
+        wgpu_options: gpu::wgpu_configuration(&preferences::Preferences::load().gpu),
         // The mask overlay's pipeline assumes neither (gpu/mask_overlay.rs).
         multisampling: 0,
         depth_buffer: 0,

@@ -147,6 +147,10 @@ pub struct ViewState {
     pub zoom: Zoom,
     pub pan: egui::Vec2,
     pub show_export: bool,
+    /// The Settings window, and its tab (index into `panels::settings::TABS`).
+    pub show_settings: bool,
+    pub settings_tab: usize,
+    pub show_about: bool,
     pub export_options: ExportOptions,
     pub export_all: bool,
     /// The masks panel replaces the adjustments, and the selected shape's
@@ -196,6 +200,9 @@ impl Default for ViewState {
             zoom: Zoom::Fit,
             pan: egui::Vec2::ZERO,
             show_export: false,
+            show_settings: false,
+            settings_tab: 0,
+            show_about: false,
             export_options: ExportOptions::default(),
             export_all: false,
             show_masks: false,
@@ -297,6 +304,11 @@ pub struct PhotonationApp {
     screenshot: Option<crate::screenshot::Screenshot>,
     /// The graphics adapter in use, e.g. "AMD Radeon Pro 5500M (discrete GPU, Metal)".
     pub gpu: Option<String>,
+    /// Settings and remembered choices (`preferences.json`).
+    pub preferences: crate::preferences::Preferences,
+    /// The GPU setting the window was created with; a different one takes
+    /// effect at the next start.
+    pub gpu_setting_at_launch: crate::gpu::GpuSetting,
     /// The GPU mask overlay is installed (wgpu is rendering).
     pub mask_overlay_ready: bool,
     /// Whether "Generative AI" removals run a model (None until reported).
@@ -309,7 +321,9 @@ impl PhotonationApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> PhotonationApp {
         let mut app = PhotonationApp::empty(&cc.egui_ctx);
         app.screenshot = crate::screenshot::Screenshot::from_env();
-        app.view.export_options.metadata = crate::preferences::Preferences::load().export_metadata;
+        app.preferences = crate::preferences::Preferences::load();
+        app.gpu_setting_at_launch = app.preferences.gpu.clone();
+        app.view.export_options = app.preferences.export_options();
         // Load the inpainting model in the background, so the first
         // generative removal doesn't wait for it.
         app.engine.request_model_status();
@@ -335,7 +349,7 @@ impl PhotonationApp {
             }
         }
         if let Some(screenshot) = &app.screenshot {
-            screenshot.prepare(&mut app.view);
+            screenshot.prepare(&mut app.view, &cc.egui_ctx);
         }
         app
     }
@@ -369,6 +383,8 @@ impl PhotonationApp {
             thumbnails_by_path: HashMap::new(),
             screenshot: None,
             gpu: None,
+            preferences: Default::default(),
+            gpu_setting_at_launch: Default::default(),
             mask_overlay_ready: false,
             model_status: None,
             filling_removals: false,
@@ -785,6 +801,7 @@ impl PhotonationApp {
             export,
             open,
             reset_zoom,
+            settings,
         ) = ctx.input_mut(|i| {
             let mut plain = |key| !typing && i.consume_key(Modifiers::NONE, key);
             let (prev, next, compare, masks, crop, removals) = (
@@ -809,6 +826,7 @@ impl PhotonationApp {
                 i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::E),
                 i.consume_key(Modifiers::COMMAND, Key::O),
                 i.consume_key(Modifiers::COMMAND, Key::Num0),
+                i.consume_key(Modifiers::COMMAND, Key::Comma),
             )
         });
         if redo {
@@ -841,6 +859,9 @@ impl PhotonationApp {
         }
         if open {
             self.pick_folder();
+        }
+        if settings {
+            self.view.show_settings = true;
         }
         if reset_zoom {
             self.view.zoom = Zoom::Fit;
@@ -913,6 +934,7 @@ impl eframe::App for PhotonationApp {
         let disabled_before = self.view.disabled.clone();
         let cropping_before = self.view.cropping;
 
+        panels::menu_bar::show(self, ui);
         panels::toolbar::show(self, ui);
         if !self.photos.is_empty() {
             panels::filmstrip::show(self, ui);
@@ -932,6 +954,12 @@ impl eframe::App for PhotonationApp {
             .filter(|index| *index < self.settings.removals.len());
         if self.view.show_export {
             panels::export::show(self, &ctx);
+        }
+        if self.view.show_settings {
+            panels::settings::show(self, &ctx);
+        }
+        if self.view.show_about {
+            panels::settings::about(self, &ctx);
         }
 
         if self.settings.removals != settings_before.removals {

@@ -36,8 +36,8 @@ impl Default for SliderStyle {
 }
 
 const ROW_HEIGHT: f32 = 36.0;
-const TRACK_HEIGHT: f32 = 4.0;
-const KNOB_RADIUS: f32 = 7.0;
+const TRACK_HEIGHT: f32 = 3.0;
+const KNOB_RADIUS: f32 = 6.0;
 const FINE_FACTOR: f32 = 0.1;
 
 pub fn adjustment_slider(

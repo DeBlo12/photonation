@@ -20,6 +20,7 @@
 - Object removal: painted removals filled by content-aware fill (PatchMatch)
   or a neural inpainting model (LaMa / MI-GAN via tract), in the background
 - Desktop editor (toolbar, viewer with zoom/compare, filmstrip, adjustment cards, export sheet)
+  in the Photonation brand (Ink surfaces, Photon amber, Inter and Sora, the iris on the welcome screen)
 - CLI: info, export, edit
 
 ## Next
@@ -58,5 +59,3 @@
 - **Packaging**: signed macOS app bundle (with `assets/icon/photonation.icns`);
   a code-signed Windows installer built in CI (an unsigned one builds locally
   today); Linux builds.
-- **Brand in the app**: the iris mark on the welcome screen, and the brand's
-  colours and type (Ink, Paper, Photon amber; Sora and Inter) in the theme.

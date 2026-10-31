@@ -63,6 +63,8 @@ Source: "{#Binaries}\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Binaries}\{#CliExe}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"
 Source: "{#Root}\NOTICE"; DestDir: "{app}"; DestName: "NOTICE.txt"
+Source: "{#Root}\assets\fonts\OFL-Inter.txt"; DestDir: "{app}\licenses"
+Source: "{#Root}\assets\fonts\OFL-Sora.txt"; DestDir: "{app}\licenses"
 Source: "{#Root}\README.md"; DestDir: "{app}"
 
 [Icons]

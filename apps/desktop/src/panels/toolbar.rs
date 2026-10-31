@@ -2,10 +2,10 @@
 // Copyright (C) 2026 The Photonation contributors
 
 use crate::app::{PhotonationApp, ViewState, Zoom};
-use crate::panels::{icon_button, tool_button};
+use crate::panels::{hover_tip, icon_button, tool_button};
 use crate::theme;
 use crate::widgets::Icon;
-use eframe::egui::{self, Align, Button, Layout, RichText};
+use eframe::egui::{self, Align, Layout, RichText};
 
 /// A tool with its own sidebar: icon, whether it is open, tooltip, toggle.
 type SidebarTool = (Icon, bool, &'static str, fn(&mut ViewState));
@@ -21,13 +21,16 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
         )
         .show(ui, |ui| {
             ui.horizontal_centered(|ui| {
-                ui.add_space(theme::TRAFFIC_LIGHT_INSET);
                 if icon_button(
                     ui,
                     Icon::Library,
                     Some("Open"),
                     false,
-                    &format!("Open a folder ({})", theme::SHORTCUT_OPEN),
+                    &format!(
+                        "Open a folder ({})\nShows its raw photos in the filmstrip. Edits are \
+                         saved beside each photo; the raw file is never changed.",
+                        theme::SHORTCUT_OPEN
+                    ),
                 )
                 .clicked()
                 {
@@ -53,21 +56,24 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
                     let has_photo = app.current.is_some();
                     let export = ui.add_enabled(
                         has_photo,
-                        Button::new(RichText::new("Export").size(13.0).color(theme::TEXT))
-                            .fill(theme::ACCENT)
-                            .corner_radius(theme::CONTROL_RADIUS)
-                            .min_size(egui::vec2(72.0, 26.0)),
+                        theme::primary_button("Export").min_size(egui::vec2(76.0, 26.0)),
                     );
-                    if export
-                        .on_hover_text(format!("Export ({})", theme::SHORTCUT_EXPORT))
-                        .clicked()
-                    {
+                    let export_tip = format!(
+                        "Export ({})\nSaves the edited photo as JPEG, PNG or TIFF, at full or \
+                         reduced size, in the colour space and with the metadata you choose.",
+                        theme::SHORTCUT_EXPORT
+                    );
+                    if hover_tip(export, &export_tip).clicked() {
                         app.view.show_export = true;
                     }
-                    ui.add_space(8.0);
+                    ui.add_space(4.0);
+                    crate::panels::help::button(ui);
+                    ui.add_space(4.0);
                     let is_actual =
                         matches!(app.view.zoom, Zoom::Scale(s) if (s - 1.0).abs() < 1e-3);
-                    if tool_button(ui, "1:1", is_actual, "Actual pixels").clicked() {
+                    let actual_tip = "Actual pixels\nOne photo pixel per screen pixel, to judge \
+                                      focus, noise and sharpening.";
+                    if tool_button(ui, "1:1", is_actual, actual_tip).clicked() {
                         app.view.zoom = if is_actual {
                             Zoom::Fit
                         } else {
@@ -75,7 +81,12 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
                         };
                         app.view.pan = egui::Vec2::ZERO;
                     }
-                    let fit_tooltip = format!("Fit to window ({})", theme::SHORTCUT_FIT);
+                    let fit_tooltip = format!(
+                        "Fit to window ({})\nShows the whole photo. Pinch or {}-scroll zooms \
+                         around the pointer; scrolling pans a zoomed photo.",
+                        theme::SHORTCUT_FIT,
+                        theme::COMMAND_KEY
+                    );
                     if tool_button(ui, "Fit", app.view.zoom == Zoom::Fit, &fit_tooltip).clicked() {
                         app.view.zoom = Zoom::Fit;
                         app.view.pan = egui::Vec2::ZERO;
@@ -86,7 +97,8 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
                         Icon::Compare,
                         None,
                         app.view.compare,
-                        "Compare with original (\\)",
+                        "Compare with the original (\\)\nSplits the photo: the unedited \
+                         original left of the handle, the edit right of it. Drag the handle.",
                     );
                     if compare.clicked() {
                         app.view.compare = !app.view.compare;
@@ -95,19 +107,22 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
                         (
                             Icon::Layers,
                             app.view.show_masks,
-                            "Masks (M)",
+                            "Masks (M)\nLocal adjustments inside linear and radial gradients, \
+                             combined into masks and groups.",
                             ViewState::toggle_masks,
                         ),
                         (
                             Icon::Crop,
                             app.view.cropping,
-                            "Crop and straighten (R)",
+                            "Crop and straighten (R)\nDrag the frame or its edges to crop, \
+                             outside it to straighten. Return or Esc closes the tool.",
                             ViewState::toggle_cropping,
                         ),
                         (
                             Icon::Retouch,
                             app.view.show_removals,
-                            "Remove objects (Q)",
+                            "Remove objects (Q)\nPaint over something to remove it; \
+                             generative AI or content-aware fill replaces it.",
                             ViewState::toggle_removals,
                         ),
                     ];
@@ -123,7 +138,10 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
                         }
                     }
                     ui.add_space(8.0);
-                    let redo_tooltip = format!("Redo ({})", theme::SHORTCUT_REDO);
+                    let redo_tooltip = format!(
+                        "Redo ({})\nBrings back the last edit you undid.",
+                        theme::SHORTCUT_REDO
+                    );
                     if ui
                         .add_enabled_ui(app.history.can_redo(), |ui| {
                             icon_button(ui, Icon::Redo, None, false, &redo_tooltip)
@@ -133,7 +151,10 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
                     {
                         app.redo();
                     }
-                    let undo_tooltip = format!("Undo ({})", theme::SHORTCUT_UNDO);
+                    let undo_tooltip = format!(
+                        "Undo ({})\nSteps back one edit. A whole slider drag is one step.",
+                        theme::SHORTCUT_UNDO
+                    );
                     if ui
                         .add_enabled_ui(app.history.can_undo(), |ui| {
                             icon_button(ui, Icon::Undo, None, false, &undo_tooltip)

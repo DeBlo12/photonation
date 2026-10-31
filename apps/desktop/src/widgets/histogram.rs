@@ -34,7 +34,7 @@ pub fn histogram(ui: &mut Ui, histogram: Option<&Histogram>) {
 }
 
 /// Filled area under a 256-bin curve (square-root scaled so faint tones stay visible).
-fn area_mesh(rect: Rect, bins: &[u32], peak: f32, color: Color32) -> Mesh {
+pub(super) fn area_mesh(rect: Rect, bins: &[u32], peak: f32, color: Color32) -> Mesh {
     let mut mesh = Mesh::default();
     let last = (bins.len() - 1) as f32;
     for (i, &count) in bins.iter().enumerate() {

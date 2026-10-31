@@ -8,7 +8,8 @@
 - Light: exposure, contrast, highlights, shadows, whites, blacks
 - Presence: texture, clarity, dehaze
 - Colour: vibrance, saturation, 8-band colour mixer with a band picker, point colours, colour grading wheels
-- Tone curve: parametric, RGB and per-channel point curves
+- Tone curve: parametric, RGB and per-channel point curves, with the photo's
+  histogram behind them
 - Sharpening; Lanczos resizing; JPEG/PNG/TIFF export with ICC profiles and
   EXIF/XMP metadata (camera and capture, creator and copyright, optional GPS)
 - JSON sidecars, process versions, undo/redo
@@ -31,26 +32,23 @@
 
 ## Next
 
-1. **Curves editing**: dragging a placed point doesn't follow the pointer
-   properly, so fix moving points; and draw the photo's histogram (for the
-   curve's channel) behind the curve, as the sidebar already computes it.
-2. **Lightroom import, continued**: masks (linear, radial; brush once masks
+1. **Lightroom import, continued**: masks (linear, radial; brush once masks
    have one), and the edits listed as not imported once Photonation has them.
-3. **Straighten by drawing a line** along the horizon, and auto-straighten.
-4. **Highlight reconstruction** (recover detail where only some channels clip).
-5. **Local Highlights/Shadows** (edge-aware, as process V2), so they behave like
+2. **Straighten by drawing a line** along the horizon, and auto-straighten.
+3. **Highlight reconstruction** (recover detail where only some channels clip).
+4. **Local Highlights/Shadows** (edge-aware, as process V2), so they behave like
    Lightroom's on high-contrast scenes.
-6. **Noise reduction** (luminance and colour) and **lens corrections**
+5. **Noise reduction** (luminance and colour) and **lens corrections**
    (distortion, vignetting, chromatic aberration).
-7. **More masks**: a brush, creating gradients by dragging on the photo, masks
+6. **More masks**: a brush, creating gradients by dragging on the photo, masks
    in compare mode, and later AI subject and sky masks. Skip masks whose
    bounds miss a band, and fold local saturation into the colour step's Oklab
    round trip, to speed up masked renders.
-8. **Better demosaicing**: RCD or AMaZE for Bayer, Markesteijn for X-Trans.
-9. **Presets** and copy/paste of settings across photos.
-10. **AVIF and JPEG XL export**; IPTC fields (title, caption, keywords) and
-    the rating and label (`xmp:Rating`, `xmp:Label`) in export metadata.
-11. **Better removals**: one-click people selection (segmentation), dust
+7. **Better demosaicing**: RCD or AMaZE for Bayer, Markesteijn for X-Trans.
+8. **Presets** and copy/paste of settings across photos.
+9. **AVIF and JPEG XL export**; IPTC fields (title, caption, keywords) and
+   the rating and label (`xmp:Rating`, `xmp:Label`) in export metadata.
+10. **Better removals**: one-click people selection (segmentation), dust
     spot and wire/fence detection, full-resolution tiled fills, a disk cache
     for fills. See [RETOUCH.md](RETOUCH.md).
 

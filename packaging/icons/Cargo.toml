@@ -1,0 +1,13 @@
+[package]
+name = "photonation-icons"
+description = "Renders the Photonation app icon to the PNG, ICO and ICNS files in assets/icon"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+publish = false
+
+# A standalone tool, not part of the app's workspace.
+[workspace]
+
+[dependencies]
+resvg = "0.49.0"

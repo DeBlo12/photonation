@@ -1,6 +1,8 @@
 * text=auto eol=lf
 *.rs diff=rust
 *.png binary
+*.ico binary
+*.icns binary
 *.jpg binary
 *.tif binary
 *.CR3 binary

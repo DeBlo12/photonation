@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="1024" height="1024">
+  <title>Photonation</title>
+  <g>
+    <rect width="100" height="100" rx="22.4" fill="#F6F5F1"/>
+    <path d="M62.07 53.24 L34.86 80.45 A34 34 0 0 0 68.80 78.33 Z" fill="#171B2A"/>
+    <path d="M53.24 62.07 L16.07 52.11 A34 34 0 0 0 34.86 80.45 Z" fill="#262C3E"/>
+    <path d="M41.16 58.84 L31.20 21.67 A34 34 0 0 0 16.07 52.11 Z" fill="#3A4258"/>
+    <path d="M37.93 46.76 L65.14 19.55 A34 34 0 0 0 31.20 21.67 Z" fill="#2F364A"/>
+    <path d="M46.76 37.93 L83.93 47.89 A34 34 0 0 0 65.14 19.55 Z" fill="#1E2334"/>
+    <path d="M58.84 41.16 L68.80 78.33 A34 34 0 0 0 83.93 47.89 Z" fill="#11141F"/>
+    <path d="M62.07 53.24 L68.80 78.33 M53.24 62.07 L34.86 80.45 M41.16 58.84 L16.07 52.11 M37.93 46.76 L31.20 21.67 M46.76 37.93 L65.14 19.55 M58.84 41.16 L83.93 47.89" fill="none" stroke="#F6F5F1" stroke-width="0.9" stroke-linecap="round"/>
+    <path d="M62.07 53.24 L53.24 62.07 L41.16 58.84 L37.93 46.76 L46.76 37.93 L58.84 41.16 Z" fill="#F6F5F1"/>
+    <circle cx="50" cy="50" r="5" fill="#FFB224"/>
+    <rect x="0.25" y="0.25" width="99.5" height="99.5" rx="22.15" fill="none" stroke="rgba(14,19,34,0.10)" stroke-width="0.5"/>
+  </g>
+</svg>

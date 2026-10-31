@@ -6,6 +6,7 @@
 
 mod curve_editor;
 mod histogram;
+mod icon;
 mod section;
 mod segmented;
 mod slider;
@@ -14,6 +15,7 @@ mod wheel;
 
 pub use curve_editor::{CurveChannel, curve_editor};
 pub use histogram::histogram;
+pub use icon::{Icon, paint_icon};
 pub use section::{SectionAction, section};
 pub use segmented::segmented;
 pub use slider::{SliderStyle, Track, adjustment_slider};

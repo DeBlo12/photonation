@@ -5,7 +5,7 @@
 //! like Photomator's adjustment list.
 
 use crate::theme;
-use crate::widgets::toggle;
+use crate::widgets::{Icon, paint_icon, toggle};
 use eframe::egui::{self, Align2, Sense, Ui, pos2, vec2};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -79,15 +79,19 @@ pub fn section(
         );
         toggle(&mut controls, enabled).on_hover_text(if *enabled { "Turn off" } else { "Turn on" });
         if modified {
-            let reset = controls.add(
-                egui::Button::new(
-                    egui::RichText::new("↺")
-                        .size(14.0)
-                        .color(theme::TEXT_SECONDARY),
-                )
-                .frame(false),
-            );
-            if reset.on_hover_text("Reset").clicked() {
+            let icon_id = egui::IdSalt::new("reset-icon");
+            let reset = egui::Button::new(egui::Atom::custom(icon_id, vec2(14.0, 14.0)))
+                .frame(false)
+                .atom_ui(&mut controls);
+            if let Some(rect) = reset.rect(icon_id) {
+                let color = if reset.hovered() {
+                    theme::TEXT
+                } else {
+                    theme::TEXT_SECONDARY
+                };
+                paint_icon(controls.painter(), rect, Icon::Rotate, color);
+            }
+            if reset.response.on_hover_text("Reset").clicked() {
                 action = SectionAction::Reset;
             }
         }

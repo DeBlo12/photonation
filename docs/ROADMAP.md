@@ -55,4 +55,8 @@
 - **Library**: catalog with ratings, flags, keywords and search across folders.
 - **More raw formats**: contribute missing cameras upstream to rawler or add a
   second decoder behind `photonation-raw`.
-- **Packaging**: signed macOS app bundle, then Windows and Linux builds.
+- **Packaging**: signed macOS app bundle (with `assets/icon/photonation.icns`);
+  a code-signed Windows installer built in CI (an unsigned one builds locally
+  today); Linux builds.
+- **Brand in the app**: the iris mark on the welcome screen, and the brand's
+  colours and type (Ink, Paper, Photon amber; Sora and Inter) in the theme.

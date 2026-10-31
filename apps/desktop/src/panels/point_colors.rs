@@ -23,9 +23,11 @@ const MIN_TRACK_CHROMA: f32 = 0.08;
 pub fn show(ui: &mut Ui, settings: &mut Settings, view: &mut ViewState) {
     if settings.point_colors.is_empty() {
         ui.label(
-            RichText::new("Pick a color in the photo with ⌖ to edit it and colors like it.")
-                .size(11.5)
-                .color(theme::TEXT_TERTIARY),
+            RichText::new(
+                "Pick a color in the photo with the picker to edit it and colors like it.",
+            )
+            .size(11.5)
+            .color(theme::TEXT_TERTIARY),
         );
         return;
     }

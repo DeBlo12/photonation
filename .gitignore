@@ -1,5 +1,6 @@
 # Build output
 /target
+/packaging/icons/target
 
 # Local renders, screenshots and test exports
 /out

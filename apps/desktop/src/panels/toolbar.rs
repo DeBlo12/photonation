@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 The Photonation contributors
 
-use crate::app::{PhotonationApp, Zoom};
-use crate::panels::tool_button;
+use crate::app::{PhotonationApp, ViewState, Zoom};
+use crate::panels::{icon_button, tool_button};
 use crate::theme;
+use crate::widgets::Icon;
 use eframe::egui::{self, Align, Button, Layout, RichText};
+
+/// A tool with its own sidebar: icon, whether it is open, tooltip, toggle.
+type SidebarTool = (Icon, bool, &'static str, fn(&mut ViewState));
 
 pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
     egui::Panel::top("toolbar")
@@ -18,7 +22,15 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
         .show(ui, |ui| {
             ui.horizontal_centered(|ui| {
                 ui.add_space(theme::TRAFFIC_LIGHT_INSET);
-                if tool_button(ui, "📁  Open", false, "Open a folder (⌘O)").clicked() {
+                if icon_button(
+                    ui,
+                    Icon::Library,
+                    Some("Open"),
+                    false,
+                    &format!("Open a folder ({})", theme::SHORTCUT_OPEN),
+                )
+                .clicked()
+                {
                     app.pick_folder();
                 }
                 ui.add_space(12.0);
@@ -46,7 +58,10 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
                             .corner_radius(theme::CONTROL_RADIUS)
                             .min_size(egui::vec2(72.0, 26.0)),
                     );
-                    if export.on_hover_text("Export (⇧⌘E)").clicked() {
+                    if export
+                        .on_hover_text(format!("Export ({})", theme::SHORTCUT_EXPORT))
+                        .clicked()
+                    {
                         app.view.show_export = true;
                     }
                     ui.add_space(8.0);
@@ -60,56 +75,70 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
                         };
                         app.view.pan = egui::Vec2::ZERO;
                     }
-                    if tool_button(ui, "Fit", app.view.zoom == Zoom::Fit, "Fit to window (⌘0)")
-                        .clicked()
-                    {
+                    let fit_tooltip = format!("Fit to window ({})", theme::SHORTCUT_FIT);
+                    if tool_button(ui, "Fit", app.view.zoom == Zoom::Fit, &fit_tooltip).clicked() {
                         app.view.zoom = Zoom::Fit;
                         app.view.pan = egui::Vec2::ZERO;
                     }
                     ui.add_space(8.0);
-                    if tool_button(ui, "◐", app.view.compare, "Compare with original (\\)")
-                        .clicked()
-                    {
+                    let compare = icon_button(
+                        ui,
+                        Icon::Compare,
+                        None,
+                        app.view.compare,
+                        "Compare with original (\\)",
+                    );
+                    if compare.clicked() {
                         app.view.compare = !app.view.compare;
                     }
-                    if ui
-                        .add_enabled_ui(has_photo, |ui| {
-                            tool_button(ui, "◎", app.view.show_masks, "Masks (M)")
-                        })
-                        .inner
-                        .clicked()
-                    {
-                        app.view.toggle_masks();
-                    }
-                    if ui
-                        .add_enabled_ui(has_photo, |ui| {
-                            tool_button(ui, "⛶", app.view.cropping, "Crop and straighten (R)")
-                        })
-                        .inner
-                        .clicked()
-                    {
-                        app.view.toggle_cropping();
-                    }
-                    if ui
-                        .add_enabled_ui(has_photo, |ui| {
-                            tool_button(ui, "Remove", app.view.show_removals, "Remove objects (Q)")
-                        })
-                        .inner
-                        .clicked()
-                    {
-                        app.view.toggle_removals();
+                    let tools: [SidebarTool; 3] = [
+                        (
+                            Icon::Layers,
+                            app.view.show_masks,
+                            "Masks (M)",
+                            ViewState::toggle_masks,
+                        ),
+                        (
+                            Icon::Crop,
+                            app.view.cropping,
+                            "Crop and straighten (R)",
+                            ViewState::toggle_cropping,
+                        ),
+                        (
+                            Icon::Retouch,
+                            app.view.show_removals,
+                            "Remove objects (Q)",
+                            ViewState::toggle_removals,
+                        ),
+                    ];
+                    for (icon, active, tooltip, toggle) in tools {
+                        if ui
+                            .add_enabled_ui(has_photo, |ui| {
+                                icon_button(ui, icon, None, active, tooltip)
+                            })
+                            .inner
+                            .clicked()
+                        {
+                            toggle(&mut app.view);
+                        }
                     }
                     ui.add_space(8.0);
+                    let redo_tooltip = format!("Redo ({})", theme::SHORTCUT_REDO);
                     if ui
-                        .add_enabled(app.history.can_redo(), tool_button_widget("↷"))
-                        .on_hover_text("Redo (⇧⌘Z)")
+                        .add_enabled_ui(app.history.can_redo(), |ui| {
+                            icon_button(ui, Icon::Redo, None, false, &redo_tooltip)
+                        })
+                        .inner
                         .clicked()
                     {
                         app.redo();
                     }
+                    let undo_tooltip = format!("Undo ({})", theme::SHORTCUT_UNDO);
                     if ui
-                        .add_enabled(app.history.can_undo(), tool_button_widget("↶"))
-                        .on_hover_text("Undo (⌘Z)")
+                        .add_enabled_ui(app.history.can_undo(), |ui| {
+                            icon_button(ui, Icon::Undo, None, false, &undo_tooltip)
+                        })
+                        .inner
                         .clicked()
                     {
                         app.undo();
@@ -126,12 +155,6 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
                 });
             });
         });
-}
-
-fn tool_button_widget(label: &str) -> Button<'_> {
-    Button::new(RichText::new(label).size(15.0))
-        .fill(egui::Color32::TRANSPARENT)
-        .min_size(egui::vec2(30.0, 26.0))
 }
 
 fn camera_summary(info: &photonation_engine::PhotoInfo) -> String {

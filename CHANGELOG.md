@@ -8,6 +8,21 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Windows installer: `packaging\windows\build-installer.ps1` builds
+  `photonation-<version>-windows-x64-setup.exe` (Inno Setup), a per-user
+  install with a Start menu entry, an optional desktop shortcut, the CLI
+  optionally on `PATH`, and an uninstaller. On Windows the editor runs
+  without a console window, the toolbar no longer leaves room for macOS
+  window buttons, and tooltips and hints show Ctrl and Shift.
+- Brand icons: the editor's toolbar, colour pickers, crop, mask and card
+  controls draw the Photonation stroke icons (library, crop, layers,
+  retouch, rotate, flip, focus) instead of Unicode symbols, crisp at any
+  size and the same on every platform. Undo, redo, compare and the gradient
+  shapes, which the set lacks, are drawn to its rules.
+- App icon: the Photonation iris (Ink) in the title bar, taskbar and Dock,
+  embedded in the Windows executable and the installer, with an `.icns`
+  for the macOS app bundle. `assets/icon` holds the SVG masters of all four
+  variants (Ink, Paper, Photon, Mono); `packaging/icons` regenerates them.
 - Export metadata: exported JPEG, PNG and TIFF files carry EXIF and XMP with
   the camera, lens, exposure and capture time, the creator and copyright
   (from the raw file or entered in the export sheet, remembered between

@@ -83,8 +83,7 @@ fn views(app: &mut PhotonationApp, ui: &mut egui::Ui) {
     let grid_tip = "Grid (G)\nAll shown photos at once. Click to choose one, Ctrl- or \
                     Shift-click to select several; double-click or E opens it in the editor.";
     if icon_button(ui, Icon::Grid, Some("Grid"), grid, grid_tip).clicked() {
-        app.view.library.grid = true;
-        app.view.library.survey = false;
+        app.open_grid();
     }
     let survey_tip = "Survey (N)\nThe selected photos side by side, to choose the best of a \
                       burst. ← → move between them; ratings and flags apply to the one \

@@ -1317,10 +1317,13 @@ fn content(page: Page) -> Content {
                 ),
                 Block::Heading("Installing a model"),
                 Block::Text(format!(
-                    "Photonation ships no model. Put a LaMa or MI-GAN ONNX file at \
-                     {DATA_FOLDER}{sep}models{sep}inpaint.onnx, or set \
-                     PHOTONATION_INPAINT_MODEL to its path. The panel shows whether it \
-                     loaded; without a model, Generative AI uses content-aware fill.",
+                    "Photonation ships no model. Without one, the Remove panel links the \
+                     LaMa model (lama_fp32.onnx, Apache-2.0) and shows its SHA-256 to check \
+                     the download against. Put the file in {DATA_FOLDER}{sep}models (Open \
+                     Models Folder; any name, if it is the only ONNX file there, else \
+                     inpaint.onnx), or set PHOTONATION_INPAINT_MODEL to its path, then \
+                     click Check Again. Without a model, Generative AI uses content-aware \
+                     fill.",
                     sep = std::path::MAIN_SEPARATOR
                 )),
                 tip(

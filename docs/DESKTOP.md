@@ -30,7 +30,9 @@ most one of masks, crop and Remove is open.
 
 The grid (▦ or `G`) and the survey view (`N`) take the place of the viewer
 and the sidebar, under the library bar (see *Library* below); opening an
-editing tool leaves them.
+editing tool leaves them. While a tool is open the grid and survey wait
+(`open_grid`, `toggle_survey`): the toast names the tool and how to close
+it, and the inspector's outline pulses amber (`ViewState::tool_warning`).
 
 | File | Region |
 |---|---|
@@ -318,7 +320,8 @@ default sidecar, so the Lightroom edits do not return.
 
 **Panel** (`panels/removals.rs`): the method for new removals (*Generative
 AI* or *Content-aware*), with the model's status under it (ready, loading,
-not installed: where to put it, or not built), and the brush size (% of the
+not built, or not installed: a link to download LaMa, its SHA-256, Open
+Models Folder and Check Again; see RETOUCH.md), and the brush size (% of the
 long edge). Then the list of removals (select, show/hide, ×), and for the
 selected one its method, Feather, *Try Another Fill* (content-aware only: a
 new seed) and Delete. A spinner by the title shows while fills are computed.
@@ -434,6 +437,7 @@ once the preview and thumbnails are ready, then quits.
 shows the first point colour's range); `PHOTONATION_SCREENSHOT_MASKS=1` opens
 the masks panel with the first mask selected (`=group` selects the first mask
 group instead); `PHOTONATION_SCREENSHOT_CROP=1` opens the crop tool;
+`PHOTONATION_SCREENSHOT_REMOVE=1` the Remove panel;
 `PHOTONATION_SCREENSHOT_SIDEBAR=280` starts the sidebar at that width
 (280–440), to check narrow and wide layouts; `PHOTONATION_SCREENSHOT_EXPORT=1`
 opens the export sheet; `PHOTONATION_SCREENSHOT_HELP=1` the Help window

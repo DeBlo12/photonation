@@ -140,11 +140,16 @@ impl Retoucher {
         }
     }
 
-    /// Loads the model if that has not been tried yet (seconds for a large
-    /// model), and returns the resulting status.
+    /// Loads the model if that has not been tried yet, or if no model was
+    /// installed then (seconds for a large model), and returns the
+    /// resulting status. A model put in place while the app runs is found
+    /// the next time.
     pub fn ensure_model(&self) -> ModelStatus {
         let mut generative = lock(&self.generative);
-        if matches!(*generative, Generative::NotLoaded) {
+        if matches!(
+            *generative,
+            Generative::NotLoaded | Generative::Unavailable(ModelStatus::NotInstalled { .. })
+        ) {
             *generative = match load_model(self.model_path.as_deref()) {
                 Ok(inpainter) => {
                     // Fills made while the model was missing used the
@@ -241,13 +246,34 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+/// The model file for `expected`: that file, or else the only ONNX file
+/// in its folder, so a download can keep its own name (`lama_fp32.onnx`).
+#[cfg_attr(not(feature = "ai"), allow(dead_code))]
+fn installed_model(expected: &Path) -> Option<PathBuf> {
+    if expected.is_file() {
+        return Some(expected.to_path_buf());
+    }
+    let mut models = std::fs::read_dir(expected.parent()?)
+        .ok()?
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|path| {
+            path.is_file()
+                && path
+                    .extension()
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("onnx"))
+        });
+    let model = models.next()?;
+    models.next().is_none().then_some(model)
+}
+
 #[cfg(feature = "ai")]
 fn load_model(path: Option<&Path>) -> Result<Arc<dyn Inpainter>, ModelStatus> {
-    let Some(path) = path.filter(|path| path.is_file()) else {
+    let Some(path) = path.and_then(installed_model) else {
         return Err(ModelStatus::NotInstalled {
             expected: path.map(Path::to_path_buf),
         });
     };
+    let path = path.as_path();
     // The network sets the structure at its low resolution; content-aware
     // fill then adds the photo's own texture at the canvas's resolution.
     photonation_retouch::OnnxInpainter::load(path)
@@ -351,6 +377,40 @@ mod tests {
             retoucher.model_status(),
             ModelStatus::NotInstalled { .. } | ModelStatus::NotBuilt
         ));
+    }
+
+    #[test]
+    fn a_model_is_looked_for_again_until_one_is_installed() {
+        let folder = tempfile::tempdir().expect("temporary folder");
+        let expected = folder.path().join("inpaint.onnx");
+        let retoucher = Retoucher::new(Some(expected.clone()));
+        let first = retoucher.ensure_model();
+        if first == ModelStatus::NotBuilt {
+            return;
+        }
+        assert!(matches!(first, ModelStatus::NotInstalled { .. }));
+        // A download under its own name is found; this one is not a
+        // model, so loading it fails, and that is not tried again.
+        std::fs::write(folder.path().join("lama_fp32.onnx"), b"not a model").expect("write");
+        assert!(matches!(
+            retoucher.ensure_model(),
+            ModelStatus::Failed { .. }
+        ));
+    }
+
+    #[test]
+    fn the_installed_model_is_the_expected_file_or_the_only_onnx_file() {
+        let folder = tempfile::tempdir().expect("temporary folder");
+        let expected = folder.path().join("inpaint.onnx");
+        assert_eq!(installed_model(&expected), None);
+        std::fs::write(folder.path().join("notes.txt"), b"").expect("write");
+        let lama = folder.path().join("lama_fp32.onnx");
+        std::fs::write(&lama, b"").expect("write");
+        assert_eq!(installed_model(&expected), Some(lama));
+        std::fs::write(folder.path().join("other.ONNX"), b"").expect("write");
+        assert_eq!(installed_model(&expected), None, "two models: neither");
+        std::fs::write(&expected, b"").expect("write");
+        assert_eq!(installed_model(&expected), Some(expected));
     }
 
     #[test]

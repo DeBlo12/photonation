@@ -15,6 +15,7 @@ use photonation_develop::{
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
+use std::time::Instant;
 
 /// Most photos the survey view compares at once.
 pub const MAX_SURVEY: usize = 8;
@@ -448,11 +449,37 @@ impl PhotonationApp {
         }
     }
 
-    /// Shows or leaves the grid; the editor's tools close with it.
+    /// Shows or leaves the grid.
     pub fn toggle_grid(&mut self) {
-        let library = &mut self.view.library;
-        library.grid = !library.grid && !self.photos.is_empty();
-        library.survey = false;
+        if self.view.library.grid {
+            self.view.library.grid = false;
+            self.view.library.survey = false;
+        } else {
+            self.open_grid();
+        }
+    }
+
+    /// Shows the grid, unless an editing tool is open.
+    pub fn open_grid(&mut self) {
+        if self.photos.is_empty() || self.tool_blocks_library() {
+            return;
+        }
+        self.view.library.grid = true;
+        self.view.library.survey = false;
+    }
+
+    /// The grid and survey take the editor's place, so they wait while
+    /// masks, crop or Remove is open: the tool's panel is outlined and a
+    /// toast says how to finish. True when a tool is open.
+    fn tool_blocks_library(&mut self) -> bool {
+        let Some((tool, key)) = self.view.open_tool() else {
+            return false;
+        };
+        self.view.tool_warning = Some(Instant::now());
+        self.notify(format!(
+            "Finish with {tool} first: click Done or press {key}"
+        ));
+        true
     }
 
     /// Shows or leaves the survey view. It needs two photos or more.
@@ -460,7 +487,9 @@ impl PhotonationApp {
         if self.view.library.survey {
             self.view.library.survey = false;
         } else if self.survey_photos().len() >= 2 {
-            self.view.library.survey = true;
+            if !self.tool_blocks_library() {
+                self.view.library.survey = true;
+            }
         } else {
             self.notify(format!(
                 "Select 2 to {MAX_SURVEY} photos to compare them: {}-click or Shift-click",
@@ -845,6 +874,35 @@ mod tests {
         assert_eq!(app.current, Some(3), "the last shown photo stays");
         app.step(-5);
         assert_eq!(app.current, Some(0));
+    }
+
+    #[test]
+    fn the_grid_waits_for_an_open_tool() {
+        let (mut app, _folder) = app_on_folder(3);
+        app.view.toggle_masks();
+        app.toggle_grid();
+        assert!(!app.view.library.grid, "masks stay open");
+        assert!(app.view.show_masks);
+        assert!(
+            app.view.tool_warning.is_some(),
+            "the masks panel is outlined"
+        );
+        let message = app.status.as_ref().map(|(text, _)| text.as_str());
+        assert_eq!(
+            message,
+            Some("Finish with Masks first: click Done or press M")
+        );
+
+        app.click_photo(1, Modifiers::COMMAND);
+        app.toggle_survey();
+        assert!(!app.view.library.survey);
+
+        app.view.toggle_masks();
+        assert_eq!(app.view.tool_warning, None);
+        app.toggle_grid();
+        assert!(app.view.library.grid);
+        app.view.toggle_cropping();
+        assert!(!app.view.library.grid, "opening a tool leaves the grid");
     }
 
     #[test]

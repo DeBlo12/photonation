@@ -143,16 +143,23 @@ sample image, tract's output matches onnxruntime's (mean difference 0.5 of
 255) and the published result (2.1). Check the hash before installing:
 `shasum -a 256 inpaint.onnx`.
 
-**Installing a model.** Photonation ships no weights. Put an ONNX export at
+**Installing a model.** Photonation ships no weights. Without a model the
+Remove panel links the download of the LaMa export above
+(`removals.rs: LAMA_DOWNLOAD`), shows its SHA-256 with a Copy button, opens
+the models folder and has a Check Again button. Put an ONNX export at
 
 - macOS: `~/Library/Application Support/Photonation/models/inpaint.onnx`
 - Linux: `$XDG_DATA_HOME/photonation/models/inpaint.onnx` (default `~/.local/share/...`)
 - Windows: `%APPDATA%\Photonation\models\inpaint.onnx`
 
-or point `PHOTONATION_INPAINT_MODEL` at the file. The desktop app loads it in
-the background at start-up and shows its status in the Remove panel. Without
-a model (or in a build without the `ai` feature) generative removals use
-content-aware fill; once a model loads, cached fills are dropped so they are
+or point `PHOTONATION_INPAINT_MODEL` at the file. Without `inpaint.onnx`,
+the only `.onnx` file in that folder is used (`installed_model`), so a
+download keeps its own name. The desktop app loads it in the background at
+start-up and shows its status in the Remove panel; while no model is
+installed, every status request (Check Again) and generative fill looks
+again, so no restart is needed. Without a model (or in a build without the
+`ai` feature) generative removals use content-aware fill; once a model
+loads, cached fills are dropped and the app renders again so they are
 redone with it. Model licences are listed in [NOTICE](../NOTICE).
 
 ## Limits and next steps

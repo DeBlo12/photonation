@@ -6,6 +6,7 @@
 //! discoverable and list the shortcuts.
 
 use crate::app::{PhotonationApp, Zoom};
+use crate::panels::help;
 use crate::theme;
 use eframe::egui::{self, Button, Ui};
 use photonation_develop::Settings;
@@ -123,8 +124,11 @@ fn view(app: &mut PhotonationApp, ui: &mut Ui) {
 }
 
 fn help(app: &mut PhotonationApp, ui: &mut Ui) {
-    if item(ui, "How Photonation Works", "", true) {
-        crate::panels::help::open(ui.ctx());
+    if item(ui, "Photonation Help", "F1", true) {
+        help::open(&mut app.view);
+    }
+    if item(ui, "Keyboard Shortcuts", "", true) {
+        help::open_page(&mut app.view, help::Page::Shortcuts);
     }
     ui.separator();
     if item(ui, "About Photonation", "", true) {

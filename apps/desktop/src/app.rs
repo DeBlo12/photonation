@@ -151,6 +151,8 @@ pub struct ViewState {
     pub show_settings: bool,
     pub settings_tab: usize,
     pub show_about: bool,
+    /// The Help window and its page.
+    pub help: panels::help::HelpView,
     pub export_options: ExportOptions,
     pub export_all: bool,
     /// The masks panel replaces the adjustments, and the selected shape's
@@ -203,6 +205,7 @@ impl Default for ViewState {
             show_settings: false,
             settings_tab: 0,
             show_about: false,
+            help: Default::default(),
             export_options: ExportOptions::default(),
             export_all: false,
             show_masks: false,
@@ -349,7 +352,7 @@ impl PhotonationApp {
             }
         }
         if let Some(screenshot) = &app.screenshot {
-            screenshot.prepare(&mut app.view, &cc.egui_ctx);
+            screenshot.prepare(&mut app.view);
         }
         app
     }
@@ -802,7 +805,12 @@ impl PhotonationApp {
             open,
             reset_zoom,
             settings,
+            help,
+            close_help,
         ) = ctx.input_mut(|i| {
+            // Before the crop tool and the sheets see Esc: Help is in front.
+            let close_help =
+                self.view.help.open && !typing && i.consume_key(Modifiers::NONE, Key::Escape);
             let mut plain = |key| !typing && i.consume_key(Modifiers::NONE, key);
             let (prev, next, compare, masks, crop, removals) = (
                 plain(Key::ArrowLeft),
@@ -827,6 +835,8 @@ impl PhotonationApp {
                 i.consume_key(Modifiers::COMMAND, Key::O),
                 i.consume_key(Modifiers::COMMAND, Key::Num0),
                 i.consume_key(Modifiers::COMMAND, Key::Comma),
+                i.consume_key(Modifiers::NONE, Key::F1),
+                close_help,
             )
         });
         if redo {
@@ -862,6 +872,11 @@ impl PhotonationApp {
         }
         if settings {
             self.view.show_settings = true;
+        }
+        if help {
+            panels::help::open(&mut self.view);
+        } else if close_help {
+            self.view.help.open = false;
         }
         if reset_zoom {
             self.view.zoom = Zoom::Fit;
@@ -960,6 +975,9 @@ impl eframe::App for PhotonationApp {
         }
         if self.view.show_about {
             panels::settings::about(self, &ctx);
+        }
+        if self.view.help.open {
+            panels::help::show(&mut self.view, &ctx);
         }
 
         if self.settings.removals != settings_before.removals {

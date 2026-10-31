@@ -33,7 +33,7 @@ most one of masks, crop and Remove is open.
 | `panels/toolbar.rs` | Open, photo name and exposure info, undo/redo, compare, zoom, export |
 | `panels/menu_bar.rs` | File, Edit, View and Help menus; each item does what its button or shortcut does |
 | `panels/settings.rs` | Settings window (graphics processor, export folder, export defaults) and About |
-| `panels/help.rs` | The Help popover (the ? button): how a photo is developed and what each setting changes, written from the pipeline and panels |
+| `panels/help.rs` | The Help window (? button, Help ▸ Photonation Help, F1): one page per feature, written from the pipeline, the panels and these documents |
 | `panels/viewer.rs` | Canvas: fit/zoom/pan, before/after divider, eyedroppers, status toast |
 | `panels/adjustments.rs` | Histogram and one card per `AdjustmentGroup` |
 | `panels/point_colors.rs` | The Color Mixer's Point Color tab: picked colours, before/after swatch, shifts, ranges, range overlay |
@@ -320,9 +320,35 @@ their defaults, so older files load.
 **Menu bar** (`panels/menu_bar.rs`). File (Open Folder, Export, Export All
 Photos, Settings, Quit), Edit (Undo, Redo, Reset All Adjustments), View (Fit,
 Actual Pixels, Compare, Masks, Crop and Straighten, Remove Objects, previous
-and next photo) and Help (How Photonation Works, About). Items show their
-shortcuts and are disabled when they cannot apply. On macOS the bar starts
-right of the window buttons.
+and next photo) and Help (Photonation Help, Keyboard Shortcuts, About).
+Items show their shortcuts and are disabled when they cannot apply. On macOS
+the bar starts right of the window buttons.
+
+## Help (`panels/help.rs`)
+
+The ? button, Help ▸ Photonation Help and F1 open a window with a list of
+pages on the left and the selected page on the right, one page per feature:
+getting started, how a photo is developed (the pipeline's order), one per
+adjustment card, masks and groups, crop, Remove, compare and zoom, export,
+Settings, Lightroom import and the keyboard shortcuts. Help ▸ Keyboard
+Shortcuts opens the last one.
+
+- **Where it opens.** On the page of the tool in use (`help::tool_page`): the
+  export sheet, Settings, masks, crop or Remove, in that order; otherwise on
+  the page last shown. The page is view state (`ViewState::help`), kept while
+  the app runs and not saved. Each page keeps its own scroll position.
+- **Above the sheets.** The window is not modal, so the photo stays usable
+  beside it. It sits in egui's foreground order and is raised whenever it is
+  opened, so F1 from the export sheet or Settings shows it above their
+  backdrop. Esc closes it; `shortcuts` takes the key before the crop tool and
+  the sheets see it.
+- **Look.** Ink surfaces (the window in the inspector's colour, the page
+  list in the main window's), Paper text in Inter, the selected page in amber with Ink text, the
+  toolbar's stroke icons beside the pages of its tools, pipeline steps in
+  amber discs and shortcuts as key caps.
+- **Text.** Written from the code and `docs/*.md`; menu paths use › because
+  Inter has no ▸. Tests check every page is listed once, has text, and opens
+  for its tool.
 
 ## GPU selection (`gpu/mod.rs`)
 
@@ -355,5 +381,6 @@ the masks panel with the first mask selected (`=group` selects the first mask
 group instead); `PHOTONATION_SCREENSHOT_CROP=1` opens the crop tool;
 `PHOTONATION_SCREENSHOT_SIDEBAR=280` starts the sidebar at that width
 (280–440), to check narrow and wide layouts; `PHOTONATION_SCREENSHOT_EXPORT=1`
-opens the export sheet; `PHOTONATION_SCREENSHOT_HELP=1` the Help popover;
+opens the export sheet; `PHOTONATION_SCREENSHOT_HELP=1` the Help window
+(or a page's title, e.g. `=Crop and straighten`, for that page);
 `PHOTONATION_SCREENSHOT_SETTINGS=general` (or `=export`) the Settings window.

@@ -33,19 +33,20 @@ pub fn show(app: &mut PhotonationApp, ctx: &egui::Context) {
         format_controls(ui, &mut app.view.export_options);
 
         ui.add_space(10.0);
-        let photo_count = app.photos.len();
-        if photo_count > 1 {
-            ui.checkbox(
-                &mut app.view.export_all,
-                format!("Export all {photo_count} photos in this folder"),
-            );
+        let (batch, kind) = app.export_batch();
+        if batch.len() > 1 {
+            ui.checkbox(&mut app.view.export_all, kind.sheet_label(batch.len()));
         }
 
         ui.add_space(6.0);
         label(ui, "File Name");
-        let total = if app.view.export_all { photo_count } else { 1 };
+        let batch = if app.view.export_all && batch.len() > 1 {
+            batch
+        } else {
+            app.current.into_iter().collect()
+        };
         file_name_field(ui, &mut app.view.export_options);
-        file_name_preview(ui, app, total);
+        file_name_preview(ui, app, &batch);
         ui.add_space(10.0);
         label(ui, "Metadata");
         metadata(ui, &mut app.view.export_options.metadata);
@@ -175,11 +176,12 @@ pub fn file_name_field(ui: &mut egui::Ui, options: &mut ExportOptions) {
 
 /// The name the current photo will get (before the extension; existing
 /// files are never replaced, so a clash adds `-2`, `-3`, …).
-fn file_name_preview(ui: &mut egui::Ui, app: &PhotonationApp, total: usize) {
+/// The current photo's file name, numbered by its place in `batch`.
+fn file_name_preview(ui: &mut egui::Ui, app: &PhotonationApp, batch: &[usize]) {
     let options = &app.view.export_options;
     if let Some(index) = app.current {
-        // The current photo's place in the batch (it is alone otherwise).
-        let number = if total > 1 { index + 1 } else { 1 };
+        let number = batch.iter().position(|&i| i == index).map_or(1, |p| p + 1);
+        let total = batch.len().max(1);
         let stem = export_file_stem(&options.file_name, &app.photos[index].path, number, total);
         ui.label(
             RichText::new(format!("{stem}.{}", options.format.extension()))
@@ -249,9 +251,13 @@ fn start_export(app: &mut PhotonationApp) {
     app.save_now();
     app.preferences.export_metadata = app.view.export_options.metadata.clone();
     app.preferences.save();
-    let photos = if app.view.export_all {
+    let (batch, _) = app.export_batch();
+    let photos = if app.view.export_all && batch.len() > 1 {
         // Sidecars hold every photo's settings (the current one was just saved).
-        app.photos.iter().map(|p| (p.path.clone(), None)).collect()
+        batch
+            .iter()
+            .map(|&i| (app.photos[i].path.clone(), None))
+            .collect()
     } else {
         app.current_path()
             .map(|p| vec![(p.clone(), Some(app.effective_settings()))])

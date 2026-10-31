@@ -37,6 +37,14 @@ pub const ACCENT_SOFT: Color32 = Color32::from_rgba_premultiplied(0x40, 0x2c, 0x
 pub const ON_ACCENT: Color32 = Color32::from_rgb(0x0e, 0x13, 0x22);
 pub const KNOB: Color32 = TEXT;
 pub const MASK_OVERLAY: Color32 = Color32::from_rgba_premultiplied(0x8c, 0x14, 0x1e, 0x8c);
+/// Colour labels, muted to sit on the dark surfaces (Lightroom's five).
+pub const LABEL_RED: Color32 = Color32::from_rgb(0xe5, 0x48, 0x4d);
+pub const LABEL_YELLOW: Color32 = Color32::from_rgb(0xf2, 0xcc, 0x3d);
+pub const LABEL_GREEN: Color32 = Color32::from_rgb(0x46, 0xb8, 0x6b);
+pub const LABEL_BLUE: Color32 = Color32::from_rgb(0x4a, 0x90, 0xe2);
+pub const LABEL_PURPLE: Color32 = Color32::from_rgb(0xa3, 0x6b, 0xdb);
+/// The reject mark.
+pub const REJECT: Color32 = LABEL_RED;
 /// Under mask lines and handles, so they stay visible on bright photos.
 pub const HANDLE_SHADOW: Color32 = Color32::from_black_alpha(140);
 
@@ -62,6 +70,7 @@ pub const SHORTCUT_UNDO: &str = shortcut("⌘Z", "Ctrl+Z");
 pub const SHORTCUT_REDO: &str = shortcut("⇧⌘Z", "Ctrl+Shift+Z");
 pub const SHORTCUT_SETTINGS: &str = shortcut("⌘,", "Ctrl+,");
 pub const SHORTCUT_QUIT: &str = shortcut("⌘Q", "Alt+F4");
+pub const SHORTCUT_SELECT_ALL: &str = shortcut("⌘A", "Ctrl+A");
 pub const SHIFT_KEY: &str = shortcut("⇧", "Shift");
 pub const ALT_KEY: &str = shortcut("Option", "Alt");
 pub const COMMAND_KEY: &str = shortcut("⌘", "Ctrl");

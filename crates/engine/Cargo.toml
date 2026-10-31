@@ -21,6 +21,9 @@ photonation-retouch.workspace = true
 photonation-gpu = { workspace = true, optional = true }
 serde.workspace = true
 thiserror.workspace = true
+# The thumbnail disk cache (JPEG); `image` is already in the tree through rawler.
+image.workspace = true
+jpeg-encoder.workspace = true
 
 [features]
 # The "Generative AI" removal method: neural inpainting with an ONNX model.

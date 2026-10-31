@@ -1,14 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 The Photonation contributors
 
-//! The filmstrip: thumbnails of the folder's photos along the bottom.
-//! It rests as a thin strip of tiny thumbnails so the photo gets the room,
-//! and grows over the bottom of the viewer while the pointer is on it or
-//! just after switching photos (see docs/DESKTOP.md).
+//! The filmstrip: thumbnails of the shown photos along the bottom, in the
+//! library's filter and sort order. It rests as a thin strip of tiny
+//! thumbnails so the photo gets the room, and grows over the bottom of the
+//! viewer while the pointer is on it or just after switching photos. A
+//! scroll bar along its bottom edge shows while it scrolls or the pointer
+//! is on the bar, for crossing long folders quickly (see docs/DESKTOP.md).
 
 use crate::app::{Photo, PhotonationApp};
 use crate::theme;
-use eframe::egui::{self, CornerRadius, Rangef, Rect, Sense, Stroke, StrokeKind, pos2, vec2};
+use crate::widgets::paint_badges;
+use eframe::egui::{self, CornerRadius, Rangef, Rect, Sense, Stroke, StrokeKind, Vec2, pos2, vec2};
 
 /// Thumbnail height when the strip is open.
 const THUMB_HEIGHT: f32 = 72.0;
@@ -27,6 +30,15 @@ const LEAVE_DELAY: f64 = 0.5;
 const NAVIGATION_REVEAL: f64 = 1.2;
 /// Seconds the strip takes to open or close.
 const ANIMATION_TIME: f32 = 0.18;
+/// The scroll bar's thickness at rest and under the pointer.
+const BAR_THICKNESS: f32 = 4.0;
+const BAR_HOVER_THICKNESS: f32 = 8.0;
+/// Gap between the bar and the strip's bottom and ends.
+const BAR_INSET: f32 = 3.0;
+const BAR_SIDE_INSET: f32 = 12.0;
+const BAR_MIN_THUMB: f32 = 32.0;
+/// How long the bar stays after the strip last moved.
+const BAR_LINGER: f64 = 1.2;
 
 /// When the filmstrip is open. Time is egui's input time in seconds.
 #[derive(Default)]
@@ -113,31 +125,39 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
             // anywhere on it, not just on the thumbnails.
             let mut content_ui = ui.new_child(egui::UiBuilder::new().max_rect(strip));
             let pointer_x = pointer.filter(|p| strip.contains(*p)).map(|p| p.x);
-            thumbnails(app, &mut content_ui, thumb_height, openness, pointer_x);
+            let (layout, offset) =
+                thumbnails(app, &mut content_ui, thumb_height, openness, pointer_x);
+            scroll_bar(app, ui, strip, &layout, offset, openness);
         });
 }
 
 /// The scrolling row of thumbnails. `pointer_x` is where the pointer is, if
-/// it is on the strip.
+/// it is on the strip. Returns the layout and where the strip is scrolled to.
 fn thumbnails(
     app: &mut PhotonationApp,
     ui: &mut egui::Ui,
     thumb_height: f32,
     openness: f32,
     pointer_x: Option<f32>,
-) {
+) -> (StripLayout, f32) {
+    let shown = app.view.library.shown.clone();
     let layout = StripLayout::new(
-        app.photos.iter().map(thumbnail_aspect),
+        shown
+            .iter()
+            .map(|&index| thumbnail_aspect(&app.photos[index])),
         thumb_height,
         egui::lerp(3.0..=8.0, openness),
     );
     let visible = ui.max_rect().x_range();
     let anchor = pointer_x.map_or(visible.span() / 2.0, |x| x - visible.min);
+    let current_position = app
+        .current
+        .and_then(|current| shown.iter().position(|&index| index == current));
     let forced_offset = app.view.filmstrip_scroll.forced_offset(
         layout.clone(),
         visible.span(),
         anchor,
-        app.current,
+        current_position,
     );
 
     // A mouse wheel scrolls vertically; this strip only goes sideways.
@@ -155,26 +175,201 @@ fn thumbnails(
         let y_range = Rangef::point(content.center().y).expand(thumb_height / 2.0);
         // Draw only what is in view (plus the ring), for folders of thousands.
         let in_view = viewport.x_range().expand(SELECTION_RING);
-        for (index, (photo, span)) in app.photos.iter().zip(&layout.thumbnails).enumerate() {
+        for (position, (&index, span)) in shown.iter().zip(&layout.thumbnails).enumerate() {
             if !span.intersects(in_view) {
                 continue;
             }
             let x_range = Rangef::new(content.left() + span.min, content.left() + span.max);
             let rect = Rect::from_x_y_ranges(x_range, y_range);
-            let selected = app.current == Some(index);
-            let response = thumbnail(ui, index, rect, photo, selected, openness);
+            let photo = &app.photos[index];
+            let selection = if app.current == Some(index) {
+                Selection::Current
+            } else if app.view.library.selection.contains(&index) {
+                Selection::Selected
+            } else {
+                Selection::None
+            };
+            let response = thumbnail(ui, index, rect, photo, selection, openness);
             if response.on_hover_text(&photo.name).clicked() {
-                clicked = Some(index);
+                clicked = Some((position, index, ui.input(|i| i.modifiers)));
             }
         }
     });
-    app.view
-        .filmstrip_scroll
-        .scrolled_to(output.state.clamped_offset().x);
-    if let Some(index) = clicked {
+    let offset = output.state.clamped_offset().x;
+    app.view.filmstrip_scroll.scrolled_to(offset);
+    if let Some((position, index, modifiers)) = clicked {
         // It is in view already: keep the strip where it is.
-        app.view.filmstrip_scroll.clicked(index);
-        app.select(index);
+        app.view.filmstrip_scroll.clicked(position);
+        app.click_photo(index, modifiers);
+    }
+    (layout, offset)
+}
+
+/// The bar along the bottom of the strip: it shows while the strip
+/// scrolls, while the pointer is on it and while it is dragged. Dragging
+/// its thumb crosses the folder quickly, with the name and date of the
+/// photo in the middle of the strip above it; clicking the track jumps
+/// there.
+fn scroll_bar(
+    app: &mut PhotonationApp,
+    ui: &mut egui::Ui,
+    strip: Rect,
+    layout: &StripLayout,
+    offset: f32,
+    openness: f32,
+) {
+    let visible_width = strip.width();
+    let scrollable = layout.width - visible_width;
+    if scrollable < 1.0 {
+        return;
+    }
+    let ctx = ui.ctx().clone();
+    let now = ctx.input(|i| i.time);
+    let id = egui::Id::unique("filmstrip-scroll-bar");
+    // The hit area stays in the margin under the thumbnails.
+    let hit_height = egui::lerp(5.0..=14.0, openness);
+    let hit = Rect::from_min_max(
+        pos2(strip.left() + BAR_SIDE_INSET, strip.bottom() - hit_height),
+        pos2(strip.right() - BAR_SIDE_INSET, strip.bottom()),
+    );
+    let response = ui.interact(hit, id, Sense::click_and_drag());
+    let bar = &mut app.view.filmstrip_bar;
+    let geometry = BarGeometry::new(hit.x_range(), visible_width, layout.width);
+    let mut jump = None;
+    if let Some(pointer) = response.interact_pointer_pos() {
+        let thumb = geometry.thumb(offset);
+        if response.drag_started() || (response.clicked() && bar.grab.is_none()) {
+            // On the thumb, hold it where it was grabbed; elsewhere,
+            // centre it on the pointer.
+            bar.grab = Some(if thumb.contains(pointer.x) {
+                pointer.x - thumb.min
+            } else {
+                thumb.span() / 2.0
+            });
+        }
+        if let Some(grab) = bar.grab {
+            jump = Some(geometry.offset_for(pointer.x - grab));
+        }
+    }
+    if !response.dragged() && !response.is_pointer_button_down_on() {
+        bar.grab = None;
+    }
+    if (offset - bar.last_offset).abs() > 0.5 {
+        bar.active_until = now + BAR_LINGER;
+    }
+    bar.last_offset = offset;
+    let dragging = bar.grab.is_some();
+    let shown = dragging || response.hovered() || now < bar.active_until;
+    if now < bar.active_until {
+        ctx.request_repaint_after(std::time::Duration::from_secs_f64(bar.active_until - now));
+    }
+    let opacity = ctx.animate_bool_with_time(id.with("shown"), shown, 0.15);
+    let emphasis =
+        ctx.animate_bool_with_time(id.with("hover"), dragging || response.hovered(), 0.1);
+    if let Some(offset) = jump {
+        app.view.filmstrip_scroll.jump_to(offset);
+        ctx.request_repaint();
+    }
+    if opacity <= 0.0 {
+        return;
+    }
+    let thickness = egui::lerp(BAR_THICKNESS..=BAR_HOVER_THICKNESS, emphasis)
+        * egui::lerp(0.75..=1.0, openness);
+    let bottom = strip.bottom() - BAR_INSET * egui::lerp(0.5..=1.0, openness);
+    let track = Rect::from_min_max(
+        pos2(hit.left(), bottom - thickness),
+        pos2(hit.right(), bottom),
+    );
+    let thumb = geometry.thumb(jump.unwrap_or(offset));
+    let thumb = Rect::from_x_y_ranges(thumb, track.y_range());
+    let painter = ui.painter();
+    let radius = CornerRadius::same((thickness / 2.0).round() as u8);
+    painter.rect_filled(
+        track,
+        radius,
+        theme::CONTROL.gamma_multiply(0.85 * opacity * emphasis),
+    );
+    let thumb_color = if dragging {
+        theme::ACCENT
+    } else {
+        theme::TEXT_SECONDARY
+    };
+    painter.rect_filled(thumb, radius, thumb_color.gamma_multiply(opacity));
+
+    if dragging && openness > 0.5 {
+        // The photo in the middle of the strip, to see where the drag is.
+        let middle = layout.position_at(jump.unwrap_or(offset) + visible_width / 2.0);
+        let shown = &app.view.library.shown;
+        let Some(&index) = shown.get((middle.floor().max(0.0) as usize).min(shown.len() - 1))
+        else {
+            return;
+        };
+        let photo = &app.photos[index];
+        let text = match photo
+            .captured
+            .as_deref()
+            .and_then(crate::library::capture_time_label)
+        {
+            Some(date) => format!("{} · {date}", photo.name),
+            None => photo.name.clone(),
+        };
+        let galley = painter.layout_no_wrap(text, theme::body(11.5), theme::TEXT);
+        let size = galley.size() + vec2(14.0, 6.0);
+        let x = thumb
+            .center()
+            .x
+            .clamp(strip.left() + size.x / 2.0, strip.right() - size.x / 2.0);
+        let bubble = Rect::from_center_size(pos2(x, track.top() - 4.0 - size.y / 2.0), size);
+        painter.rect_filled(bubble, size.y / 2.0, theme::CARD.gamma_multiply(0.96));
+        painter.galley(bubble.center() - galley.size() / 2.0, galley, theme::TEXT);
+    }
+}
+
+/// The scroll bar's dragging state.
+#[derive(Default)]
+pub struct FilmstripScrollBar {
+    /// Where the pointer holds the thumb, from its left end, while dragging.
+    grab: Option<f32>,
+    last_offset: f32,
+    /// Shown until then (egui time), after the strip last moved.
+    active_until: f64,
+}
+
+/// Where the thumb sits on the track for a scroll offset, and back.
+struct BarGeometry {
+    track: Rangef,
+    thumb_width: f32,
+    scrollable: f32,
+}
+
+impl BarGeometry {
+    fn new(track: Rangef, visible_width: f32, content_width: f32) -> Self {
+        let thumb_width = (track.span() * visible_width / content_width)
+            .clamp(BAR_MIN_THUMB.min(track.span()), track.span());
+        BarGeometry {
+            track,
+            thumb_width,
+            scrollable: (content_width - visible_width).max(0.0),
+        }
+    }
+
+    fn travel(&self) -> f32 {
+        (self.track.span() - self.thumb_width).max(1e-3)
+    }
+
+    fn thumb(&self, offset: f32) -> Rangef {
+        let fraction = if self.scrollable > 0.0 {
+            (offset / self.scrollable).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let start = self.track.min + fraction * self.travel();
+        Rangef::new(start, start + self.thumb_width)
+    }
+
+    /// The offset that puts the thumb's left end at `thumb_left`.
+    fn offset_for(&self, thumb_left: f32) -> f32 {
+        ((thumb_left - self.track.min) / self.travel()).clamp(0.0, 1.0) * self.scrollable
     }
 }
 
@@ -252,12 +447,15 @@ pub struct FilmstripScroll {
     previous_layout: StripLayout,
     previous_offset: f32,
     centred_photo: Option<usize>,
+    /// Asked for by the scroll bar, for the next frame.
+    jump: Option<f32>,
 }
 
 impl FilmstripScroll {
     /// The scroll offset to set this frame, if the strip should move by
     /// itself. `anchor` is the point to hold still, from the left of the
-    /// `visible_width` wide strip.
+    /// `visible_width` wide strip. `current_photo` is the current photo's
+    /// place among the thumbnails.
     fn forced_offset(
         &mut self,
         layout: StripLayout,
@@ -266,7 +464,9 @@ impl FilmstripScroll {
         current_photo: Option<usize>,
     ) -> Option<f32> {
         let new_folder = layout.thumbnails.len() != self.previous_layout.thumbnails.len();
-        let offset = if current_photo != self.centred_photo || new_folder {
+        let offset = if let Some(jump) = self.jump.take() {
+            Some(jump)
+        } else if current_photo != self.centred_photo || new_folder {
             self.centred_photo = current_photo;
             current_photo
                 .and_then(|index| layout.thumbnails.get(index))
@@ -289,10 +489,25 @@ impl FilmstripScroll {
         self.previous_offset = offset;
     }
 
-    /// Photo `index` was clicked, so it is in view: don't centre it.
-    fn clicked(&mut self, index: usize) {
-        self.centred_photo = Some(index);
+    /// The thumbnail at `position` was clicked, so it is in view: don't
+    /// centre it.
+    fn clicked(&mut self, position: usize) {
+        self.centred_photo = Some(position);
     }
+
+    /// Scroll to `offset` next frame (the scroll bar was dragged).
+    fn jump_to(&mut self, offset: f32) {
+        self.jump = Some(offset);
+    }
+}
+
+/// How a thumbnail is marked.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Selection {
+    None,
+    /// Selected besides the current photo.
+    Selected,
+    Current,
 }
 
 /// One thumbnail; `openness` (0 resting, 1 open) fades in the details
@@ -302,7 +517,7 @@ fn thumbnail(
     index: usize,
     rect: Rect,
     photo: &Photo,
-    selected: bool,
+    selection: Selection,
     openness: f32,
 ) -> egui::Response {
     let id = egui::Id::unique(("filmstrip-thumbnail", index));
@@ -331,16 +546,39 @@ fn thumbnail(
             }
         }
     }
-    if selected {
-        painter.rect_stroke(
-            rect.expand(SELECTION_RING / 2.0),
-            CornerRadius::same(radius.nw + 2),
-            Stroke::new(SELECTION_RING / 2.0, theme::ACCENT),
-            StrokeKind::Outside,
-        );
-    } else {
-        let dim = if response.hovered() { 20 } else { 70 };
-        painter.rect_filled(rect, radius, egui::Color32::from_black_alpha(dim));
+    let rejected = photo.library.flag == photonation_develop::Flag::Reject;
+    match selection {
+        Selection::Current => {
+            painter.rect_stroke(
+                rect.expand(SELECTION_RING / 2.0),
+                CornerRadius::same(radius.nw + 2),
+                Stroke::new(SELECTION_RING / 2.0, theme::ACCENT),
+                StrokeKind::Outside,
+            );
+        }
+        Selection::Selected => {
+            painter.rect_stroke(
+                rect.expand(SELECTION_RING / 2.0),
+                CornerRadius::same(radius.nw + 2),
+                Stroke::new(1.5, theme::TEXT_SECONDARY),
+                StrokeKind::Outside,
+            );
+        }
+        Selection::None => {
+            let dim = match (rejected, response.hovered()) {
+                (true, _) => 150,
+                (false, true) => 20,
+                (false, false) => 70,
+            };
+            painter.rect_filled(rect, radius, egui::Color32::from_black_alpha(dim));
+        }
+    }
+    if openness > 0.5 {
+        paint_badges(painter, rect, photo.library, 0.8);
+    } else if let Some(label) = photo.library.label {
+        // A resting strip shows the label only, as a line under the photo.
+        let line = Rect::from_min_size(rect.left_bottom() + Vec2::Y, vec2(rect.width(), 2.0));
+        painter.rect_filled(line, 0.0, crate::widgets::label_color(label));
     }
     if photo.has_edits && openness > 0.5 {
         painter.circle_filled(
@@ -481,13 +719,7 @@ mod scrolling {
             let ctx = egui::Context::default();
             let mut app = PhotonationApp::empty(&ctx);
             app.photos = (0..count)
-                .map(|i| Photo {
-                    path: format!("{i}.CR3").into(),
-                    name: format!("{i}.CR3"),
-                    thumbnail: None,
-                    has_edits: false,
-                    unsupported: false,
-                })
+                .map(|i| Photo::new(format!("{i}.CR3").into()))
                 .collect();
             app.current = Some(0);
             let mut window = Window {
@@ -511,7 +743,10 @@ mod scrolling {
                 ..Default::default()
             };
             let app = &mut self.app;
-            let mut output = self.ctx.run_ui(input, |ui| show(app, ui));
+            let mut output = self.ctx.run_ui(input, |ui| {
+                app.arrange_photos();
+                show(app, ui)
+            });
             output.textures_delta.clear();
         }
 

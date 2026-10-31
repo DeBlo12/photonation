@@ -2,11 +2,12 @@
 // Copyright (C) 2026 The Photonation contributors
 
 //! Choices remembered between launches, in `preferences.json` in the
-//! engine's data directory: what Settings holds, and the export sheet's
-//! metadata choice. A missing or unreadable file means defaults; a missing
+//! engine's data directory: what Settings holds, the export sheet's
+//! metadata choice, and the grid size, sort order and auto-advance. A missing or unreadable file means defaults; a missing
 //! field means its default, so older files stay readable.
 
 use crate::gpu::GpuSetting;
+use crate::library::{GRID_SIZES, LibraryView, SortOrder};
 use photonation_color::ColorSpace;
 use photonation_engine::{ExportOptions, MetadataOptions, data_directory};
 use photonation_export::Format;
@@ -28,6 +29,42 @@ pub struct Preferences {
     pub export_without_asking: bool,
     /// The graphics adapter, chosen at start-up.
     pub gpu: GpuSetting,
+    /// The grid's cell size, the sort order and auto-advance.
+    pub library: LibraryPreferences,
+}
+
+/// The library choices kept between launches. The filter is not: a new
+/// session starts with every photo shown.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LibraryPreferences {
+    pub sort: SortOrder,
+    pub grid_size: f32,
+    pub auto_advance: bool,
+}
+
+impl Default for LibraryPreferences {
+    fn default() -> Self {
+        LibraryPreferences::from_view(&LibraryView::default())
+    }
+}
+
+impl LibraryPreferences {
+    pub fn from_view(view: &LibraryView) -> LibraryPreferences {
+        LibraryPreferences {
+            sort: view.sort,
+            grid_size: view.grid_size,
+            auto_advance: view.auto_advance,
+        }
+    }
+
+    pub fn apply(&self, view: &mut LibraryView) {
+        view.sort = self.sort;
+        view.auto_advance = self.auto_advance;
+        if self.grid_size.is_finite() {
+            view.grid_size = self.grid_size.clamp(*GRID_SIZES.start(), *GRID_SIZES.end());
+        }
+    }
 }
 
 /// The export sheet's starting options, except metadata.

@@ -3,13 +3,16 @@
 
 //! The window's regions: toolbar (top), filmstrip (bottom), adjustments,
 //! masks, crop or remove sidebar (right), viewer (centre) and the export
-//! sheet.
+//! sheet; or, in place of the editor, the library bar with the grid or the
+//! survey view.
 
 pub mod adjustments;
 pub mod crop;
 pub mod export;
 pub mod filmstrip;
+pub mod grid;
 pub mod help;
+pub mod library_bar;
 pub mod mask_handles;
 pub mod mask_thumbnails;
 pub mod masks;
@@ -18,6 +21,7 @@ pub mod point_colors;
 pub mod removal_brush;
 pub mod removals;
 pub mod settings;
+pub mod survey;
 pub mod toolbar;
 pub mod viewer;
 

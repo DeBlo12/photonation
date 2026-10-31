@@ -6,7 +6,8 @@
 //! * Preview worker: one thread, keeps the current photo decoded, and for
 //!   each burst of requests renders only the newest one per kind
 //!   (latest-wins), so dragging a slider never queues stale renders.
-//! * Thumbnail workers: a small pool decoding and rendering small previews.
+//! * Thumbnail workers: a small pool showing embedded previews or cached
+//!   renders at once, then rendering small previews (`thumbnails.rs`).
 //! * Export worker: one thread running export batches in order.
 //! * Retouch worker: one thread filling removals in the background (a
 //!   neural fill takes seconds), so previews never wait for them; it loads
@@ -17,9 +18,10 @@
 //! killing the worker thread for the rest of the session.
 
 use crate::preview::PreviewRenderer;
+use crate::thumbnails::{THUMBNAIL_WORKERS, ThumbnailCache, ThumbnailQueue, thumbnail_worker};
 use crate::{
-    Decoder, ExportOptions, Histogram, ModelStatus, RawDecoder, Retoucher, default_model_path,
-    export_photo_with, output_path, unused_path,
+    Decoder, ExportOptions, Histogram, ModelStatus, RawDecoder, Retoucher, data_directory,
+    default_model_path, export_photo_with, output_path, unused_path,
 };
 use photonation_develop::{OklabLch, Settings, WhiteBalance};
 use photonation_image::{CameraInfo, Pixels, SensorImage};
@@ -27,11 +29,8 @@ use photonation_pipeline::{CameraModel, RemovalFills, RenderOptions};
 use std::any::Any;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
-use std::sync::{Arc, Mutex};
-
-const THUMBNAIL_LONG_EDGE: usize = 320;
-const THUMBNAIL_WORKERS: usize = 2;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PreviewKind {
@@ -82,7 +81,21 @@ pub enum Event {
         kind: PreviewKind,
         image: RenderedImage,
     },
+    /// A small image of a photo: its embedded preview or a cached render
+    /// at first (`rendered` says which), then a render with its settings.
     Thumbnail {
+        path: PathBuf,
+        image: RenderedImage,
+        rendered: bool,
+    },
+    /// When a photo was taken ("YYYY:MM:DD HH:MM:SS"), read by the
+    /// thumbnail's quick pass.
+    CaptureTime {
+        path: PathBuf,
+        captured: String,
+    },
+    /// A large image of a photo for comparing several side by side.
+    SurveyImage {
         path: PathBuf,
         image: RenderedImage,
     },
@@ -140,11 +153,6 @@ struct PickJob {
     kind: PickKind,
 }
 
-struct ThumbnailJob {
-    path: PathBuf,
-    settings: Settings,
-}
-
 enum RetouchJob {
     Fill {
         path: PathBuf,
@@ -163,13 +171,13 @@ struct ExportJob {
 
 /// Sends events to the front end and wakes it up.
 #[derive(Clone)]
-struct EventSink {
+pub(crate) struct EventSink {
     sender: Sender<Event>,
     notify: Arc<dyn Fn() + Send + Sync>,
 }
 
 impl EventSink {
-    fn send(&self, event: Event) {
+    pub(crate) fn send(&self, event: Event) {
         // A closed channel means the UI is gone; there is nobody to tell.
         if self.sender.send(event).is_ok() {
             (self.notify)();
@@ -179,7 +187,7 @@ impl EventSink {
 
 pub struct RenderService {
     previews: Sender<PreviewJob>,
-    thumbnails: Sender<ThumbnailJob>,
+    thumbnails: Arc<ThumbnailQueue>,
     exports: Sender<ExportJob>,
     retouches: Sender<RetouchJob>,
     events: Receiver<Event>,
@@ -190,14 +198,14 @@ impl RenderService {
     /// Previews render on the GPU where possible (see [`crate::GPU_RENDER_VARIABLE`]).
     pub fn new(notify: impl Fn() + Send + Sync + 'static) -> RenderService {
         let retoucher = Arc::new(Retoucher::new(default_model_path()));
-        RenderService::start(Arc::new(RawDecoder), retoucher, true, notify)
+        RenderService::start(Arc::new(RawDecoder), retoucher, disk_cache(), true, notify)
     }
 
     /// Like [`RenderService::new`], but previews render on the CPU and no
     /// GPU device is opened.
     pub fn on_cpu(notify: impl Fn() + Send + Sync + 'static) -> RenderService {
         let retoucher = Arc::new(Retoucher::new(default_model_path()));
-        RenderService::start(Arc::new(RawDecoder), retoucher, false, notify)
+        RenderService::start(Arc::new(RawDecoder), retoucher, disk_cache(), false, notify)
     }
 
     /// A service that reads photos with `decoder` instead of the raw decoder.
@@ -210,18 +218,20 @@ impl RenderService {
     }
 
     /// A service with its own decoder and removal filler. Its previews
-    /// render on the CPU, the reference.
+    /// render on the CPU, the reference, and its thumbnails are not cached
+    /// on disk.
     pub fn with_parts(
         decoder: Arc<dyn Decoder>,
         retoucher: Arc<Retoucher>,
         notify: impl Fn() + Send + Sync + 'static,
     ) -> RenderService {
-        RenderService::start(decoder, retoucher, false, notify)
+        RenderService::start(decoder, retoucher, ThumbnailCache::default(), false, notify)
     }
 
     fn start(
         decoder: Arc<dyn Decoder>,
         retoucher: Arc<Retoucher>,
+        cache: ThumbnailCache,
         gpu_previews: bool,
         notify: impl Fn() + Send + Sync + 'static,
     ) -> RenderService {
@@ -257,16 +267,16 @@ impl RenderService {
             })
             .expect("spawning the preview thread");
 
-        let (thumbnails, thumbnail_jobs) = channel::<ThumbnailJob>();
-        let thumbnail_jobs = Arc::new(Mutex::new(thumbnail_jobs));
+        let thumbnails = Arc::new(ThumbnailQueue::default());
         for index in 0..THUMBNAIL_WORKERS {
-            let (jobs, thumbnail_sink) = (thumbnail_jobs.clone(), sink.clone());
+            let (queue, thumbnail_sink, cache) = (thumbnails.clone(), sink.clone(), cache.clone());
             let (thumbnail_decoder, thumbnail_retoucher) = (decoder.clone(), retoucher.clone());
             std::thread::Builder::new()
                 .name(format!("thumbnail-{index}"))
                 .spawn(move || {
                     thumbnail_worker(
-                        jobs,
+                        &queue,
+                        &cache,
                         &*thumbnail_decoder,
                         &thumbnail_retoucher,
                         thumbnail_sink,
@@ -274,6 +284,11 @@ impl RenderService {
                 })
                 .expect("spawning a thumbnail thread");
         }
+        // Trimming lists the whole cache; keep it off the workers' path.
+        std::thread::Builder::new()
+            .name("thumbnail-cache".into())
+            .spawn(move || cache.trim_to_limit())
+            .expect("spawning the thumbnail cache thread");
 
         let (exports, export_jobs) = channel();
         std::thread::Builder::new()
@@ -294,8 +309,29 @@ impl RenderService {
         self.previews.send(PreviewJob::Render(request)).ok();
     }
 
+    /// A thumbnail for a photo of a folder just opened: its cached render
+    /// or embedded preview first ([`Event::Thumbnail`]), with its capture
+    /// time ([`Event::CaptureTime`]), then a render if none was cached.
     pub fn request_thumbnail(&self, path: PathBuf, settings: Settings) {
-        self.thumbnails.send(ThumbnailJob { path, settings }).ok();
+        self.thumbnails.request(path, settings);
+    }
+
+    /// Renders a photo's thumbnail again after an edit, ahead of other
+    /// thumbnails.
+    pub fn refresh_thumbnail(&self, path: PathBuf, settings: Settings) {
+        self.thumbnails.refresh(path, settings);
+    }
+
+    /// Forgets thumbnails asked for but not started (another folder opened).
+    pub fn cancel_thumbnails(&self) {
+        self.thumbnails.cancel();
+    }
+
+    /// A `long_edge` image of a photo for the survey view
+    /// ([`Event::SurveyImage`]): its embedded preview while it is
+    /// unedited, else a render.
+    pub fn request_survey_image(&self, path: PathBuf, settings: Settings, long_edge: usize) {
+        self.thumbnails.survey(path, settings, long_edge);
     }
 
     /// White balance eyedropper: answers with [`Event::WhiteBalancePicked`].
@@ -350,7 +386,7 @@ impl RenderService {
 /// Runs one job, turning a panic into an error message so the worker
 /// survives and keeps serving later jobs. Requires `panic = "unwind"`
 /// (the default; don't switch the release profile to abort).
-fn isolate_panics<T>(job: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+pub(crate) fn isolate_panics<T>(job: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
     catch_unwind(AssertUnwindSafe(job)).unwrap_or_else(|payload| Err(panic_message(&*payload)))
 }
 
@@ -534,40 +570,17 @@ fn measure(sensor: &SensorImage, pick: PickJob) -> Option<Event> {
     }
 }
 
-fn thumbnail_worker(
-    jobs: Arc<Mutex<Receiver<ThumbnailJob>>>,
-    decoder: &dyn Decoder,
-    retoucher: &Retoucher,
-    sink: EventSink,
-) {
-    loop {
-        // Hold the lock only while taking a job.
-        let job = match jobs.lock() {
-            Ok(receiver) => receiver.recv(),
-            Err(_) => return,
-        };
-        let Ok(job) = job else { return };
-        let rendered = isolate_panics(|| {
-            let sensor = decoder.decode(&job.path).map_err(|e| e.to_string())?;
-            let fills = retoucher.fill_missing(&job.path, &sensor, &job.settings, || {})?;
-            let options = RenderOptions {
-                long_edge: Some(THUMBNAIL_LONG_EDGE),
-                sharpen: false,
-                ..RenderOptions::default()
-            };
-            render_rgb8(&sensor, &job.settings, &fills, &options)
-        });
-        match rendered {
-            Ok(image) => sink.send(Event::Thumbnail {
-                path: job.path,
-                image,
-            }),
-            Err(message) => sink.send(Event::Error {
-                path: Some(job.path),
-                message,
-            }),
-        }
+impl Drop for RenderService {
+    fn drop(&mut self) {
+        // The other workers end when their channels close; the thumbnail
+        // queue is shared, so tell its workers.
+        self.thumbnails.close();
     }
+}
+
+/// The thumbnail cache in the data directory (none without one).
+fn disk_cache() -> ThumbnailCache {
+    ThumbnailCache::in_directory(data_directory().map(|data| data.join("thumbnails")))
 }
 
 fn export_worker(

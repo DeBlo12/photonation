@@ -7,8 +7,8 @@ use super::*;
 use photonation_image::{Orientation, Rect};
 use photonation_raw::RawError;
 use std::collections::HashMap;
-use std::sync::Barrier;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Barrier, Mutex};
 use std::time::{Duration, Instant};
 
 /// Generous, so slow CI machines never flake; tests normally finish in milliseconds.
@@ -70,6 +70,21 @@ impl Decoder for FakeDecoder {
             height,
             Orientation::Normal,
         ))
+    }
+
+    /// `jpeg*` files carry a grey 30×20 preview.
+    fn embedded_preview(&self, path: &Path, _long_edge: usize) -> Option<RenderedImage> {
+        let name = path.file_name()?.to_string_lossy();
+        name.starts_with("jpeg").then(|| RenderedImage {
+            width: 30,
+            height: 20,
+            rgb: vec![128; 30 * 20 * 3],
+            histogram: Histogram::default(),
+        })
+    }
+
+    fn capture_time(&self, _path: &Path) -> Option<String> {
+        Some("2026:06:20 18:02:23".into())
     }
 }
 
@@ -305,17 +320,100 @@ fn thumbnails_are_small_renders() {
     h.service
         .request_thumbnail("big.cr3".into(), Settings::default());
     let events = h.events_until(|e| matches!(e, Event::Thumbnail { .. }));
-    let Some(Event::Thumbnail { path, image }) = events.last() else {
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::CaptureTime { captured, .. }
+            if captured == "2026:06:20 18:02:23")),
+        "{events:?}"
+    );
+    let Some(Event::Thumbnail {
+        path,
+        image,
+        rendered,
+    }) = events.last()
+    else {
         unreachable!()
     };
     assert_eq!(path, Path::new("big.cr3"));
-    assert_eq!(image.width.max(image.height), THUMBNAIL_LONG_EDGE);
+    assert!(rendered, "no embedded preview to show first");
+    assert_eq!(
+        image.width.max(image.height),
+        crate::thumbnails::THUMBNAIL_LONG_EDGE
+    );
+}
+
+#[test]
+fn embedded_previews_show_until_the_render_arrives() {
+    let h = harness(FakeDecoder::default());
+    h.service
+        .request_thumbnail("jpeg.cr3".into(), Settings::default());
+    let thumbnails: Vec<(usize, bool)> = (0..2)
+        .map(|_| {
+            let events = h.events_until(|e| matches!(e, Event::Thumbnail { .. }));
+            let Some(Event::Thumbnail {
+                image, rendered, ..
+            }) = events.last()
+            else {
+                unreachable!()
+            };
+            (image.width, *rendered)
+        })
+        .collect();
+    assert_eq!(thumbnails[0], (30, false), "the embedded preview first");
+    assert!(thumbnails[1].1, "then the render");
+}
+
+#[test]
+fn a_refresh_overtakes_an_older_render() {
+    let h = harness(FakeDecoder::default());
+    let edited = Settings {
+        exposure: 1.0,
+        ..Settings::default()
+    };
+    h.service
+        .request_thumbnail("a.cr3".into(), Settings::default());
+    h.service.refresh_thumbnail("a.cr3".into(), edited);
+    let events = h.events_until(|e| matches!(e, Event::Thumbnail { .. }));
+    assert!(matches!(
+        events.last(),
+        Some(Event::Thumbnail { rendered: true, .. })
+    ));
+    // Only the newest settings render; nothing else is coming.
+    assert!(
+        h.service
+            .events
+            .recv_timeout(Duration::from_millis(300))
+            .is_err()
+    );
+}
+
+#[test]
+fn survey_images_use_the_embedded_preview_of_unedited_photos() {
+    let h = harness(FakeDecoder::default());
+    h.service
+        .request_survey_image("jpeg.cr3".into(), Settings::default(), 1600);
+    let Event::SurveyImage { image, .. } = h.next_event() else {
+        panic!("a survey image");
+    };
+    assert_eq!(image.width, 30);
+    let edited = Settings {
+        exposure: 1.0,
+        ..Settings::default()
+    };
+    h.service
+        .request_survey_image("jpeg.cr3".into(), edited, 1600);
+    let events = h.events_until(|e| matches!(e, Event::SurveyImage { .. }));
+    let Some(Event::SurveyImage { image, .. }) = events.last() else {
+        unreachable!()
+    };
+    assert_ne!(image.width, 30, "edited photos are rendered");
 }
 
 #[test]
 fn thumbnail_workers_survive_more_panics_than_there_are_workers() {
     let h = harness(FakeDecoder::default());
-    let failing = THUMBNAIL_WORKERS + 1;
+    let failing = crate::thumbnails::THUMBNAIL_WORKERS + 1;
     for index in 0..failing {
         h.service
             .request_thumbnail(format!("panic-{index}.cr3").into(), Settings::default());
@@ -329,6 +427,7 @@ fn thumbnail_workers_survive_more_panics_than_there_are_workers() {
         match h.next_event() {
             Event::Error { .. } => errors += 1,
             Event::Thumbnail { path, .. } => thumbnail = path == Path::new("a.cr3"),
+            Event::CaptureTime { .. } => {}
             other => panic!("unexpected {other:?}"),
         }
     }

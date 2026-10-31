@@ -8,9 +8,9 @@ a floating inspector. The look is Photonation's brand (see *Look* below).
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
-│ ● ● ●  File  Edit  View  Help                                    │  menu bar
+│ ● ● ●  File  Edit  Library  View  Help                           │  menu bar
 ├─────────────────────────────────────────────────────────────┤
-│ Open  IMG_0001.CR3  camera · exposure  ↶ ↷ ⛶ ◎ ◐ Fit 1:1 [Export] │  toolbar
+│ Open ▦  IMG_0001.CR3 ★★★☆☆  camera · exp  ↶ ↷ ⛶ ◎ ◐ Fit [Export] │  toolbar
 ├───────────────────────────────────────────┬─────────────────┤
 │                                           │ histogram       │
 │                                           │ ▸ White Balance │
@@ -28,16 +28,25 @@ tool (⛶ or `R`) likewise swaps in the crop card, and the Remove tool (Remove
 or `Q`) the Remove panel, where dragging on the photo paints a removal. At
 most one of masks, crop and Remove is open.
 
+The grid (▦ or `G`) and the survey view (`N`) take the place of the viewer
+and the sidebar, under the library bar (see *Library* below); opening an
+editing tool leaves them.
+
 | File | Region |
 |---|---|
-| `panels/toolbar.rs` | Open, photo name and exposure info, undo/redo, compare, zoom, export |
-| `panels/menu_bar.rs` | File, Edit, View and Help menus; each item does what its button or shortcut does |
+| `panels/toolbar.rs` | Open, the grid button and filter chip, photo name, its stars, flag and label, exposure info, undo/redo, compare, zoom, export |
+| `panels/menu_bar.rs` | File, Edit, Library, View and Help menus; each item does what its button or shortcut does |
 | `panels/settings.rs` | Settings window (graphics processor, export folder, export defaults) and About |
 | `panels/help.rs` | The Help window (? button, Help ▸ Photonation Help, F1): one page per feature, written from the pipeline, the panels and these documents |
 | `panels/viewer.rs` | Canvas: fit/zoom/pan, before/after divider, eyedroppers, status toast |
 | `panels/adjustments.rs` | Histogram and one card per `AdjustmentGroup` |
 | `panels/point_colors.rs` | The Color Mixer's Point Color tab: picked colours, before/after swatch, shifts, ranges, range overlay |
-| `panels/filmstrip.rs` | Thumbnails; edited photos carry an amber dot. Rests as a thin strip (see below) |
+| `panels/filmstrip.rs` | Thumbnails in shown order; edited photos carry an amber dot, open ones their stars, flag and label. Rests as a thin strip, with a scroll bar while it moves (see below) |
+| `library.rs` | Culling state and actions: filter, sort, the shown photos, selection, rating changes, auto-advance, batches, the culling keys |
+| `panels/library_bar.rs` | The bar above the grid and survey: views, count, filter, sort, auto-advance, thumbnail size; the move-rejects-to-bin dialog |
+| `panels/grid.rs` | The grid of the shown photos (multi-select, follows the current photo) |
+| `panels/survey.rs` | 2–8 photos side by side, each with its stars and flag |
+| `widgets/rating.rs` | Stars, flag and label badges, and the toolbar's rating control |
 | `panels/masks.rs` | Masks panel: layer list, the selected mask's shapes, settings and local adjustments |
 | `panels/masks/groups.rs` | Mask groups in the layer list: rows, drop targets, group edits, the group row and card |
 | `panels/mask_thumbnails.rs` | The layer list's pictures of what each mask selects |
@@ -150,6 +159,50 @@ strip, and its one scroll direction takes vertical wheel turns too).
   pointing at and the photo just centred stays centred.
 
 Only thumbnails in view are drawn, so long folders stay cheap.
+
+**Scroll bar** (`FilmstripScrollBar`). A thin bar along the bottom of the
+strip shows while the strip moves and for 1.2 s after, while the pointer is
+over it, and while it is dragged; otherwise it stays out of the way.
+Dragging the thumb crosses a long folder quickly, with a bubble above it
+naming the photo under the middle of the strip and its capture date; a
+click on the track jumps there. It draws only when the photos don't fit.
+
+## Library (`library.rs`)
+
+Each `Photo` carries its `LibraryInfo` (rating 0–5, pick/reject flag,
+colour label), read with the folder (`load_photo`, so Lightroom ratings
+come along) and written to its sidecar on every change (`save_library`).
+Ratings are not edits: they are outside `Settings`, undo and the amber dot.
+
+**Shown photos.** `LibraryView::filter` and `sort` turn the folder into
+`shown`, rebuilt every frame by `arrange_photos`. The filmstrip, the grid,
+← → (`step`) and batch export all go through `shown`. The current photo
+always stays shown, so rating it out of the filter doesn't make it vanish
+under the pointer; it drops out once you move on.
+
+**Selection.** `current` plus `selection` (other indices). Plain click
+selects one, Ctrl/⌘-click toggles, Shift-click selects the shown run from
+the current photo (`click_photo`). Rating changes apply to all of them
+(`rating_targets`), except in the survey view, which rates only the
+outlined photo. With auto-advance on, rating or flagging a single photo
+steps to the next shown one.
+
+**Views.** The grid shows `shown` in rows sized by `grid_size`; the survey
+view shows the current and selected photos (`survey_photos`, at most 8),
+each requested from the engine at the size its cell needs
+(`request_survey_image`, in 256 px steps). Both keep the editor's preview
+idle.
+
+**Batches** (`export_batch`): the selection when there is one, else the
+shown photos, named on the export sheet's checkbox and the File menu.
+
+**Rejects** (`trash_rejected`): Library › Move Rejected Photos to Recycle
+Bin… moves the rejected files and their sidecars (a Lightroom sidecar only
+if no remaining photo shares it) to the system bin with the `trash` crate,
+after a confirmation, then reopens the folder on the nearest keeper.
+
+Sort order, grid size and auto-advance are remembered between launches
+(`LibraryPreferences`); the filter is not.
 
 ## Masks
 
@@ -385,4 +438,7 @@ group instead); `PHOTONATION_SCREENSHOT_CROP=1` opens the crop tool;
 (280–440), to check narrow and wide layouts; `PHOTONATION_SCREENSHOT_EXPORT=1`
 opens the export sheet; `PHOTONATION_SCREENSHOT_HELP=1` the Help window
 (or a page's title, e.g. `=Crop and straighten`, for that page);
-`PHOTONATION_SCREENSHOT_SETTINGS=general` (or `=export`) the Settings window.
+`PHOTONATION_SCREENSHOT_SETTINGS=general` (or `=export`) the Settings window;
+`PHOTONATION_SCREENSHOT_LIBRARY=grid` the grid (`=survey` surveys the first
+two photos). The screenshot window opens unfocused and lets the pointer
+through, so a run never takes the keyboard from whoever is at the computer.

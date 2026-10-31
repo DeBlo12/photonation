@@ -11,6 +11,7 @@
 
 mod app;
 mod gpu;
+mod library;
 mod panels;
 mod photo_frame;
 mod preferences;
@@ -27,6 +28,14 @@ fn main() -> eframe::Result {
         .with_fullsize_content_view(true)
         .with_title_shown(false)
         .with_titlebar_shown(false);
+    // A screenshot run must not take the keyboard or mouse from whoever is
+    // working at the computer: its window opens unfocused and lets the
+    // pointer through.
+    let viewport = if std::env::var_os("PHOTONATION_SCREENSHOT").is_some() {
+        viewport.with_active(false).with_mouse_passthrough(true)
+    } else {
+        viewport
+    };
     let options = eframe::NativeOptions {
         viewport,
         renderer: eframe::Renderer::Wgpu,

@@ -43,6 +43,7 @@ rawler = "0.8.0"
 
 # codecs and colour management
 jpeg-encoder = { version = "0.7", default-features = false, features = ["std"] }
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
 png = "0.18"
 tiff = "0.11"
 moxcms = { version = "0.9", default-features = false }
@@ -58,6 +59,8 @@ pollster = "1.0"
 # desktop app
 eframe = "0.37"
 rfd = "0.17"
+# Moving rejected photos to the Recycle Bin / Trash (MIT)
+trash = "5.2"
 # SVG path data of the brand icons (already in the tree through egui)
 kurbo = "0.13"
 # Icon and version info in the Windows executable (build script)

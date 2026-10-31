@@ -8,8 +8,8 @@ use crate::theme;
 use crate::widgets::CurveChannel;
 use eframe::egui::{self, TextureHandle, TextureOptions};
 use photonation_develop::{
-    AdjustmentGroup, BrushStroke, MAX_POINT_COLORS, OklabLch, PointColor, RemovalMethod, Settings,
-    SettingsOrigin, lightroom_xmp_path, load_photo_settings, sidecar_path,
+    AdjustmentGroup, BrushStroke, LibraryInfo, MAX_POINT_COLORS, OklabLch, PointColor,
+    RemovalMethod, Settings, SettingsOrigin, load_photo, save_photo,
 };
 use photonation_engine::{
     Event, ExportOptions, Histogram, History, ModelStatus, PhotoInfo, PreviewKind, PreviewRequest,
@@ -27,9 +27,36 @@ pub struct Photo {
     pub path: PathBuf,
     pub name: String,
     pub thumbnail: Option<TextureHandle>,
+    /// The thumbnail is a render with the photo's settings, not the
+    /// camera's embedded preview.
+    pub thumbnail_rendered: bool,
     pub has_edits: bool,
+    /// Rating, flag and label.
+    pub library: LibraryInfo,
+    /// Capture time as EXIF writes it, once the thumbnail pass read it.
+    pub captured: Option<String>,
     /// The decoder could not read this file.
     pub unsupported: bool,
+}
+
+impl Photo {
+    /// A photo not read yet: no thumbnail, edits or rating.
+    pub fn new(path: PathBuf) -> Photo {
+        Photo {
+            name: path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned(),
+            path,
+            thumbnail: None,
+            thumbnail_rendered: false,
+            has_edits: false,
+            library: LibraryInfo::default(),
+            captured: None,
+            unsupported: false,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -169,10 +196,13 @@ pub struct ViewState {
     pub crop_tool: panels::crop::CropTool,
     pub filmstrip: panels::filmstrip::FilmstripReveal,
     pub filmstrip_scroll: panels::filmstrip::FilmstripScroll,
+    pub filmstrip_bar: panels::filmstrip::FilmstripScrollBar,
     pub mask_thumbnails: panels::mask_thumbnails::MaskThumbnails,
     /// The Remove panel replaces the adjustments, and dragging on the photo
     /// paints removals.
     pub show_removals: bool,
+    /// Filter, sort, selection, and the grid and survey views.
+    pub library: crate::library::LibraryView,
     /// Index into `settings.removals`.
     pub selected_removal: Option<usize>,
     pub removal_brush: RemovalBrush,
@@ -216,8 +246,10 @@ impl Default for ViewState {
             crop_tool: Default::default(),
             filmstrip: Default::default(),
             filmstrip_scroll: Default::default(),
+            filmstrip_bar: Default::default(),
             mask_thumbnails: Default::default(),
             show_removals: false,
+            library: Default::default(),
             selected_removal: None,
             removal_brush: RemovalBrush::default(),
             painting: None,
@@ -318,6 +350,9 @@ pub struct PhotonationApp {
     pub model_status: Option<ModelStatus>,
     /// Removals changed and their fills have not all arrived yet.
     pub filling_removals: bool,
+    /// Large images for the survey view, and the size each was asked at.
+    pub survey_images: HashMap<PathBuf, Preview>,
+    pub survey_requested: HashMap<PathBuf, usize>,
 }
 
 impl PhotonationApp {
@@ -329,6 +364,7 @@ impl PhotonationApp {
         app.preferences = crate::preferences::Preferences::load();
         app.gpu_setting_at_launch = app.preferences.gpu.clone();
         app.view.export_options = app.preferences.export_options();
+        app.preferences.library.apply(&mut app.view.library);
         // Load the inpainting model in the background, so the first
         // generative removal doesn't wait for it.
         app.engine.request_model_status();
@@ -403,6 +439,8 @@ impl PhotonationApp {
             mask_overlay_ready: false,
             model_status: None,
             filling_removals: false,
+            survey_images: HashMap::new(),
+            survey_requested: HashMap::new(),
         }
     }
 
@@ -410,20 +448,12 @@ impl PhotonationApp {
         self.save_now();
         match photonation_engine::scan_folder(&folder) {
             Ok(paths) => {
-                self.photos = paths
-                    .into_iter()
-                    .map(|path| Photo {
-                        name: path
-                            .file_name()
-                            .unwrap_or_default()
-                            .to_string_lossy()
-                            .into_owned(),
-                        has_edits: false,
-                        thumbnail: None,
-                        unsupported: false,
-                        path,
-                    })
-                    .collect();
+                self.engine.cancel_thumbnails();
+                self.photos = paths.into_iter().map(Photo::new).collect();
+                self.view.library.selection.clear();
+                self.view.library.survey = false;
+                self.survey_images.clear();
+                self.survey_requested.clear();
                 self.thumbnails_by_path = self
                     .photos
                     .iter()
@@ -431,12 +461,10 @@ impl PhotonationApp {
                     .map(|(i, p)| (p.path.clone(), i))
                     .collect();
                 for photo in &mut self.photos {
-                    let settings = load_photo_settings(&photo.path)
-                        .ok()
-                        .flatten()
-                        .map(|loaded| loaded.settings)
-                        .unwrap_or_default();
+                    let loaded = load_photo(&photo.path).unwrap_or_default();
+                    let settings = loaded.settings.map(|s| s.settings).unwrap_or_default();
                     photo.has_edits = settings != Settings::default();
+                    photo.library = loaded.library;
                     self.engine.request_thumbnail(photo.path.clone(), settings);
                 }
                 if self.photos.is_empty() {
@@ -460,7 +488,7 @@ impl PhotonationApp {
         }
         self.current = Some(index);
         let path = &self.photos[index].path;
-        self.settings = match load_photo_settings(path) {
+        self.settings = match load_photo(path).map(|loaded| loaded.settings) {
             Ok(Some(loaded)) => {
                 if let SettingsOrigin::Lightroom { not_imported } = loaded.origin {
                     self.notify(lightroom_notice(&not_imported));
@@ -601,29 +629,44 @@ impl PhotonationApp {
     }
 
     pub fn save_now(&mut self) {
-        let (Some(_), Some(path)) = (self.pending_save.take(), self.current_path().cloned()) else {
+        let (Some(_), Some(index)) = (self.pending_save.take(), self.current) else {
             return;
         };
-        let sidecar = sidecar_path(&path);
-        // Without a sidecar, Lightroom's edits would come back next time.
-        let resets_lightroom_edits = lightroom_xmp_path(&path).exists();
-        let result = if self.settings == Settings::default() && !resets_lightroom_edits {
-            // Nothing to remember: don't leave empty sidecars around.
-            match std::fs::remove_file(&sidecar) {
-                Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.to_string()),
-                _ => Ok(()),
-            }
-        } else {
-            self.settings.save(&sidecar).map_err(|e| e.to_string())
-        };
-        match result {
+        let path = self.photos[index].path.clone();
+        // Removes the sidecar when there is nothing to remember.
+        match save_photo(&path, &self.settings, &self.photos[index].library) {
             Ok(()) => {
-                if let Some(index) = self.current {
-                    self.photos[index].has_edits = self.settings != Settings::default();
-                    self.engine.request_thumbnail(path, self.settings.clone());
-                }
+                self.photos[index].has_edits = self.settings != Settings::default();
+                self.engine
+                    .refresh_thumbnail(path.clone(), self.settings.clone());
+                self.survey_images.remove(&path);
+                self.survey_requested.remove(&path);
             }
-            Err(message) => self.notify(message),
+            Err(e) => self.notify(e.to_string()),
+        }
+    }
+
+    /// Writes photo `index`'s sidecar after its rating, flag or label
+    /// changed. Other photos keep the settings their sidecars hold; the
+    /// current one is saved with its edits, if any are waiting.
+    pub fn save_library(&mut self, index: usize) {
+        if self.current == Some(index) && self.pending_save.is_some() {
+            self.save_now();
+            return;
+        }
+        let path = self.photos[index].path.clone();
+        let library = self.photos[index].library;
+        let result = if self.current == Some(index) {
+            save_photo(&path, &self.settings, &library)
+        } else {
+            // A sidecar that can't be read is left alone, not replaced.
+            load_photo(&path).and_then(|loaded| {
+                let settings = loaded.settings.map(|s| s.settings).unwrap_or_default();
+                save_photo(&path, &settings, &library)
+            })
+        };
+        if let Err(e) = result {
+            self.notify(e.to_string());
         }
     }
 
@@ -669,8 +712,17 @@ impl PhotonationApp {
                         }
                     }
                 }
-                Event::Thumbnail { path, image } => {
+                Event::Thumbnail {
+                    path,
+                    image,
+                    rendered,
+                } => {
                     if let Some(&index) = self.thumbnails_by_path.get(&path) {
+                        let photo = &mut self.photos[index];
+                        // A render is never replaced by the embedded preview.
+                        if photo.thumbnail_rendered && !rendered {
+                            continue;
+                        }
                         let color_image =
                             egui::ColorImage::from_rgb([image.width, image.height], &image.rgb);
                         let texture = ctx.load_texture(
@@ -678,8 +730,25 @@ impl PhotonationApp {
                             color_image,
                             TextureOptions::LINEAR,
                         );
-                        self.photos[index].thumbnail = Some(texture);
+                        photo.thumbnail = Some(texture);
+                        photo.thumbnail_rendered = rendered;
                     }
+                }
+                Event::CaptureTime { path, captured } => {
+                    if let Some(&index) = self.thumbnails_by_path.get(&path) {
+                        self.photos[index].captured = Some(captured);
+                    }
+                }
+                Event::SurveyImage { path, image } if self.survey_requested.contains_key(&path) => {
+                    let color_image =
+                        egui::ColorImage::from_rgb([image.width, image.height], &image.rgb);
+                    let texture = ctx.load_texture(
+                        format!("survey-{}", path.display()),
+                        color_image,
+                        TextureOptions::LINEAR,
+                    );
+                    let size = [image.width, image.height];
+                    self.survey_images.insert(path, Preview { texture, size });
                 }
                 Event::WhiteBalancePicked {
                     path,
@@ -856,13 +925,11 @@ impl PhotonationApp {
         } else if undo {
             self.undo();
         }
-        if let Some(current) = self.current {
-            if prev && current > 0 {
-                self.select(current - 1);
-            }
-            if next {
-                self.select(current + 1);
-            }
+        if prev {
+            self.step(-1);
+        }
+        if next {
+            self.step(1);
         }
         if compare {
             self.view.compare = !self.view.compare;
@@ -955,7 +1022,14 @@ impl eframe::App for PhotonationApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.handle_events(&ctx);
+        self.arrange_photos();
+        crate::library::shortcuts(self, &ctx);
         self.shortcuts(&ctx);
+        // The editor's tools need the editor.
+        if self.view.show_masks || self.view.cropping || self.view.show_removals {
+            self.view.library.grid = false;
+            self.view.library.survey = false;
+        }
 
         let settings_before = self.settings.clone();
         let disabled_before = self.view.disabled.clone();
@@ -963,13 +1037,24 @@ impl eframe::App for PhotonationApp {
 
         panels::menu_bar::show(self, ui);
         panels::toolbar::show(self, ui);
-        if !self.photos.is_empty() {
-            panels::filmstrip::show(self, ui);
+        if self.view.library.survey {
+            panels::library_bar::show(self, ui);
+            panels::survey::show(self, ui);
+        } else if self.view.library.grid {
+            panels::library_bar::show(self, ui);
+            panels::grid::show(self, ui);
+        } else {
+            if !self.photos.is_empty() {
+                panels::filmstrip::show(self, ui);
+            }
+            if self.current.is_some() {
+                panels::adjustments::show(self, ui);
+            }
+            panels::viewer::show(self, ui);
         }
-        if self.current.is_some() {
-            panels::adjustments::show(self, ui);
+        if self.view.library.confirm_trash {
+            panels::library_bar::confirm_trash(self, &ctx);
         }
-        panels::viewer::show(self, ui);
         self.view.selected_mask =
             MaskSelection::validated(self.view.selected_mask, &self.settings.masks);
         self.view
@@ -1011,8 +1096,10 @@ impl eframe::App for PhotonationApp {
         if !ctx.input(|i| i.pointer.any_down()) {
             self.history.commit(&self.settings);
         }
-        let settled = !self.is_rendering()
-            && self.preview.is_some()
+        // The grid and survey views draw no preview.
+        let library_view = self.view.library.grid || self.view.library.survey;
+        let settled = (library_view || (!self.is_rendering() && self.preview.is_some()))
+            && (!self.view.library.survey || self.survey_images.len() >= 2)
             && self
                 .photos
                 .iter()

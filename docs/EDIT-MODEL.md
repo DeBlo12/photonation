@@ -206,8 +206,18 @@ the settings with some groups switched off (the panel switches in the editor).
   `group`; their masks load ungrouped and render unchanged. While a photo has
   no groups, its sidecar leaves both fields out and looks exactly as before.
 - Writes are atomic (temporary file, then rename).
-- The editor deletes the sidecar when a photo is reset to defaults, unless a
-  Lightroom sidecar is next to it (its edits would come back).
+- The rating, flag and colour label live next to the settings, outside
+  them, in a `"library"` block (`LibraryInfo`), left out while a photo has
+  none: `"library": { "rating": 4, "flag": "pick", "label": "green" }`.
+  `flag` is `pick` or `reject`; labels are `red`, `yellow`, `green`, `blue`,
+  `purple`. They are not edits: they don't take part in rendering, history
+  or the process version. Without a Photonation sidecar, `xmp:Rating` (−1
+  is a reject) and `xmp:Label` come from the Lightroom sidecar.
+- `save_photo` deletes the sidecar when the settings are defaults and the
+  photo has no rating, flag or label, unless a Lightroom sidecar is next to
+  it (its edits would come back). `Settings::save` (the CLI's `edit`) keeps
+  the library block already there. Builds before 0.14 ignore the block and
+  drop it when they save the photo.
 - Sidecars written before straightening have no `crop_angle` and render as before.
 
 ## Process versions

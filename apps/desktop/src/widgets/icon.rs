@@ -28,10 +28,14 @@ pub enum Icon {
     LinearGradient,
     RadialGradient,
     SplitHandle,
+    Grid,
+    Survey,
+    Pick,
+    Reject,
 }
 
 impl Icon {
-    const COUNT: usize = 14;
+    const COUNT: usize = 18;
 
     /// SVG path data on the 24 u grid.
     fn path(self) -> &'static str {
@@ -67,6 +71,14 @@ impl Icon {
             }
             Icon::RadialGradient => "M12 12m-8 0a8 6 0 1 0 16 0a8 6 0 1 0 -16 0M12 12h.01",
             Icon::SplitHandle => "M9 7 4 12l5 5M15 7l5 5-5 5",
+            Icon::Grid => {
+                "M5.5 4h3q1.5 0 1.5 1.5v3q0 1.5 -1.5 1.5h-3q-1.5 0 -1.5 -1.5v-3q0 -1.5 1.5 -1.5z                 M15.5 4h3q1.5 0 1.5 1.5v3q0 1.5 -1.5 1.5h-3q-1.5 0 -1.5 -1.5v-3q0 -1.5 1.5 -1.5z                 M5.5 14h3q1.5 0 1.5 1.5v3q0 1.5 -1.5 1.5h-3q-1.5 0 -1.5 -1.5v-3q0 -1.5 1.5 -1.5z                 M15.5 14h3q1.5 0 1.5 1.5v3q0 1.5 -1.5 1.5h-3q-1.5 0 -1.5 -1.5v-3q0 -1.5 1.5 -1.5z"
+            }
+            Icon::Survey => {
+                "M4.5 5h5q1.5 0 1.5 1.5v11q0 1.5 -1.5 1.5h-5q-1.5 0 -1.5 -1.5v-11q0 -1.5 1.5 -1.5z                 M14.5 5h5q1.5 0 1.5 1.5v11q0 1.5 -1.5 1.5h-5q-1.5 0 -1.5 -1.5v-11q0 -1.5 1.5 -1.5z"
+            }
+            Icon::Pick => "M6 21V4M6 4.5h11l-2.5 4 2.5 4H6",
+            Icon::Reject => "M6.5 6.5l11 11M17.5 6.5l-11 11",
         }
     }
 }
@@ -187,6 +199,10 @@ mod tests {
         Icon::LinearGradient,
         Icon::RadialGradient,
         Icon::SplitHandle,
+        Icon::Grid,
+        Icon::Survey,
+        Icon::Pick,
+        Icon::Reject,
     ];
 
     /// Every icon parses and stays within the 24 u grid.

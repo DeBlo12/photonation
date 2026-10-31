@@ -200,6 +200,40 @@ fn metadata_only_sidecars_have_no_settings() {
     assert_eq!(import_lightroom_xmp(text).expect("parses"), None);
 }
 
+/// A metadata-only sidecar with `rating` and `label` as attributes.
+fn rated_sidecar(rating: &str, label: &str) -> String {
+    format!(
+        r#"<x:xmpmeta xmlns:x="adobe:ns:meta/">
+     <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+      <rdf:Description rdf:about="" xmlns:xmp="http://ns.adobe.com/xap/1.0/"
+       xmp:Rating="{rating}" xmp:Label="{label}"/>
+     </rdf:RDF>
+    </x:xmpmeta>"#
+    )
+}
+
+#[test]
+fn ratings_and_labels_are_imported() {
+    let info = import_lightroom_library(&rated_sidecar("4", "Green")).expect("parses");
+    assert_eq!(
+        info,
+        LibraryInfo {
+            rating: 4,
+            flag: Flag::None,
+            label: Some(ColorLabel::Green),
+        }
+    );
+    let rejected = import_lightroom_library(&rated_sidecar("-1", "")).expect("parses");
+    assert_eq!(rejected.flag, Flag::Reject);
+    assert_eq!(rejected.rating, 0);
+    assert_eq!(rejected.label, None);
+    let wild = import_lightroom_library(&rated_sidecar("12", "Orange")).expect("parses");
+    assert_eq!((wild.rating, wild.label), (MAX_RATING, None));
+    // Develop sidecars without a rating have none.
+    let info = import_lightroom_library(PORTRAIT_SIDECAR).expect("parses");
+    assert!(info.is_empty());
+}
+
 #[test]
 fn out_of_range_and_broken_values_are_repaired() {
     let text = PORTRAIT_SIDECAR

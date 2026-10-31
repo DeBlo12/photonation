@@ -28,6 +28,14 @@ loop:
   for each render: load photo (cached) → render 8-bit sRGB + histogram → Preview
 ```
 
+- **GPU previews** (`preview.rs`, feature `gpu`, on in the desktop app):
+  `RenderService::new` gives the preview worker a `PreviewRenderer` that
+  renders on the GPU (docs/PIPELINE.md §8) and on the CPU whatever the GPU
+  path doesn't cover yet (straightened crops, removals). A GPU error moves all later previews to the CPU.
+  `PHOTONATION_GPU_RENDER=off` keeps previews on the CPU. Services made with
+  `with_decoder` or `with_parts` (tests) render on the CPU. Thumbnails,
+  pickers and exports always use the CPU.
+
 - **Latest wins**: intermediate slider positions are skipped, never queued, so
   the preview keeps up with the pointer.
 - **Decoded photo cache**: the current photo's `SensorImage` stays in memory, so

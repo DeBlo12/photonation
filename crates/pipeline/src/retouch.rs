@@ -279,6 +279,16 @@ pub(crate) fn push_retouch(
     }
 }
 
+/// Whether any of `removals` has a fill in `fills` (the render then has a
+/// retouch stage).
+pub(crate) fn applies(removals: &[Removal], fills: &RemovalFills) -> bool {
+    !fills.is_empty()
+        && removal_chain_fingerprints(removals)
+            .into_iter()
+            .flatten()
+            .any(|key| fills.contains_key(&key))
+}
+
 /// A removal still to fill: its index in the (sanitized) settings and the
 /// key its fill is cached under.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

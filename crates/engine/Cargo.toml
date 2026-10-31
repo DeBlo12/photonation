@@ -18,12 +18,15 @@ photonation-raw.workspace = true
 photonation-pipeline.workspace = true
 photonation-export.workspace = true
 photonation-retouch.workspace = true
+photonation-gpu = { workspace = true, optional = true }
 serde.workspace = true
 thiserror.workspace = true
 
 [features]
 # The "Generative AI" removal method: neural inpainting with an ONNX model.
 ai = ["photonation-retouch/onnx"]
+# Previews on the GPU (wgpu compute), falling back to the CPU.
+gpu = ["dep:photonation-gpu"]
 
 [dev-dependencies]
 photonation-image = { workspace = true, features = ["test-util"] }

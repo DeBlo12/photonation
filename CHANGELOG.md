@@ -8,6 +8,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- GPU previews: the editor renders previews with wgpu compute shaders,
+  about 30–40 times faster than the CPU on a 24 MP photo (≈10 ms at
+  1600 px, with or without masks; ≈16 ms with Texture and Clarity),
+  identical to the CPU render but for rare one-level differences.
+  Straightened crops and removals still render on the CPU, as do exports. `PHOTONATION_GPU_RENDER=off` turns it off.
+
 - Photonation look: the editor keeps Photomator's layout (photo first, a
   rounded inspector floating at the right) in the brand's colours and type.
   Surfaces lean toward Ink, Photon amber marks what is on (tools, switches,

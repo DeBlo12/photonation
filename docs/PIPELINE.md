@@ -196,3 +196,70 @@ trip: one point colour on its own costs about what one mixer slider does.
 
 Peak memory for a full-size 8-bit export ≈ mosaic (50 MB) + output (72 MB) + a
 few MB of band scratch per thread.
+
+## 8. GPU path (`photonation-gpu`)
+
+`GpuRenderer::render` produces the same 8-bit image as `render_with_fills`
+with wgpu compute shaders. It doesn't decide anything itself:
+`render_plan` (`plan.rs`) runs the setup of §1 with the same code as the
+band graph and returns every parameter and table as plain data (framing,
+demosaic method, levels, the develop matrices and amounts, tone tables,
+colour step, the masks' prepared shapes and amounts with the pixel → mask
+space map, Texture and Clarity's amounts and radii, Lanczos taps, transfer
+table, sharpening kernel). The shaders
+transcribe only the per-pixel maths.
+
+| Pass | Shader | Present when |
+|---|---|---|
+| Source + develop (with masks) + output gamut | `develop.wgsl` | always |
+| Texture and Clarity: √luma, box passes, combine | `local_contrast.wgsl` | Texture or Clarity ≠ 0 |
+| Resize, rows then columns | `resize.wgsl` | output smaller than source |
+| Encode | `finish.wgsl: encode` | always |
+| Sharpen, rows then columns | `finish.wgsl: sharpen_*` | sharpening > 0 |
+| Pack to RGB8, display orientation | `finish.wgsl: pack` | always |
+
+The raw mosaic is uploaded once per photo as a 16-bit texture and kept while
+the photo is edited; intermediates are `rgba32float` textures, so values
+match the CPU's `f32` bands. Only the packed output is read back.
+
+Masks are evaluated per pixel in the develop pass exactly as on the CPU
+(`LocalAdjust::at`, then the masked steps of §5); they cost no measurable
+time there.
+
+Texture and Clarity blur the whole image at once: each box pass loads a
+workgroup's 256 samples plus the radius on each side into shared memory
+and sums the window, with edges clamped as on the CPU (whose bands carry
+exactly the halo the passes need, so its result is the same). Radii up to
+192 pixels fit, Clarity on a 24 000-pixel long edge; larger ones render
+on the CPU.
+
+**Not yet on the GPU**: straightened crops, removal fills and 16-bit
+output. `render_plan` (or the renderer) returns
+`Unsupported` for those, and callers render them on the CPU.
+
+**Validation.** The CPU pipeline is the reference. The crate's tests render
+the same synthetic photos on both paths (Bayer at full size and half size,
+X-Trans, linear DNG, every orientation, crops, custom white balance, every
+global adjustment, masks of every shape, combination and local adjustment,
+groups and piled-up masks, Texture and Clarity in both directions, other
+output spaces, the point colour overlay)
+and allow
+at most 2 levels of difference per 8-bit sample and 0.01 on average (in
+practice the outputs are bit-identical but for a few samples off by one).
+Without a graphics adapter the renders are skipped; the shaders are still
+validated with naga.
+
+24 MP Bayer mosaic with every global adjustment set, without and with three
+overlapping masks, and with Texture and Clarity on top (RTX 5080, Windows):
+
+| Render | CPU | GPU (incl. readback) |
+|---|---|---|
+| Full size | ~1470 ms | ~53 ms |
+| 1600 px | ~330 ms | ~10 ms |
+| Full size, 3 masks | ~1730 ms | ~53 ms |
+| 1600 px, 3 masks | ~390 ms | ~10 ms |
+| Full size, 3 masks, Texture, Clarity | ~3300 ms | ~81 ms |
+| 1600 px, 3 masks, Texture, Clarity | ~620 ms | ~16 ms |
+
+`cargo test --release -p photonation-gpu -- --ignored --nocapture` prints
+these timings.

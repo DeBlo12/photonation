@@ -20,6 +20,11 @@ impl Encode {
             .collect();
         Encode { lut }
     }
+
+    /// The transfer curve at `i / LUT_SIZE`, `LUT_SIZE + 1` entries.
+    pub fn table(&self) -> &[f32] {
+        &self.lut
+    }
 }
 
 impl PointOp for Encode {

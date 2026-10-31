@@ -36,6 +36,12 @@ impl Oklab {
         }
     }
 
+    /// RGB → LMS, LMS′ → Lab, Lab → LMS′ and LMS → RGB (LMS′ is the
+    /// cube root of LMS), for other implementations of the conversion.
+    pub fn matrices(&self) -> [[[f32; 3]; 3]; 4] {
+        [self.to_lms, self.lms_to_lab, self.lab_to_lms, self.from_lms]
+    }
+
     #[inline]
     pub fn from_rgb(&self, rgb: [f32; 3]) -> [f32; 3] {
         let lms = apply3(&self.to_lms, rgb).map(f32::cbrt);

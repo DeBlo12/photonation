@@ -16,6 +16,7 @@
 //! by an unusual file becomes an [`Event::Error`] instead of silently
 //! killing the worker thread for the rest of the session.
 
+use crate::preview::PreviewRenderer;
 use crate::{
     Decoder, ExportOptions, Histogram, ModelStatus, RawDecoder, Retoucher, default_model_path,
     export_photo_with, output_path, unused_path,
@@ -186,8 +187,10 @@ pub struct RenderService {
 
 impl RenderService {
     /// `notify` is called (from worker threads) whenever an event is ready.
+    /// Previews render on the GPU where possible (see [`crate::GPU_RENDER_VARIABLE`]).
     pub fn new(notify: impl Fn() + Send + Sync + 'static) -> RenderService {
-        RenderService::with_decoder(Arc::new(RawDecoder), notify)
+        let retoucher = Arc::new(Retoucher::new(default_model_path()));
+        RenderService::start(Arc::new(RawDecoder), retoucher, true, notify)
     }
 
     /// A service that reads photos with `decoder` instead of the raw decoder.
@@ -199,10 +202,20 @@ impl RenderService {
         RenderService::with_parts(decoder, retoucher, notify)
     }
 
-    /// A service with its own decoder and removal filler.
+    /// A service with its own decoder and removal filler. Its previews
+    /// render on the CPU, the reference.
     pub fn with_parts(
         decoder: Arc<dyn Decoder>,
         retoucher: Arc<Retoucher>,
+        notify: impl Fn() + Send + Sync + 'static,
+    ) -> RenderService {
+        RenderService::start(decoder, retoucher, false, notify)
+    }
+
+    fn start(
+        decoder: Arc<dyn Decoder>,
+        retoucher: Arc<Retoucher>,
+        gpu_previews: bool,
         notify: impl Fn() + Send + Sync + 'static,
     ) -> RenderService {
         let (event_sender, events) = channel();
@@ -227,7 +240,14 @@ impl RenderService {
         };
         std::thread::Builder::new()
             .name("preview".into())
-            .spawn(move || preview_worker(preview_jobs, &preview))
+            .spawn(move || {
+                let renderer = if gpu_previews {
+                    PreviewRenderer::with_gpu()
+                } else {
+                    PreviewRenderer::cpu()
+                };
+                preview_worker(preview_jobs, &preview, renderer)
+            })
             .expect("spawning the preview thread");
 
         let (thumbnails, thumbnail_jobs) = channel::<ThumbnailJob>();
@@ -336,7 +356,7 @@ fn panic_message(payload: &(dyn Any + Send)) -> String {
     format!("internal error ({detail}); please report this file")
 }
 
-fn to_rendered(image: photonation_image::OutputImage) -> RenderedImage {
+pub(crate) fn to_rendered(image: photonation_image::OutputImage) -> RenderedImage {
     let rgb = match image.pixels {
         Pixels::U8(rgb) => rgb,
         Pixels::U16(samples) => samples.iter().map(|v| (v >> 8) as u8).collect(),
@@ -351,7 +371,7 @@ fn to_rendered(image: photonation_image::OutputImage) -> RenderedImage {
 }
 
 /// Renders 8-bit sRGB; `options` sets size, sharpening and overlays.
-fn render_rgb8(
+pub(crate) fn render_rgb8(
     sensor: &SensorImage,
     settings: &Settings,
     fills: &RemovalFills,
@@ -408,7 +428,11 @@ struct PreviewContext {
     sink: EventSink,
 }
 
-fn preview_worker(jobs: Receiver<PreviewJob>, context: &PreviewContext) {
+fn preview_worker(
+    jobs: Receiver<PreviewJob>,
+    context: &PreviewContext,
+    mut renderer: PreviewRenderer,
+) {
     let (decoder, sink) = (&*context.decoder, &context.sink);
     let mut current: Option<CurrentPhoto> = None;
     while let Ok(first) = jobs.recv() {
@@ -463,7 +487,7 @@ fn preview_worker(jobs: Receiver<PreviewJob>, context: &PreviewContext) {
                     point_color_overlay: request.point_color_overlay,
                     ..RenderOptions::default()
                 };
-                render_rgb8(&sensor, &request.settings, &fills, &options)
+                renderer.render(&sensor, &request.settings, &fills, &options)
             });
             match rendered {
                 Ok(image) => sink.send(Event::Preview {

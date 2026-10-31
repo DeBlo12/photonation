@@ -4,6 +4,7 @@
 //! Separable Lanczos-3 resampling in linear light.
 
 use crate::band::{Band, Stage};
+use crate::plan::{ResampleAxis, ResizePlan};
 use std::ops::Range;
 
 /// The input samples (and their weights) that make up one output sample.
@@ -66,6 +67,17 @@ impl Axis {
         &self.weights[taps.weight_offset..taps.weight_offset + taps.count]
     }
 
+    fn plan(&self) -> ResampleAxis {
+        ResampleAxis {
+            taps: self
+                .taps
+                .iter()
+                .map(|taps| [taps.first_input, taps.weight_offset, taps.count])
+                .collect(),
+            weights: self.weights.clone(),
+        }
+    }
+
     fn input_range(&self, out: Range<usize>) -> Range<usize> {
         if out.is_empty() {
             return 0..0;
@@ -87,6 +99,13 @@ impl Resize {
             out,
             horizontal: Axis::new(input.0, out.0),
             vertical: Axis::new(input.1, out.1),
+        }
+    }
+
+    pub fn plan(&self) -> ResizePlan {
+        ResizePlan {
+            horizontal: self.horizontal.plan(),
+            vertical: self.vertical.plan(),
         }
     }
 }

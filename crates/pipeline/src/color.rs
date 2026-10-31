@@ -5,6 +5,7 @@
 //! vibrance, saturation and point colours. Oklab keeps hue and lightness perceptually
 //! separate, so each slider does one thing.
 
+use crate::plan::{ColorPlan, GradingPlan, MixerBand};
 use crate::point_color::PointColors;
 use photonation_color::{Oklab, Primaries};
 use photonation_develop::{ColorGrading, GradingWheel, HslAdjustment, Settings};
@@ -71,6 +72,20 @@ impl Grading {
             global: WheelOffset::new(&g.global),
             pivot: 0.5 - 0.2 * g.balance / 100.0,
             transition: 0.15 + 0.35 * g.blending / 100.0,
+        }
+    }
+
+    fn plan(&self) -> GradingPlan {
+        let wheel = |offset: &WheelOffset| [offset.a, offset.b, offset.lightness];
+        GradingPlan {
+            wheels: [
+                wheel(&self.shadows),
+                wheel(&self.midtones),
+                wheel(&self.highlights),
+                wheel(&self.global),
+            ],
+            pivot: self.pivot,
+            transition: self.transition,
         }
     }
 
@@ -154,6 +169,27 @@ impl ColorAdjust {
             vibrance,
             points,
         })
+    }
+
+    pub fn plan(&self) -> ColorPlan {
+        let band = |adjustment: &HslAdjustment| MixerBand {
+            hue_shift: adjustment.hue / 100.0 * MAX_HUE_SHIFT,
+            chroma_gain: 1.0 + adjustment.saturation / 100.0,
+            lightness_shift: adjustment.luminance / 100.0 * MAX_BAND_LIGHTNESS,
+        };
+        let (point_colors, overlay) = match &self.points {
+            Some(points) => points.plan(),
+            None => (Vec::new(), None),
+        };
+        ColorPlan {
+            band_hues: BAND_HUES,
+            mixer: self.mixer.as_ref().map(|bands| bands.each_ref().map(band)),
+            grading: self.grading.as_ref().map(Grading::plan),
+            saturation: self.saturation,
+            vibrance: self.vibrance,
+            point_colors,
+            overlay,
+        }
     }
 
     #[inline]

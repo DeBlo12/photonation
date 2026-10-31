@@ -6,6 +6,7 @@
 //! lookup table per channel.
 
 use crate::curve::{Parametric, Spline};
+use crate::plan::TonePlan;
 use photonation_develop::Settings;
 
 /// Exposure added to every image so a normally exposed raw lands on a
@@ -74,6 +75,14 @@ impl ToneLuts {
                 .collect()
         });
         ToneLuts { channels }
+    }
+
+    pub fn plan(&self) -> TonePlan {
+        TonePlan {
+            min_ev: LUT_MIN_EV as f32,
+            max_ev: LUT_MAX_EV as f32,
+            tables: self.channels.clone(),
+        }
     }
 
     #[inline(always)]

@@ -322,7 +322,9 @@ pub struct PhotonationApp {
 
 impl PhotonationApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> PhotonationApp {
-        let mut app = PhotonationApp::empty(&cc.egui_ctx);
+        let repaint = cc.egui_ctx.clone();
+        let engine = RenderService::new(move || repaint.request_repaint());
+        let mut app = PhotonationApp::with_engine(&cc.egui_ctx, engine);
         app.screenshot = crate::screenshot::Screenshot::from_env();
         app.preferences = crate::preferences::Preferences::load();
         app.gpu_setting_at_launch = app.preferences.gpu.clone();
@@ -357,13 +359,23 @@ impl PhotonationApp {
         app
     }
 
-    /// No folder open, no GPU and no command line: what `new` starts from,
-    /// and what tests draw panels with.
+    /// No folder open, no GPU and no command line: what tests draw panels
+    /// with. Previews render on the CPU, so tests never open a GPU device
+    /// (a preview thread still setting one up when the test process exits
+    /// can crash it).
+    #[cfg(test)]
     pub fn empty(ctx: &egui::Context) -> PhotonationApp {
+        let repaint = ctx.clone();
+        let engine = RenderService::on_cpu(move || repaint.request_repaint());
+        PhotonationApp::with_engine(ctx, engine)
+    }
+
+    /// No folder open and no command line, rendering with `engine`: what
+    /// `new` starts from.
+    fn with_engine(ctx: &egui::Context, engine: RenderService) -> PhotonationApp {
         theme::install(ctx);
-        let ctx = ctx.clone();
         PhotonationApp {
-            engine: RenderService::new(move || ctx.request_repaint()),
+            engine,
             folder: None,
             photos: Vec::new(),
             current: None,

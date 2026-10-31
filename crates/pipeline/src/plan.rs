@@ -36,6 +36,8 @@ pub struct RenderPlan {
     pub black: [f32; 3],
     pub gain: [f32; 3],
     pub develop: DevelopPlan,
+    /// Texture and Clarity, at the source's size; `None` when both are 0.
+    pub local_contrast: Option<LocalContrastPlan>,
     /// `None` when the source already has the output size.
     pub resize: Option<ResizePlan>,
     /// The output transfer curve, sampled at `i / (len − 1)`.
@@ -162,6 +164,21 @@ pub struct LocalLimits {
     pub dehaze_saturation: f32,
 }
 
+/// Texture and Clarity (see `local_contrast.rs`): detail of √luma against
+/// its blur, added back at two radii.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LocalContrastPlan {
+    /// Strengths; 0 skips that blur.
+    pub clarity: f32,
+    pub texture: f32,
+    /// Box radii in source pixels.
+    pub clarity_radius: usize,
+    pub texture_radius: usize,
+    /// Box passes per axis (≈ Gaussian).
+    pub box_passes: usize,
+    pub luma: [f32; 3],
+}
+
 /// Separable Lanczos-3 weights (see `resize.rs`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct ResizePlan {
@@ -226,9 +243,6 @@ pub fn render_plan(
         sensor,
         masks::PixelToMask::new(sensor, source_region, source_size),
     );
-    if LocalContrast::new(settings.clarity, settings.texture, source_size).is_some() {
-        return Err(PlanError::Unsupported("Texture and Clarity"));
-    }
     let develop = Develop::new(
         &settings,
         &camera.camera_to_working,
@@ -247,6 +261,9 @@ pub fn render_plan(
         black,
         gain,
         develop: develop.plan(),
+        local_contrast: LocalContrast::new(settings.clarity, settings.texture, source_size)
+            .as_ref()
+            .map(LocalContrast::plan),
         resize: (source_size != target).then(|| Resize::new(source_size, target).plan()),
         encode: Encode::new(opts.color_space).table().to_vec(),
         sharpen: (opts.sharpen && settings.sharpening.amount > 0.0)

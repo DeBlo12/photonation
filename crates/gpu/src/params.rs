@@ -9,7 +9,9 @@ use photonation_develop::CombineMode;
 use photonation_image::{Orientation, SensorLayout};
 use photonation_pipeline::Demosaic;
 use photonation_pipeline::masks::ShapeWeight;
-use photonation_pipeline::plan::{ColorPlan, DevelopPlan, RenderPlan, SelectionPlan};
+use photonation_pipeline::plan::{
+    ColorPlan, DevelopPlan, LocalContrastPlan, RenderPlan, SelectionPlan,
+};
 
 /// 32-bit words for a GPU buffer.
 #[derive(Default)]
@@ -248,6 +250,21 @@ pub fn point_colors(plan: &DevelopPlan) -> Words {
     if points.is_empty() {
         (0..3).for_each(|_| words.floats([0.0; 4]));
     }
+    words
+}
+
+/// The local contrast shader's `Contrast` uniform.
+pub fn local_contrast(plan: &LocalContrastPlan) -> Words {
+    let mut words = Words::default();
+    words.floats([plan.clarity, plan.texture, 0.0, 0.0]);
+    words.vec3(plan.luma);
+    words
+}
+
+/// The local contrast shader's `Box` uniform.
+pub fn box_radius(radius: usize) -> Words {
+    let mut words = Words::default();
+    words.uints([radius as u32, 0, 0, 0]);
     words
 }
 

@@ -27,6 +27,7 @@ fn shaders_validate() {
         ("develop", DEVELOP_SHADER),
         ("resize", RESIZE_SHADER),
         ("finish", FINISH_SHADER),
+        ("local_contrast", LOCAL_CONTRAST_SHADER),
     ] {
         let module = naga::front::wgsl::parse_str(source)
             .unwrap_or_else(|e| panic!("{name}.wgsl: {}", e.emit_to_string(source)));
@@ -320,14 +321,44 @@ fn unsupported_renders_say_so() {
         .render(&sensor, &Settings::default(), &fills, &sixteen)
         .expect_err("16-bit");
     assert!(error.is_unsupported(), "{error}");
-    let textured = Settings {
-        texture: 30.0,
+    let straightened = Settings {
+        crop_angle: 3.0,
         ..Settings::default()
     };
     let error = gpu
-        .render(&sensor, &textured, &fills, &full_size())
-        .expect_err("Texture");
+        .render(&sensor, &straightened, &fills, &full_size())
+        .expect_err("straightened");
     assert!(error.is_unsupported(), "{error}");
+}
+
+#[test]
+fn texture_and_clarity_match() {
+    for (clarity, texture) in [(60.0, 0.0), (0.0, 70.0), (-50.0, 40.0), (100.0, -100.0)] {
+        let settings = Settings {
+            clarity,
+            texture,
+            ..busy_settings()
+        };
+        // Large enough that the radii exceed one pixel; previews blur at
+        // half size.
+        for opts in [full_size(), preview(150)] {
+            assert_matches_cpu(bayer(640, 420), &settings, &opts);
+        }
+    }
+}
+
+#[test]
+fn texture_and_clarity_with_masks_and_orientation_match() {
+    let settings = Settings {
+        clarity: 45.0,
+        texture: 25.0,
+        ..masked_settings()
+    };
+    for exif in [1, 6] {
+        let mut sensor = bayer(500, 330);
+        sensor.orientation = Orientation::from_exif(exif);
+        assert_matches_cpu(sensor, &settings, &preview(200));
+    }
 }
 
 fn radial(center: [f64; 2], radius: [f64; 2], rotation: f32, feather: f32) -> MaskShape {
@@ -470,7 +501,16 @@ fn timings_at_24_megapixels() {
             start.elapsed().as_secs_f64() * 1e3 / runs as f64
         );
     };
-    for (edits, settings) in [("global", busy_settings()), ("3 masks", masked_settings())] {
+    let clarity = Settings {
+        clarity: 40.0,
+        texture: 30.0,
+        ..masked_settings()
+    };
+    for (edits, settings) in [
+        ("global", busy_settings()),
+        ("3 masks", masked_settings()),
+        ("3 masks, Texture, Clarity", clarity),
+    ] {
         for (size, opts) in [("full size", full_size()), ("1600 px", preview(1600))] {
             time(&format!("CPU {size}, {edits}"), &mut || {
                 photonation_pipeline::render(&sensor, &settings, &opts).expect("CPU")

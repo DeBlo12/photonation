@@ -6,6 +6,8 @@
 //! ```text
 //! mosaic (u16 texture, uploaded once per photo)
 //!   ─▶ develop.wgsl: normalize + WB + demosaic + develop (with masks) + output gamut
+//!   ─▶ local_contrast.wgsl: √luma, box blurs, detail added back
+//!                                                  (Texture or Clarity ≠ 0)
 //!   ─▶ resize.wgsl: Lanczos-3 rows, columns        (when the size changes)
 //!   ─▶ finish.wgsl: encode ─▶ sharpen rows, columns (when sharpening)
 //!                  ─▶ pack into RGB8, display orientation ─▶ read back
@@ -14,8 +16,8 @@
 //! Every parameter and table comes from [`photonation_pipeline::render_plan`],
 //! so the GPU renders with exactly the CPU's settings; the shaders transcribe
 //! the per-pixel maths. The CPU pipeline is the reference: tests compare
-//! the two. Renders a plan can't describe yet (Texture and Clarity,
-//! straightened crops, removals) and 16-bit output return
+//! the two. Renders a plan can't describe yet (straightened crops,
+//! removals) and 16-bit output return
 //! [`GpuError::Unsupported`]; callers render those on the CPU.
 
 mod params;
@@ -23,17 +25,24 @@ mod params;
 use params::Words;
 use photonation_develop::Settings;
 use photonation_image::{BitDepth, OutputImage, Pixels, SensorImage, SensorLayout};
+use photonation_pipeline::plan::LocalContrastPlan;
 use photonation_pipeline::{PlanError, RemovalFills, RenderOptions, RenderPlan, render_plan};
 use std::sync::{Arc, Weak};
 
 const DEVELOP_SHADER: &str = include_str!("develop.wgsl");
 const RESIZE_SHADER: &str = include_str!("resize.wgsl");
 const FINISH_SHADER: &str = include_str!("finish.wgsl");
+const LOCAL_CONTRAST_SHADER: &str = include_str!("local_contrast.wgsl");
 
 /// Side of the 2D passes' square workgroups.
 const TILE: u32 = 16;
 /// Invocations per workgroup of the pack pass.
 const PACK_GROUP: u32 = 256;
+/// Invocations per workgroup of the box blur passes.
+const BOX_GROUP: u32 = 256;
+/// Largest box radius the blur passes' shared memory holds (Clarity on a
+/// 24 000-pixel long edge); keep in step with `local_contrast.wgsl`.
+const MAX_BOX_RADIUS: usize = 192;
 
 #[derive(Debug, thiserror::Error)]
 pub enum GpuError {
@@ -65,6 +74,10 @@ struct Pipelines {
     sharpen_rows: wgpu::ComputePipeline,
     sharpen_columns: wgpu::ComputePipeline,
     pack: wgpu::ComputePipeline,
+    lightness: wgpu::ComputePipeline,
+    box_rows: wgpu::ComputePipeline,
+    box_columns: wgpu::ComputePipeline,
+    combine: wgpu::ComputePipeline,
 }
 
 impl Pipelines {
@@ -78,6 +91,7 @@ impl Pipelines {
         let develop = module("develop", DEVELOP_SHADER);
         let resize = module("resize", RESIZE_SHADER);
         let finish = module("finish", FINISH_SHADER);
+        let local_contrast = module("local contrast", LOCAL_CONTRAST_SHADER);
         let pipeline = |module: &wgpu::ShaderModule, entry_point| {
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some(entry_point),
@@ -96,6 +110,10 @@ impl Pipelines {
             sharpen_rows: pipeline(&finish, "sharpen_rows"),
             sharpen_columns: pipeline(&finish, "sharpen_columns"),
             pack: pipeline(&finish, "pack"),
+            lightness: pipeline(&local_contrast, "lightness"),
+            box_rows: pipeline(&local_contrast, "box_rows"),
+            box_columns: pipeline(&local_contrast, "box_columns"),
+            combine: pipeline(&local_contrast, "combine"),
         }
     }
 }
@@ -185,6 +203,13 @@ impl GpuRenderer {
             .unwrap_or(0);
         if largest > max_side {
             return Err(GpuError::Unsupported("images this large"));
+        }
+        if let Some(contrast) = &plan.local_contrast
+            && contrast.clarity_radius.max(contrast.texture_radius) > MAX_BOX_RADIUS
+        {
+            return Err(GpuError::Unsupported(
+                "Texture and Clarity on images this large",
+            ));
         }
 
         let out_of_memory = self.device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
@@ -306,6 +331,12 @@ impl GpuRenderer {
             &develop_group,
             tiles(plan.source_size),
         );
+        let developed = match &plan.local_contrast {
+            None => developed,
+            Some(contrast) => {
+                self.local_contrast(&mut encoder, contrast, plan.source_size, &developed)
+            }
+        };
 
         let linear = match &plan.resize {
             None => developed,
@@ -438,6 +469,76 @@ impl GpuRenderer {
         encoder.copy_buffer_to_buffer(&packed, 0, &readback, 0, buffer_size);
         self.queue.submit([encoder.finish()]);
         readback
+    }
+
+    /// Records Texture and Clarity on `developed` (`size` pixels); returns
+    /// the result.
+    fn local_contrast(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        contrast: &LocalContrastPlan,
+        size: (usize, usize),
+        developed: &wgpu::Texture,
+    ) -> wgpu::Texture {
+        let pipelines = &self.pipelines;
+        let amounts = self.uniform("local contrast", &params::local_contrast(contrast));
+        let lightness = self.image("lightness", size, LUMA);
+        let lightness_group = self.bind_group(
+            &pipelines.lightness,
+            &[
+                (0, amounts.clone()),
+                (2, view(developed)),
+                (4, view(&lightness)),
+            ],
+        );
+        dispatch(encoder, &pipelines.lightness, &lightness_group, tiles(size));
+
+        // Box passes along rows, then columns, ping-ponging between two planes.
+        let (width, height) = (size.0 as u32, size.1 as u32);
+        let blur = |encoder: &mut wgpu::CommandEncoder, radius: usize| {
+            let radius = self.uniform("box radius", &params::box_radius(radius));
+            let planes = [
+                self.image("blur", size, LUMA),
+                self.image("blur", size, LUMA),
+            ];
+            let rows = (width.div_ceil(BOX_GROUP), height);
+            let columns = (width, height.div_ceil(BOX_GROUP));
+            let passes =
+                std::iter::repeat_n((&pipelines.box_rows, rows), contrast.box_passes).chain(
+                    std::iter::repeat_n((&pipelines.box_columns, columns), contrast.box_passes),
+                );
+            let mut input = &lightness;
+            for (index, (pipeline, groups)) in passes.enumerate() {
+                let output = &planes[index % 2];
+                let group = self.bind_group(
+                    pipeline,
+                    &[(1, radius.clone()), (3, view(input)), (4, view(output))],
+                );
+                dispatch(encoder, pipeline, &group, groups);
+                input = output;
+            }
+            input.clone()
+        };
+        let clarity_base =
+            (contrast.clarity != 0.0).then(|| blur(encoder, contrast.clarity_radius));
+        let texture_base =
+            (contrast.texture != 0.0).then(|| blur(encoder, contrast.texture_radius));
+
+        let contrasted = self.image("local contrast", size, RGBA);
+        let combine_group = self.bind_group(
+            &pipelines.combine,
+            &[
+                (0, amounts),
+                (2, view(developed)),
+                (5, view(&lightness)),
+                // An unused base is never read; any plane will do.
+                (6, view(clarity_base.as_ref().unwrap_or(&lightness))),
+                (7, view(texture_base.as_ref().unwrap_or(&lightness))),
+                (8, view(&contrasted)),
+            ],
+        );
+        dispatch(encoder, &pipelines.combine, &combine_group, tiles(size));
+        contrasted
     }
 
     /// Waits for the render and copies its output to the CPU.

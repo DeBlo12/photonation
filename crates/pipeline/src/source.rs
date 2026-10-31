@@ -105,6 +105,14 @@ impl<'a> SensorSource<'a> {
         self.region
     }
 
+    /// Per channel: black level and gain (see [`crate::plan::RenderPlan`]).
+    pub fn levels(&self) -> ([f32; 3], [f32; 3]) {
+        (
+            self.levels.map(|level| level.black),
+            self.levels.map(|level| level.gain),
+        )
+    }
+
     fn pattern(&self) -> &CfaPattern {
         match &self.sensor.layout {
             SensorLayout::Cfa(pattern) => pattern,

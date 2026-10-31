@@ -5,6 +5,7 @@
 //! are perceptually even and colours don't fringe.
 
 use crate::band::{Band, Stage, clamp_index};
+use crate::plan::SharpenPlan;
 use std::ops::Range;
 
 pub struct Sharpen {
@@ -26,6 +27,14 @@ impl Sharpen {
         Sharpen {
             amount: amount / 100.0,
             kernel,
+        }
+    }
+
+    pub fn plan(&self) -> SharpenPlan {
+        SharpenPlan {
+            amount: self.amount,
+            kernel: self.kernel.clone(),
+            luma: LUMA,
         }
     }
 

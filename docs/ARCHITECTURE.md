@@ -15,17 +15,20 @@ WebAssembly build.
 | L1 | `photonation-raw` | Raw decoding (adapter over rawler) → `SensorImage` |
 | L1 | `photonation-export` | JPEG/PNG/TIFF encoders with ICC profiles (moxcms) and EXIF/XMP metadata |
 | L1 | `photonation-retouch` | Inpainting for removals: content-aware fill (PatchMatch) and, with feature `onnx`, neural models via tract. See [RETOUCH.md](RETOUCH.md) |
-| L2 | `photonation-pipeline` | The develop pipeline: `SensorImage` + `Settings` → `OutputImage` |
-| L3 | `photonation-engine` | Session services: background preview/thumbnail/export workers, history, histogram |
-| L4 | `apps/desktop` | The egui editor (`photonation-desktop` binary) |
-| L4 | `apps/cli` | Batch export and inspection (`photonation` binary) |
+| L2 | `photonation-pipeline` | The develop pipeline: `SensorImage` + `Settings` → `OutputImage`; `render_plan` describes a render as data |
+| L3 | `photonation-gpu` | The pipeline as wgpu compute shaders, run from a `RenderPlan` and checked against the CPU |
+| L4 | `photonation-engine` | Session services: background preview/thumbnail/export workers, history, histogram |
+| L5 | `apps/desktop` | The egui editor (`photonation-desktop` binary) |
+| L5 | `apps/cli` | Batch export and inspection (`photonation` binary) |
 
 ```text
 apps/desktop ──┐        apps/cli
                ▼           │
         photonation-engine ◀┘
-          │      │      │
-          ▼      ▼      ▼
+          │      │      │   ╲
+          │      │      │    ▼
+          │      │      │   gpu        (previews; feature `gpu`)
+          ▼      ▼      ▼  ╱
    pipeline   raw   export
           │      │      │
           ▼      ▼      ▼
@@ -58,8 +61,10 @@ apps/desktop ──┐        apps/cli
   through the stage chain with exactly the halo each stage needs. No full-size
   intermediate exists, so a 24 MP render peaks at roughly the raw mosaic (≈50 MB)
   plus the output buffer. See [PIPELINE.md](PIPELINE.md).
-- **CPU reference first.** The CPU pipeline is the specification. A future GPU
-  (wgpu) path must match it; tests compare against it.
+- **CPU reference first.** The CPU pipeline is the specification. The GPU
+  (wgpu) path renders from a plan the CPU code builds and must match it;
+  tests compare the two (see [PIPELINE.md](PIPELINE.md) §8). Exports stay
+  on the CPU.
 - **Process versions.** Each sidecar records the rendering process it was made
   with, so improving the look never changes existing edits.
 - **Non-destructive, file-based.** Originals are read-only; sidecars sit beside

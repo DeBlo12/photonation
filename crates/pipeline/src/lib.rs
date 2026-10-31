@@ -20,6 +20,7 @@ mod develop;
 mod encode;
 mod local_contrast;
 pub mod masks;
+pub mod plan;
 pub mod point_color;
 mod resize;
 pub mod retouch;
@@ -30,6 +31,7 @@ mod tone;
 
 pub use camera::{CameraModel, WORKING, neutral_to_temp_tint};
 pub use color::nearest_mixer_band;
+pub use plan::{PlanError, RenderPlan, render_plan};
 pub use retouch::{
     RemovalCanvas, RemovalFills, RemovalJob, RetouchPatch, removal_canvas, removal_jobs,
 };
@@ -354,9 +356,7 @@ fn build_graph<'a>(
     opts: &RenderOptions,
 ) -> Graph<'a> {
     let region = framing.region();
-    let full_size = framing.size();
-    let half_size_is_enough = target.0 * 2 <= full_size.0 && target.1 * 2 <= full_size.1;
-    let demosaic = Demosaic::choose(&sensor.layout, half_size_is_enough);
+    let demosaic = demosaic_for(sensor, framing, target);
     let camera = CameraModel::new(sensor, &settings.white_balance);
     let source = source::SensorSource::new(sensor, region, camera.wb_multipliers, demosaic);
     let source_region = source.region();
@@ -411,6 +411,14 @@ fn build_graph<'a>(
         )));
     }
     graph
+}
+
+/// The demosaic method for rendering `framing` at `target` size: half size
+/// whenever that still covers the output.
+fn demosaic_for(sensor: &SensorImage, framing: &Framing, target: (usize, usize)) -> Demosaic {
+    let full_size = framing.size();
+    let half_size_is_enough = target.0 * 2 <= full_size.0 && target.1 * 2 <= full_size.1;
+    Demosaic::choose(&sensor.layout, half_size_is_enough)
 }
 
 /// Resamples the developed source (`input` pixels covering `source_region`

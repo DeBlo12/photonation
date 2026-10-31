@@ -23,6 +23,7 @@ photonation-pipeline = { path = "crates/pipeline" }
 photonation-export = { path = "crates/export" }
 photonation-engine = { path = "crates/engine" }
 photonation-retouch = { path = "crates/retouch" }
+photonation-gpu = { path = "crates/gpu" }
 
 # foundation
 thiserror = "2"
@@ -48,6 +49,11 @@ moxcms = { version = "0.9", default-features = false }
 
 # neural inpainting: pure-Rust ONNX runtime (MIT OR Apache-2.0)
 tract-onnx = "0.23.9"
+
+# GPU rendering (the same wgpu eframe draws with)
+wgpu = { version = "30.0", default-features = false, features = ["std", "wgsl", "dx12", "metal", "vulkan"] }
+# Blocks on wgpu's adapter, device and error-scope futures.
+pollster = "1.0"
 
 # desktop app
 eframe = "0.37"
@@ -78,4 +84,7 @@ opt-level = 3
 opt-level = 3
 
 [profile.dev.package.photonation-color]
+opt-level = 3
+
+[profile.dev.package.photonation-gpu]
 opt-level = 3

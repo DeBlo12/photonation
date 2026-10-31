@@ -22,6 +22,8 @@
 - Desktop editor (toolbar, viewer with zoom/compare, filmstrip, adjustment cards, export sheet)
   in the Photonation brand (Ink surfaces, Photon amber, Inter and Sora, the iris on the welcome screen)
 - CLI: info, export, edit
+- GPU previews (wgpu compute) for every global adjustment, checked against
+  the CPU pipeline
 
 ## Next
 
@@ -48,8 +50,10 @@
 
 ## Platform
 
-- **GPU path** (wgpu compute) for real-time previews at any zoom, validated
-  against the CPU pipeline.
+- **GPU path, continued**: masks, Texture and Clarity, straightened crops and
+  removal fills on the GPU, so every preview renders there; then draw
+  previews straight from the GPU texture instead of reading them back, and
+  reuse intermediate textures between renders.
 - **Web app**: build the egui UI and engine for `wasm32` (WebGL/WebGPU, files
   through the browser's file APIs, OPFS for sidecars and caches). The core
   crates are already free of platform code; threads need a Web Worker pool.

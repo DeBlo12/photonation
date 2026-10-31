@@ -5,7 +5,7 @@
 //!
 //! ```text
 //! mosaic (u16 texture, uploaded once per photo)
-//!   ─▶ develop.wgsl: normalize + WB + demosaic + develop + output gamut
+//!   ─▶ develop.wgsl: normalize + WB + demosaic + develop (with masks) + output gamut
 //!   ─▶ resize.wgsl: Lanczos-3 rows, columns        (when the size changes)
 //!   ─▶ finish.wgsl: encode ─▶ sharpen rows, columns (when sharpening)
 //!                  ─▶ pack into RGB8, display orientation ─▶ read back
@@ -14,7 +14,7 @@
 //! Every parameter and table comes from [`photonation_pipeline::render_plan`],
 //! so the GPU renders with exactly the CPU's settings; the shaders transcribe
 //! the per-pixel maths. The CPU pipeline is the reference: tests compare
-//! the two. Renders a plan can't describe yet (masks, Texture and Clarity,
+//! the two. Renders a plan can't describe yet (Texture and Clarity,
 //! straightened crops, removals) and 16-bit output return
 //! [`GpuError::Unsupported`]; callers render those on the CPU.
 
@@ -283,6 +283,7 @@ impl GpuRenderer {
 
         let developed = self.image("developed", plan.source_size, RGBA);
         let tone_tables: Vec<f32> = plan.develop.tone.tables.concat();
+        let (masks, shapes) = params::masks(&plan.develop);
         let develop_group = self.bind_group(
             &pipelines.develop,
             &[
@@ -295,6 +296,8 @@ impl GpuRenderer {
                     self.storage("point colours", &params::point_colors(&plan.develop)),
                 ),
                 (5, view(&developed)),
+                (6, self.storage("masks", &masks)),
+                (7, self.storage("mask shapes", &shapes)),
             ],
         );
         dispatch(

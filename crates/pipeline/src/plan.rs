@@ -11,6 +11,7 @@
 //! [`PlanError::Unsupported`]; callers render those on the CPU.
 
 use crate::band::Source;
+use crate::masks::{LocalAmounts, MaskWeight};
 use crate::{
     Demosaic, Framing, RemovalFills, RenderOptions, camera::CameraModel, develop::Develop,
     encode::Encode, local_contrast::LocalContrast, masks, resize::Resize, retouch, scaled_size,
@@ -55,7 +56,11 @@ pub struct DevelopPlan {
     pub mid_grey: f32,
     pub max_tone_shift_ev: f32,
     pub tone: TonePlan,
+    /// Working RGB → LMS, LMS′ → Lab, Lab → LMS′, LMS → working RGB.
+    pub oklab: [[[f32; 3]; 3]; 4],
     pub color: Option<ColorPlan>,
+    /// The masks' local adjustments; `None` without active masks.
+    pub local: Option<LocalPlan>,
     pub working_to_output: [[f32; 3]; 3],
     pub output_luminance: [f32; 3],
 }
@@ -72,8 +77,6 @@ pub struct TonePlan {
 /// The Oklab colour step (see `color.rs`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct ColorPlan {
-    /// Working RGB → LMS, LMS′ → Lab, Lab → LMS′, LMS → working RGB.
-    pub oklab: [[[f32; 3]; 3]; 4],
     /// Oklab hue (degrees) at the centre of each mixer band.
     pub band_hues: [f32; 8],
     pub mixer: Option<[MixerBand; 8]>,
@@ -120,6 +123,43 @@ pub struct SelectionPlan {
     pub hue_shift: f32,
     pub chroma_gain: f32,
     pub lightness_shift: f32,
+}
+
+/// Every active mask and where each source pixel sits in mask space (see
+/// `masks.rs`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct LocalPlan {
+    /// Metric mask point of source pixel (x, y):
+    /// `origin + x · step_x + y · step_y`.
+    pub origin: [f32; 2],
+    pub step_x: [f32; 2],
+    pub step_y: [f32; 2],
+    pub masks: Vec<MaskPlan>,
+    pub limits: LocalLimits,
+}
+
+/// One mask: its selection and its adjustments at full selection (amount
+/// and group already applied).
+#[derive(Clone, Debug, PartialEq)]
+pub struct MaskPlan {
+    pub weight: MaskWeight,
+    pub amounts: LocalAmounts,
+}
+
+/// The develop stage's scales and caps for summed local amounts.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LocalLimits {
+    /// Haze removed at Dehaze 100 (also the global scale).
+    pub max_haze: f32,
+    /// Stops Temperature (red/blue) or Tint (green) move at 100.
+    pub max_white_balance_ev: f32,
+    /// Change of the contrast exponent at Contrast 100.
+    pub max_contrast: f32,
+    /// Caps on the summed exposure (stops) and tone amounts (fractions).
+    pub max_exposure_ev: f32,
+    pub max_tone_amount: f32,
+    /// Saturation local Dehaze restores per unit.
+    pub dehaze_saturation: f32,
 }
 
 /// Separable Lanczos-3 weights (see `resize.rs`).
@@ -180,11 +220,12 @@ pub fn render_plan(
     if retouch::applies(&settings.removals, fills) {
         return Err(PlanError::Unsupported("removals"));
     }
-    let positions = masks::PixelToMask::new(sensor, source_region, source_size);
-    if masks::LocalAdjust::new(&settings.masks, &settings.mask_groups, sensor, positions).is_some()
-    {
-        return Err(PlanError::Unsupported("masks"));
-    }
+    let local = masks::LocalAdjust::new(
+        &settings.masks,
+        &settings.mask_groups,
+        sensor,
+        masks::PixelToMask::new(sensor, source_region, source_size),
+    );
     if LocalContrast::new(settings.clarity, settings.texture, source_size).is_some() {
         return Err(PlanError::Unsupported("Texture and Clarity"));
     }
@@ -194,6 +235,7 @@ pub fn render_plan(
         sensor.baseline_exposure,
         opts.color_space,
     )
+    .with_local_adjustments(local)
     .with_point_color_overlay(&settings, opts.point_color_overlay);
     let (black, gain) = source.levels();
     Ok(RenderPlan {

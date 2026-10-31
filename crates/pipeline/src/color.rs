@@ -182,7 +182,6 @@ impl ColorAdjust {
             None => (Vec::new(), None),
         };
         ColorPlan {
-            oklab: self.oklab.matrices(),
             band_hues: BAND_HUES,
             mixer: self.mixer.as_ref().map(|bands| bands.each_ref().map(band)),
             grading: self.grading.as_ref().map(Grading::plan),

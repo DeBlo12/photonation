@@ -5,8 +5,10 @@
 //! layouts mirror the WGSL structs field by field; every field is a
 //! 16-byte row, so no padding rules come into play.
 
+use photonation_develop::CombineMode;
 use photonation_image::{Orientation, SensorLayout};
 use photonation_pipeline::Demosaic;
+use photonation_pipeline::masks::ShapeWeight;
 use photonation_pipeline::plan::{ColorPlan, DevelopPlan, RenderPlan, SelectionPlan};
 
 /// 32-bit words for a GPU buffer.
@@ -112,7 +114,6 @@ pub fn develop(plan: &DevelopPlan) -> Words {
         plan.tone.tables[0].len() as f32,
     ]);
     let empty = ColorPlan {
-        oklab: [[[0.0; 3]; 3]; 4],
         band_hues: [0.0; 8],
         mixer: None,
         grading: None,
@@ -134,7 +135,7 @@ pub fn develop(plan: &DevelopPlan) -> Words {
         if color.overlay.is_some() { 1.0 } else { 0.0 },
         0.0,
     ]);
-    color.oklab.iter().for_each(|matrix| words.matrix(matrix));
+    plan.oklab.iter().for_each(|matrix| words.matrix(matrix));
     for hues in color.band_hues.chunks_exact(4) {
         words.floats([hues[0], hues[1], hues[2], hues[3]]);
     }
@@ -158,7 +159,81 @@ pub fn develop(plan: &DevelopPlan) -> Words {
         Some(overlay) => selection(&mut words, overlay),
         None => (0..3).for_each(|_| words.floats([0.0; 4])),
     }
+    match &plan.local {
+        Some(local) => {
+            let limits = &local.limits;
+            words.uints([1, local.masks.len() as u32, 0, 0]);
+            words.floats([
+                local.origin[0],
+                local.origin[1],
+                local.step_x[0],
+                local.step_x[1],
+            ]);
+            words.floats([local.step_y[0], local.step_y[1], 0.0, 0.0]);
+            words.floats([
+                limits.max_haze,
+                limits.max_white_balance_ev,
+                limits.max_contrast,
+                limits.dehaze_saturation,
+            ]);
+            words.floats([limits.max_exposure_ev, limits.max_tone_amount, 0.0, 0.0]);
+        }
+        None => (0..5).for_each(|_| words.uints([0; 4])),
+    }
     words
+}
+
+/// The develop shader's `masks` and `shapes` arrays (never empty).
+pub fn masks(plan: &DevelopPlan) -> (Words, Words) {
+    let (mut masks, mut shapes) = (Words::default(), Words::default());
+    let mut shape_count = 0;
+    for mask in plan.local.iter().flat_map(|local| &local.masks) {
+        let components = &mask.weight.components;
+        masks.uints([
+            shape_count,
+            components.len() as u32,
+            u32::from(mask.weight.invert),
+            0,
+        ]);
+        let a = &mask.amounts;
+        masks.floats([a.exposure, a.temperature, a.tint, a.contrast]);
+        masks.floats([a.highlights, a.shadows, a.dehaze, a.saturation]);
+        for (shape, mode) in components {
+            shape_words(&mut shapes, shape, *mode);
+        }
+        shape_count += components.len() as u32;
+    }
+    for words in [&mut masks, &mut shapes] {
+        if words.0.is_empty() {
+            (0..3).for_each(|_| words.uints([0; 4]));
+        }
+    }
+    (masks, shapes)
+}
+
+fn shape_words(words: &mut Words, shape: &ShapeWeight, mode: CombineMode) {
+    let mode = match mode {
+        CombineMode::Add => 0,
+        CombineMode::Subtract => 1,
+        CombineMode::Intersect => 2,
+    };
+    match *shape {
+        ShapeWeight::Linear { start, ramp } => {
+            words.floats([start[0], start[1], ramp[0], ramp[1]]);
+            words.floats([0.0; 4]);
+            words.uints([0, mode, 0, 0]);
+        }
+        ShapeWeight::Radial {
+            center,
+            axis_x,
+            axis_y,
+            fade_start,
+        } => {
+            words.floats([center[0], center[1], fade_start, 0.0]);
+            words.floats([axis_x[0], axis_x[1], axis_y[0], axis_y[1]]);
+            words.uints([1, mode, 0, 0]);
+        }
+    }
 }
 
 /// The develop shader's `point_colors` array (never empty: a binding

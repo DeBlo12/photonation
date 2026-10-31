@@ -7,7 +7,10 @@
 
 use super::*;
 use photonation_color::ColorSpace;
-use photonation_develop::{GradingWheel, Mask, OklabLch, PointColor, PointCurve};
+use photonation_develop::{
+    CombineMode, GradingWheel, LinearGradient, LocalAdjustments, Mask, MaskComponent, MaskGroup,
+    MaskShape, OklabLch, PointColor, PointCurve, RadialGradient,
+};
 use photonation_image::{CfaColor, CfaPattern, Orientation, Rect};
 use std::sync::{Mutex, OnceLock};
 
@@ -317,24 +320,134 @@ fn unsupported_renders_say_so() {
         .render(&sensor, &Settings::default(), &fills, &sixteen)
         .expect_err("16-bit");
     assert!(error.is_unsupported(), "{error}");
-    let mut masked = Settings::default();
-    masked.masks.push(Mask {
-        adjustments: photonation_develop::LocalAdjustments {
-            exposure: 1.0,
-            ..Default::default()
-        },
-        ..Mask::default()
-    });
     let textured = Settings {
         texture: 30.0,
         ..Settings::default()
     };
-    for settings in [masked, textured] {
-        let error = gpu
-            .render(&sensor, &settings, &fills, &full_size())
-            .expect_err("unsupported");
-        assert!(error.is_unsupported(), "{error}");
+    let error = gpu
+        .render(&sensor, &textured, &fills, &full_size())
+        .expect_err("Texture");
+    assert!(error.is_unsupported(), "{error}");
+}
+
+fn radial(center: [f64; 2], radius: [f64; 2], rotation: f32, feather: f32) -> MaskShape {
+    MaskShape::Radial(RadialGradient {
+        center,
+        radius,
+        rotation,
+        feather,
+    })
+}
+
+fn linear(start: [f64; 2], end: [f64; 2]) -> MaskShape {
+    MaskShape::Linear(LinearGradient { start, end })
+}
+
+/// Masks of every kind, combination and local adjustment, overlapping.
+fn masked_settings() -> Settings {
+    let mut settings = busy_settings();
+    let mut sky = Mask::new("Sky", linear([0.5, 0.1], [0.45, 0.55]));
+    sky.adjustments = LocalAdjustments {
+        exposure: -0.8,
+        temperature: -30.0,
+        highlights: -40.0,
+        dehaze: 35.0,
+        saturation: 25.0,
+        ..LocalAdjustments::default()
+    };
+    let mut ring = Mask::new("Ring", radial([0.45, 0.55], [0.35, 0.25], 30.0, 60.0));
+    ring.components.push(MaskComponent::new(
+        radial([0.45, 0.55], [0.12, 0.12], 0.0, 0.0),
+        CombineMode::Subtract,
+    ));
+    ring.adjustments = LocalAdjustments {
+        exposure: 0.6,
+        tint: 40.0,
+        contrast: 50.0,
+        shadows: 60.0,
+        ..LocalAdjustments::default()
+    };
+    ring.amount = 70.0;
+    let mut lens = Mask::new("Lens", radial([0.3, 0.4], [0.3, 0.3], 0.0, 40.0));
+    lens.components.push(MaskComponent::new(
+        linear([0.2, 0.2], [0.6, 0.7]),
+        CombineMode::Intersect,
+    ));
+    lens.components.push(MaskComponent::new(
+        radial([0.8, 0.8], [0.1, 0.2], 10.0, 0.0),
+        CombineMode::Add,
+    ));
+    lens.invert = true;
+    lens.group = Some(0);
+    lens.adjustments = LocalAdjustments {
+        temperature: 50.0,
+        contrast: -40.0,
+        dehaze: -30.0,
+        saturation: -60.0,
+        ..LocalAdjustments::default()
+    };
+    let mut group = MaskGroup::new("Background");
+    group.amount = 60.0;
+    settings.masks = vec![sky, ring, lens];
+    settings.mask_groups = vec![group];
+    settings
+}
+
+#[test]
+fn masks_match() {
+    for opts in [full_size(), preview(70)] {
+        assert_matches_cpu(bayer(160, 110), &masked_settings(), &opts);
     }
+    // The masks do change the photo, so the match means something.
+    let sensor = bayer(160, 110);
+    let render = |settings| photonation_pipeline::render(&sensor, settings, &full_size());
+    let (masked, plain) = (render(&masked_settings()), render(&busy_settings()));
+    assert_ne!(masked.expect("masked").pixels, plain.expect("plain").pixels);
+}
+
+#[test]
+fn masks_follow_orientation_and_crop() {
+    let settings = Settings {
+        crop: Some(photonation_image::NormRect {
+            left: 0.1,
+            top: 0.05,
+            right: 0.85,
+            bottom: 0.8,
+        }),
+        ..masked_settings()
+    };
+    for exif in [1, 3, 6, 8] {
+        let mut sensor = bayer(120, 80);
+        sensor.orientation = Orientation::from_exif(exif);
+        assert_matches_cpu(sensor, &settings, &preview(50));
+    }
+}
+
+#[test]
+fn masks_alone_match() {
+    // Masks without global colour work: the local saturation round trip
+    // is the only Oklab step.
+    let settings = Settings {
+        masks: masked_settings().masks,
+        ..Settings::default()
+    };
+    assert_matches_cpu(xtrans(96, 72), &settings, &full_size());
+}
+
+#[test]
+fn piled_up_masks_match() {
+    // Overlapping masks past the caps on summed amounts.
+    let mut settings = Settings::default();
+    let mut strong = Mask::new("Strong", radial([0.5, 0.5], [0.4, 0.4], 0.0, 80.0));
+    strong.adjustments = LocalAdjustments {
+        exposure: 4.0,
+        highlights: 100.0,
+        shadows: -100.0,
+        dehaze: 100.0,
+        ..LocalAdjustments::default()
+    };
+    settings.masks = vec![strong; 8];
+    assert_matches_cpu(bayer(100, 70), &settings, &full_size());
 }
 
 /// Wall-clock times at a real photo's size, both paths (run with
@@ -344,7 +457,6 @@ fn unsupported_renders_say_so() {
 fn timings_at_24_megapixels() {
     let Some(mut gpu) = renderer() else { return };
     let sensor = Arc::new(bayer(6024, 4020));
-    let settings = busy_settings();
     let fills = RemovalFills::new();
     let time = |label: &str, render: &mut dyn FnMut() -> OutputImage| {
         render(); // warm up: uploads, caches
@@ -358,12 +470,14 @@ fn timings_at_24_megapixels() {
             start.elapsed().as_secs_f64() * 1e3 / runs as f64
         );
     };
-    for (name, opts) in [("full size", full_size()), ("1600 px", preview(1600))] {
-        time(&format!("CPU {name}"), &mut || {
-            photonation_pipeline::render(&sensor, &settings, &opts).expect("CPU")
-        });
-        time(&format!("GPU {name}"), &mut || {
-            gpu.render(&sensor, &settings, &fills, &opts).expect("GPU")
-        });
+    for (edits, settings) in [("global", busy_settings()), ("3 masks", masked_settings())] {
+        for (size, opts) in [("full size", full_size()), ("1600 px", preview(1600))] {
+            time(&format!("CPU {size}, {edits}"), &mut || {
+                photonation_pipeline::render(&sensor, &settings, &opts).expect("CPU")
+            });
+            time(&format!("GPU {size}, {edits}"), &mut || {
+                gpu.render(&sensor, &settings, &fills, &opts).expect("GPU")
+            });
+        }
     }
 }

@@ -3,8 +3,8 @@
 
 //! The preview worker's renderer: on the GPU where it can (feature `gpu`,
 //! see `photonation-gpu`), else on the CPU pipeline. Renders the GPU path
-//! doesn't cover yet (masks, Texture and Clarity, straightened crops,
-//! removals) go to the CPU one by one; a GPU failure moves every later
+//! doesn't cover yet (Texture and Clarity, straightened crops, removals) go
+//! to the CPU one by one; a GPU failure moves every later
 //! preview to the CPU.
 
 use crate::service::{RenderedImage, render_rgb8};

@@ -3,8 +3,9 @@
 
 // The source and develop stages for one pixel of the demosaiced source:
 // normalize, white balance and demosaic (pipeline `source.rs`), then the
-// global develop steps (`develop.rs`, `tone.rs`, `color.rs`,
-// `point_color.rs`) and the output gamut. A transcription of the CPU
+// develop steps with the masks' local adjustments (`develop.rs`,
+// `masks.rs`, `tone.rs`, `color.rs`, `point_color.rs`) and the output
+// gamut. A transcription of the CPU
 // pipeline, which is the reference: keep the two in step (the crate's
 // tests compare them). Parameters come from `RenderPlan` (`params.rs`).
 
@@ -57,6 +58,16 @@ struct Develop {
     // x: pivot, y: transition half-width.
     grading_range: vec4<f32>,
     overlay: Selection,
+    // x: masks on, y: number of masks.
+    local: vec4<u32>,
+    // Metric mask point of pixel p:
+    // positions[0].xy + p.x · positions[0].zw + p.y · positions[1].xy.
+    positions: array<vec4<f32>, 2>,
+    // x: haze at Dehaze 100, y: white balance stops at 100, z: contrast
+    // exponent change at 100, w: saturation restored by Dehaze.
+    local_scales: vec4<f32>,
+    // x: cap on summed exposure (EV), y: on summed tone amounts.
+    local_caps: vec4<f32>,
 }
 
 @group(0) @binding(0) var mosaic: texture_2d<u32>;
@@ -65,6 +76,35 @@ struct Develop {
 @group(0) @binding(3) var<storage, read> tone_tables: array<f32>;
 @group(0) @binding(4) var<storage, read> point_colors: array<Selection>;
 @group(0) @binding(5) var developed: texture_storage_2d<rgba32float, write>;
+@group(0) @binding(6) var<storage, read> masks: array<MaskEntry>;
+@group(0) @binding(7) var<storage, read> shapes: array<Shape>;
+
+// Local adjustment amounts (pipeline `LocalAmounts`).
+struct Amounts {
+    // Exposure (EV), temperature, tint, contrast.
+    light: vec4<f32>,
+    // Highlights, shadows, dehaze, saturation.
+    tone: vec4<f32>,
+}
+
+// One mask (pipeline `MaskPlan`).
+struct MaskEntry {
+    // x: first entry in `shapes`, y: shape count, z: 1 when inverted.
+    shapes: vec4<u32>,
+    // At full selection, amount and group applied.
+    amounts: Amounts,
+}
+
+// One shape of a mask (pipeline `ShapeWeight`).
+struct Shape {
+    // Linear: start (xy), ramp (zw). Radial: centre (xy), fade start (z).
+    a: vec4<f32>,
+    // Radial: axis_x (xy), axis_y (zw), each divided by its radius.
+    b: vec4<f32>,
+    // x: 0 linear, 1 radial; y: how it combines with the shapes before
+    // it (0 add, 1 subtract, 2 intersect).
+    kind: vec4<u32>,
+}
 
 fn smooth_step(edge0: f32, edge1: f32, x: f32) -> f32 {
     let t = clamp((x - edge0) / (edge1 - edge0), 0.0, 1.0);
@@ -225,6 +265,70 @@ fn linear(x: u32, y: u32) -> vec3<f32> {
     return vec3<f32>(normalize(raw.r, 0u), normalize(raw.g, 1u), normalize(raw.b, 2u));
 }
 
+// ---- Masks --------------------------------------------------------------
+
+fn shape_weight(shape: Shape, point: vec2<f32>) -> f32 {
+    if shape.kind.x == 0u {
+        let t = (point.x - shape.a.x) * shape.a.z + (point.y - shape.a.y) * shape.a.w;
+        return 1.0 - smooth_step(0.0, 1.0, t);
+    }
+    let offset = point - shape.a.xy;
+    let x = offset.x * shape.b.x + offset.y * shape.b.y;
+    let y = offset.x * shape.b.z + offset.y * shape.b.w;
+    let distance = sqrt(x * x + y * y);
+    let fade_start = shape.a.z;
+    if fade_start >= 1.0 {
+        // No feather: a hard edge.
+        return select(0.0, 1.0, distance <= 1.0);
+    }
+    return 1.0 - smooth_step(fade_start, 1.0, distance);
+}
+
+// A mask's selection, 0..1: its shapes combined in order, maybe inverted.
+fn mask_weight(mask: MaskEntry, point: vec2<f32>) -> f32 {
+    var selected = 0.0;
+    for (var index = 0u; index < mask.shapes.y; index++) {
+        let shape = shapes[mask.shapes.x + index];
+        let weight = shape_weight(shape, point);
+        if index == 0u {
+            selected = weight;
+        } else if shape.kind.y == 0u {
+            selected = max(selected, weight);
+        } else if shape.kind.y == 1u {
+            selected = min(selected, 1.0 - weight);
+        } else {
+            selected = min(selected, weight);
+        }
+    }
+    if mask.shapes.z != 0u {
+        selected = 1.0 - selected;
+    }
+    return selected;
+}
+
+// The masks' adjustments at a pixel, each weighted by its selection.
+fn local_amounts(pixel: vec2<u32>) -> Amounts {
+    let x = f32(pixel.x);
+    let y = f32(pixel.y);
+    let origin = develop.positions[0].xy;
+    let step_x = develop.positions[0].zw;
+    let step_y = develop.positions[1].xy;
+    let point = vec2<f32>(
+        origin.x + x * step_x.x + y * step_y.x,
+        origin.y + x * step_x.y + y * step_y.y,
+    );
+    var sum = Amounts(vec4<f32>(0.0), vec4<f32>(0.0));
+    for (var index = 0u; index < develop.local.y; index++) {
+        let mask = masks[index];
+        let weight = mask_weight(mask, point);
+        if weight > 0.0 {
+            sum.light += mask.amounts.light * weight;
+            sum.tone += mask.amounts.tone * weight;
+        }
+    }
+    return sum;
+}
+
 // ---- Develop ------------------------------------------------------------
 
 fn dehaze(rgb: vec3<f32>, haze: f32) -> vec3<f32> {
@@ -236,14 +340,35 @@ fn dehaze(rgb: vec3<f32>, haze: f32) -> vec3<f32> {
     return rgb * (1.0 - veil) + veil;
 }
 
-fn highlights_shadows(rgb: vec3<f32>) -> vec3<f32> {
+fn highlights_shadows(rgb: vec3<f32>, highlights: f32, shadows: f32) -> vec3<f32> {
     let luminance = max(weighted_sum(develop.working_luminance, rgb), 1e-6);
     let stops = log2(luminance / develop.light.w);
     let shadow_weight = 1.0 - smooth_step(-4.0, 0.0, stops);
     let highlight_weight = smooth_step(-0.5, 2.5, stops);
-    let shift = develop.tone.x
-        * (develop.light.z * shadow_weight + develop.light.y * highlight_weight);
+    let shift = develop.tone.x * (shadows * shadow_weight + highlights * highlight_weight);
     return rgb * exp2(shift);
+}
+
+// Local Temperature/Tint as channel gains (warmer: more red, less blue;
+// magenta: less green) keeping a neutral's luminance, with local exposure.
+fn local_light(rgb: vec3<f32>, light: vec4<f32>) -> vec3<f32> {
+    let exposure = exp2(clamp(light.x, -develop.local_caps.x, develop.local_caps.x));
+    if light.y == 0.0 && light.z == 0.0 {
+        return rgb * exposure;
+    }
+    let warm = light.y * develop.local_scales.y / 2.0;
+    let magenta = light.z * develop.local_scales.y;
+    let balance = vec3<f32>(exp2(warm), exp2(-magenta), exp2(-warm));
+    let scale = exposure / weighted_sum(develop.working_luminance, balance);
+    return rgb * balance * scale;
+}
+
+// Local Contrast: steepens or flattens luminance around mid-grey in log space.
+fn local_contrast(rgb: vec3<f32>, contrast: f32) -> vec3<f32> {
+    let luminance = max(weighted_sum(develop.working_luminance, rgb), 1e-6);
+    let exponent = clamp(1.0 + contrast * develop.local_scales.z, 0.25, 2.0);
+    let grey = develop.light.w;
+    return rgb * (grey * pow(luminance / grey, exponent) / luminance);
 }
 
 fn tone(channel: u32, scene: f32) -> f32 {
@@ -408,6 +533,15 @@ fn apply_color(rgb: vec3<f32>) -> vec3<f32> {
     return from_oklab(lab);
 }
 
+// Local Saturation: scales Oklab chroma.
+fn saturate(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
+    var lab = to_oklab(max(rgb, vec3<f32>(0.0)));
+    let gain = max(1.0 + amount, 0.0);
+    lab.y *= gain;
+    lab.z *= gain;
+    return from_oklab(lab);
+}
+
 fn pull_toward(out: vec3<f32>, luminance: f32, t: f32) -> vec3<f32> {
     return luminance + (out - luminance) * t;
 }
@@ -432,17 +566,45 @@ fn to_output_gamut(rgb: vec3<f32>) -> vec3<f32> {
     return clamp(out, vec3<f32>(0.0), vec3<f32>(1.0));
 }
 
-fn develop_pixel(camera_rgb: vec3<f32>) -> vec3<f32> {
+// The develop steps for one pixel; with masks, their summed adjustments
+// join the global ones (`working_pixel::<true>`).
+fn develop_pixel(camera_rgb: vec3<f32>, pixel: vec2<u32>) -> vec3<f32> {
     var rgb = rows3(develop.camera_to_working, camera_rgb);
-    if develop.light.x != 0.0 {
-        rgb = dehaze(rgb, develop.light.x);
+    var haze = develop.light.x;
+    var highlights = develop.light.y;
+    var shadows = develop.light.z;
+    let masked = develop.local.x != 0u;
+    var local = Amounts(vec4<f32>(0.0), vec4<f32>(0.0));
+    if masked {
+        local = local_amounts(pixel);
+        if local.light.x != 0.0 || local.light.y != 0.0 || local.light.z != 0.0 {
+            rgb = local_light(rgb, local.light);
+        }
+        let max_tone = develop.local_caps.y;
+        let max_haze = max_tone * develop.local_scales.x;
+        haze = clamp(haze + local.tone.z * develop.local_scales.x, -max_haze, max_haze);
+        highlights = clamp(highlights + local.tone.x, -max_tone, max_tone);
+        shadows = clamp(shadows + local.tone.y, -max_tone, max_tone);
     }
-    if develop.light.y != 0.0 || develop.light.z != 0.0 {
-        rgb = highlights_shadows(rgb);
+    if haze != 0.0 {
+        rgb = dehaze(rgb, haze);
+    }
+    if highlights != 0.0 || shadows != 0.0 {
+        rgb = highlights_shadows(rgb, highlights, shadows);
+    }
+    if masked && local.light.w != 0.0 {
+        rgb = local_contrast(rgb, local.light.w);
     }
     rgb = vec3<f32>(tone(0u, rgb.x), tone(1u, rgb.y), tone(2u, rgb.z));
     if develop.color_flags.x != 0u {
         rgb = apply_color(rgb);
+    }
+    if masked {
+        // Like the global slider, local Dehaze restores washed-out colour.
+        let saturation = local.tone.w + develop.local_scales.w * local.tone.z;
+        if saturation != 0.0 {
+            rgb = saturate(rgb, saturation);
+        }
     }
     return to_output_gamut(rgb);
 }
@@ -468,6 +630,6 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
             camera = linear(id.x, id.y);
         }
     }
-    let developed_rgb = develop_pixel(max(camera, vec3<f32>(0.0)));
+    let developed_rgb = develop_pixel(max(camera, vec3<f32>(0.0)), id.xy);
     textureStore(developed, id.xy, vec4<f32>(developed_rgb, 1.0));
 }

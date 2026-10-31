@@ -22,8 +22,8 @@
 - Desktop editor (toolbar, viewer with zoom/compare, filmstrip, adjustment cards, export sheet)
   in the Photonation brand (Ink surfaces, Photon amber, Inter and Sora, the iris on the welcome screen)
 - CLI: info, export, edit
-- GPU previews (wgpu compute) for every global adjustment, checked against
-  the CPU pipeline
+- GPU previews (wgpu compute) for every global adjustment and masks,
+  checked against the CPU pipeline
 
 ## Next
 
@@ -50,7 +50,7 @@
 
 ## Platform
 
-- **GPU path, continued**: masks, Texture and Clarity, straightened crops and
+- **GPU path, continued**: Texture and Clarity, straightened crops and
   removal fills on the GPU, so every preview renders there; then draw
   previews straight from the GPU texture instead of reading them back, and
   reuse intermediate textures between renders.

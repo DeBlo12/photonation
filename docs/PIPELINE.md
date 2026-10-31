@@ -204,12 +204,13 @@ with wgpu compute shaders. It doesn't decide anything itself:
 `render_plan` (`plan.rs`) runs the setup of §1 with the same code as the
 band graph and returns every parameter and table as plain data (framing,
 demosaic method, levels, the develop matrices and amounts, tone tables,
-colour step, Lanczos taps, transfer table, sharpening kernel). The shaders
+colour step, the masks' prepared shapes and amounts with the pixel → mask
+space map, Lanczos taps, transfer table, sharpening kernel). The shaders
 transcribe only the per-pixel maths.
 
 | Pass | Shader | Present when |
 |---|---|---|
-| Source + develop + output gamut | `develop.wgsl` | always |
+| Source + develop (with masks) + output gamut | `develop.wgsl` | always |
 | Resize, rows then columns | `resize.wgsl` | output smaller than source |
 | Encode | `finish.wgsl: encode` | always |
 | Sharpen, rows then columns | `finish.wgsl: sharpen_*` | sharpening > 0 |
@@ -219,25 +220,34 @@ The raw mosaic is uploaded once per photo as a 16-bit texture and kept while
 the photo is edited; intermediates are `rgba32float` textures, so values
 match the CPU's `f32` bands. Only the packed output is read back.
 
-**Not yet on the GPU**: masks, Texture and Clarity, straightened crops,
-removal fills and 16-bit output. `render_plan` (or the renderer) returns
+Masks are evaluated per pixel in the develop pass exactly as on the CPU
+(`LocalAdjust::at`, then the masked steps of §5); they cost no measurable
+time there.
+
+**Not yet on the GPU**: Texture and Clarity, straightened crops, removal
+fills and 16-bit output. `render_plan` (or the renderer) returns
 `Unsupported` for those, and callers render them on the CPU.
 
 **Validation.** The CPU pipeline is the reference. The crate's tests render
 the same synthetic photos on both paths (Bayer at full size and half size,
 X-Trans, linear DNG, every orientation, crops, custom white balance, every
-global adjustment, other output spaces, the point colour overlay) and allow
+global adjustment, masks of every shape, combination and local adjustment,
+groups and piled-up masks, other output spaces, the point colour overlay)
+and allow
 at most 2 levels of difference per 8-bit sample and 0.01 on average (in
 practice the outputs are bit-identical but for a few samples off by one).
 Without a graphics adapter the renders are skipped; the shaders are still
 validated with naga.
 
-24 MP Bayer mosaic with every global adjustment set (RTX 5080, Windows):
+24 MP Bayer mosaic with every global adjustment set, without and with three
+overlapping masks (RTX 5080, Windows):
 
 | Render | CPU | GPU (incl. readback) |
 |---|---|---|
-| Full size | ~1340 ms | ~50 ms |
-| 1600 px | ~265 ms | ~10 ms |
+| Full size | ~1470 ms | ~53 ms |
+| 1600 px | ~330 ms | ~10 ms |
+| Full size, 3 masks | ~1730 ms | ~53 ms |
+| 1600 px, 3 masks | ~390 ms | ~10 ms |
 
 `cargo test --release -p photonation-gpu -- --ignored --nocapture` prints
 these timings.

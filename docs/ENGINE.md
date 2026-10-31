@@ -33,7 +33,7 @@ loop:
   renders on the GPU (docs/PIPELINE.md §8) and on the CPU whatever the GPU
   path doesn't cover yet (straightened crops, removals). A GPU error moves all later previews to the CPU.
   `PHOTONATION_GPU_RENDER=off` keeps previews on the CPU. Services made with
-  `with_decoder` or `with_parts` (tests) render on the CPU. Thumbnails,
+  `on_cpu`, `with_decoder` or `with_parts` (tests) render on the CPU. Thumbnails,
   pickers and exports always use the CPU.
 
 - **Latest wins**: intermediate slider positions are skipped, never queued, so

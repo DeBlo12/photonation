@@ -193,6 +193,13 @@ impl RenderService {
         RenderService::start(Arc::new(RawDecoder), retoucher, true, notify)
     }
 
+    /// Like [`RenderService::new`], but previews render on the CPU and no
+    /// GPU device is opened.
+    pub fn on_cpu(notify: impl Fn() + Send + Sync + 'static) -> RenderService {
+        let retoucher = Arc::new(Retoucher::new(default_model_path()));
+        RenderService::start(Arc::new(RawDecoder), retoucher, false, notify)
+    }
+
     /// A service that reads photos with `decoder` instead of the raw decoder.
     pub fn with_decoder(
         decoder: Arc<dyn Decoder>,

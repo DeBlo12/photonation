@@ -33,11 +33,21 @@ changes to CI alone are not released.
 
 ### Changed
 
+- Without a generative model, the Remove panel links the LaMa download, shows
+  its SHA-256 to check it against, opens the models folder and checks again
+  without a restart. The download can keep its own name
+  (`lama_fp32.onnx`) when it is the only model in the folder.
+
 - Thumbnails show the camera's embedded preview at once, then
   Photonation's rendering, which is kept in a disk cache (up to 512 MB) so
   folders open with their renders next time.
 
 ### Fixed
+
+- With the masks, crop or Remove tool open, the grid button (or G, N, the
+  filter chip) flashed the grid for a moment and closed it again. Now the
+  grid waits: a message names the tool to finish first, and its panel is
+  outlined.
 
 - Curve points follow the pointer for the whole drag; before, they stopped
   after the first few pixels. A quick drag on a point moves it instead of

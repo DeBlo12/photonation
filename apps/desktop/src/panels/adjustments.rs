@@ -33,6 +33,8 @@ const BAND_SWATCHES: [Color32; 8] = [
 ];
 const TEMPERATURE_RANGE: std::ops::RangeInclusive<f32> = 2000.0..=12000.0;
 const TINT_RANGE: std::ops::RangeInclusive<f32> = -150.0..=150.0;
+/// How long the inspector is outlined when the grid waits for its tool.
+const TOOL_WARNING_SECONDS: f32 = 1.4;
 
 pub fn show(app: &mut PhotonationApp, ui: &mut Ui) {
     egui::Panel::right("adjustments")
@@ -51,11 +53,34 @@ pub fn show(app: &mut PhotonationApp, ui: &mut Ui) {
                 }),
         )
         .show(ui, |ui| {
-            theme::inspector_frame().show(ui, |ui| {
+            let frame = theme::inspector_frame().show(ui, |ui| {
                 ui.set_min_size(ui.available_size());
                 inspector(app, ui);
             });
+            tool_warning(app, ui, frame.response.rect);
         });
+}
+
+/// Outlines the inspector with two fading pulses while the grid or
+/// survey waits for the open tool to close (`PhotonationApp::open_grid`).
+fn tool_warning(app: &mut PhotonationApp, ui: &Ui, rect: egui::Rect) {
+    let Some(since) = app.view.tool_warning else {
+        return;
+    };
+    let t = since.elapsed().as_secs_f32() / TOOL_WARNING_SECONDS;
+    if t >= 1.0 || app.view.open_tool().is_none() {
+        app.view.tool_warning = None;
+        return;
+    }
+    let pulse = 0.5 + 0.5 * (t * 2.0 * std::f32::consts::TAU).cos();
+    let stroke = egui::Stroke::new(2.0, theme::ACCENT.gamma_multiply(pulse * (1.0 - t)));
+    ui.painter().rect_stroke(
+        rect,
+        theme::INSPECTOR_RADIUS,
+        stroke,
+        egui::StrokeKind::Inside,
+    );
+    ui.ctx().request_repaint();
 }
 
 fn inspector(app: &mut PhotonationApp, ui: &mut Ui) {

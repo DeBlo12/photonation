@@ -203,6 +203,9 @@ pub struct ViewState {
     pub show_removals: bool,
     /// Filter, sort, selection, and the grid and survey views.
     pub library: crate::library::LibraryView,
+    /// When the open tool's panel was last outlined because the grid or
+    /// survey waited for it to close.
+    pub tool_warning: Option<Instant>,
     /// Index into `settings.removals`.
     pub selected_removal: Option<usize>,
     pub removal_brush: RemovalBrush,
@@ -250,6 +253,7 @@ impl Default for ViewState {
             mask_thumbnails: Default::default(),
             show_removals: false,
             library: Default::default(),
+            tool_warning: None,
             selected_removal: None,
             removal_brush: RemovalBrush::default(),
             painting: None,
@@ -284,12 +288,29 @@ impl ViewState {
     }
 
     /// Masks, crop and Remove share the sidebar and the photo's pointer
-    /// input, so at most one is open.
+    /// input, so at most one is open. They need the editor, so the grid
+    /// and survey close too.
     fn close_tools(&mut self) {
         self.show_masks = false;
         self.cropping = false;
         self.show_removals = false;
         self.painting = None;
+        self.library.grid = false;
+        self.library.survey = false;
+        self.tool_warning = None;
+    }
+
+    /// The open editing tool's name and the key that closes it.
+    pub fn open_tool(&self) -> Option<(&'static str, &'static str)> {
+        if self.show_masks {
+            Some(("Masks", "M"))
+        } else if self.cropping {
+            Some(("Crop", "R"))
+        } else if self.show_removals {
+            Some(("Remove", "Q"))
+        } else {
+            None
+        }
     }
 
     /// The point colour whose range the viewer shows, if any: only while
@@ -768,7 +789,18 @@ impl PhotonationApp {
                     self.last_requested = None;
                     self.filling_removals = false;
                 }
-                Event::ModelStatus(status) => self.model_status = Some(status),
+                Event::ModelStatus(status) => {
+                    // A model found after start-up redoes the fills made
+                    // without it (the engine dropped them).
+                    let was_ready = self
+                        .model_status
+                        .as_ref()
+                        .is_some_and(ModelStatus::is_ready);
+                    if status.is_ready() && !was_ready && !self.settings.removals.is_empty() {
+                        self.refresh();
+                    }
+                    self.model_status = Some(status);
+                }
                 Event::ColorPicked { path, color } if Some(&path) == self.current_path() => {
                     self.color_picked(color)
                 }
@@ -1025,11 +1057,6 @@ impl eframe::App for PhotonationApp {
         self.arrange_photos();
         crate::library::shortcuts(self, &ctx);
         self.shortcuts(&ctx);
-        // The editor's tools need the editor.
-        if self.view.show_masks || self.view.cropping || self.view.show_removals {
-            self.view.library.grid = false;
-            self.view.library.survey = false;
-        }
 
         let settings_before = self.settings.clone();
         let disabled_before = self.view.disabled.clone();

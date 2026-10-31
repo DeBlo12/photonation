@@ -70,6 +70,9 @@ impl Screenshot {
         if std::env::var_os("PHOTONATION_SCREENSHOT_CROP").is_some() {
             view.cropping = true;
         }
+        if std::env::var_os("PHOTONATION_SCREENSHOT_REMOVE").is_some() {
+            view.show_removals = true;
+        }
         if std::env::var_os("PHOTONATION_SCREENSHOT_EXPORT").is_some() {
             view.show_export = true;
         }

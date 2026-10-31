@@ -209,7 +209,7 @@ fn library_buttons(app: &mut PhotonationApp, ui: &mut egui::Ui) {
         let tip = "Filtered\nThe filmstrip and ← → go through the photos the filter shows. \
                    Click to change the filter in the grid.";
         if tool_button(ui, &text, true, tip).clicked() {
-            app.view.library.grid = true;
+            app.open_grid();
         }
     }
 }

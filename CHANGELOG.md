@@ -18,6 +18,14 @@ changes to CI alone are not released.
   it; photos edited before keep their look and offer **Update to Process
   2** in the inspector. Previews render it on the GPU as well.
 
+### Changed
+
+- Straightened crops and removals preview on the graphics card too, so
+  every preview renders there: a straightened 24 MP photo previews in about
+  10 ms instead of 470 ms on the CPU, one with removals in about 11 ms
+  instead of 330 ms. Slider drags on those photos are as smooth as on any
+  other.
+
 ## [0.16.0] - 2026-11-01
 
 ### Added

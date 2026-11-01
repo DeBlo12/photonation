@@ -2,8 +2,8 @@
 // Copyright (C) 2026 The Photonation contributors
 
 // The source and develop stages for one pixel of the demosaiced source:
-// normalize, white balance and demosaic (pipeline `source.rs`), then the
-// develop steps with the masks' local adjustments (`develop.rs`,
+// normalize, white balance and demosaic (pipeline `source.rs`), removal
+// fills blended in (`retouch.rs`), then the develop steps with the masks' local adjustments (`develop.rs`,
 // `masks.rs`, `tone.rs`, `color.rs`, `point_color.rs`) and the output
 // gamut. A transcription of the CPU
 // pipeline, which is the reference: keep the two in step (the crate's
@@ -83,6 +83,25 @@ struct Develop {
 @group(0) @binding(5) var developed: texture_storage_2d<rgba32float, write>;
 @group(0) @binding(6) var<storage, read> masks: array<MaskEntry>;
 @group(0) @binding(7) var<storage, read> shapes: array<Shape>;
+@group(0) @binding(8) var<uniform> retouch: Retouch;
+// Per removal four entries, then one per stroke, then one per stroke
+// point (see `Retouch`); integers are stored as their bits.
+@group(0) @binding(9) var<storage, read> removals: array<vec4<f32>>;
+// Every fill's linear camera RGB before white balance, interleaved.
+@group(0) @binding(10) var<storage, read> patches: array<f32>;
+
+// Removal fills (pipeline `RetouchPlan`).
+struct Retouch {
+    // Metric mask point of pixel p:
+    // positions[0].xy + p.x · positions[0].zw + p.y · positions[1].xy.
+    positions: array<vec4<f32>, 2>,
+    // xy: sensor position of pixel (0, 0)'s corner; zw: sensor pixels per pixel.
+    sensor: vec4<f32>,
+    wb_multipliers: vec4<f32>,
+    clip: vec4<f32>,
+    // x: removals; y: index of the first stroke entry; z: of the first point.
+    counts: vec4<u32>,
+}
 
 // Local adjustment amounts (pipeline `LocalAmounts`).
 struct Amounts {
@@ -132,6 +151,121 @@ fn rows3(m: array<vec4<f32>, 3>, v: vec3<f32>) -> vec3<f32> {
 
 fn weighted_sum(weights: vec4<f32>, v: vec3<f32>) -> f32 {
     return weights.x * v.x + weights.y * v.y + weights.z * v.z;
+}
+
+// ---- Removal fills --------------------------------------------------------
+
+fn distance_to_polyline(point: vec2<f32>, first: u32, count: u32) -> f32 {
+    let start = removals[retouch.counts.z + first].xy;
+    if count == 1u {
+        return length(point - start);
+    }
+    var nearest = 3.4e38;
+    for (var index = 1u; index < count; index++) {
+        let a = removals[retouch.counts.z + first + index - 1u].xy;
+        let b = removals[retouch.counts.z + first + index].xy;
+        let direction = b - a;
+        let length_squared = direction.x * direction.x + direction.y * direction.y;
+        var along = 0.0;
+        if length_squared > 0.0 {
+            along = clamp(
+                ((point.x - a.x) * direction.x + (point.y - a.y) * direction.y) / length_squared,
+                0.0,
+                1.0,
+            );
+        }
+        nearest = min(nearest, length(point - (a + along * direction)));
+    }
+    return nearest;
+}
+
+// A removal's brush weight at a metric point (pipeline `RemovalWeight::at`).
+fn removal_weight(removal: u32, point: vec2<f32>) -> f32 {
+    let bounds = removals[removal * 4u];
+    if point.x < bounds.x || point.x > bounds.z || point.y < bounds.y || point.y > bounds.w {
+        return 0.0;
+    }
+    let strokes = bitcast<vec4<u32>>(removals[removal * 4u + 1u]);
+    var weight = 0.0;
+    for (var index = 0u; index < strokes.y; index++) {
+        let stroke = removals[retouch.counts.y + strokes.x + index];
+        let points = bitcast<vec2<u32>>(stroke.xy);
+        let radius = stroke.z;
+        let fade_start = stroke.w;
+        let distance = distance_to_polyline(point, points.x, points.y);
+        var stroke_weight = 0.0;
+        if distance <= fade_start {
+            stroke_weight = 1.0;
+        } else if distance < radius {
+            stroke_weight = 1.0 - smooth_step(fade_start, radius, distance);
+        }
+        weight = max(weight, stroke_weight);
+        if weight >= 1.0 {
+            break;
+        }
+    }
+    return weight;
+}
+
+// Bilinear sample of a removal's fill at a sensor position (pixel centres
+// at +0.5; pipeline `RetouchPatch::sample`).
+fn patch_sample(removal: u32, sensor_position: vec2<f32>) -> vec3<f32> {
+    let rect = removals[removal * 4u + 2u];
+    let fill = bitcast<vec4<u32>>(removals[removal * 4u + 3u]);
+    let width = fill.y;
+    let height = fill.z;
+    let u = clamp(
+        (sensor_position.x - rect.x) / rect.z * f32(width) - 0.5,
+        0.0,
+        f32(width - 1u),
+    );
+    let v = clamp(
+        (sensor_position.y - rect.y) / rect.w * f32(height) - 0.5,
+        0.0,
+        f32(height - 1u),
+    );
+    let x0 = u32(u);
+    let y0 = u32(v);
+    let x1 = min(x0 + 1u, width - 1u);
+    let y1 = min(y0 + 1u, height - 1u);
+    let fx = u - f32(x0);
+    let fy = v - f32(y0);
+    var rgb = vec3<f32>(0.0);
+    for (var channel = 0u; channel < 3u; channel++) {
+        let a = patches[fill.x + (y0 * width + x0) * 3u + channel];
+        let b = patches[fill.x + (y0 * width + x1) * 3u + channel];
+        let c = patches[fill.x + (y1 * width + x0) * 3u + channel];
+        let d = patches[fill.x + (y1 * width + x1) * 3u + channel];
+        let top = a + (b - a) * fx;
+        let bottom = c + (d - c) * fx;
+        rgb[channel] = top + (bottom - top) * fy;
+    }
+    return rgb;
+}
+
+// Blends each removal's fill into the demosaiced pixel, in order, white
+// balanced and clipped as the source does.
+fn apply_removals(camera_in: vec3<f32>, pixel: vec2<u32>) -> vec3<f32> {
+    var camera = camera_in;
+    let p = vec2<f32>(pixel);
+    let point = retouch.positions[0].xy + p.x * retouch.positions[0].zw
+        + p.y * retouch.positions[1].xy;
+    let sensor_position = retouch.sensor.xy + (p + vec2<f32>(0.5)) * retouch.sensor.zw;
+    for (var removal = 0u; removal < retouch.counts.x; removal++) {
+        let weight = removal_weight(removal, point);
+        if weight <= 0.0 {
+            continue;
+        }
+        let fill = patch_sample(removal, sensor_position);
+        for (var channel = 0u; channel < 3u; channel++) {
+            let value = min(
+                fill[channel] * retouch.wb_multipliers[channel],
+                retouch.clip[channel],
+            );
+            camera[channel] += (value - camera[channel]) * weight;
+        }
+    }
+    return camera;
 }
 
 // ---- Source -------------------------------------------------------------
@@ -674,6 +808,10 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
             camera = linear(id.x, id.y);
         }
     }
-    let developed_rgb = develop_pixel(max(camera, vec3<f32>(0.0)), id.xy);
+    camera = max(camera, vec3<f32>(0.0));
+    if retouch.counts.x != 0u {
+        camera = apply_removals(camera, id.xy);
+    }
+    let developed_rgb = develop_pixel(camera, id.xy);
     textureStore(developed, id.xy, vec4<f32>(developed_rgb, 1.0));
 }

@@ -10,7 +10,8 @@ use photonation_image::{Orientation, SensorLayout};
 use photonation_pipeline::Demosaic;
 use photonation_pipeline::masks::ShapeWeight;
 use photonation_pipeline::plan::{
-    ColorPlan, DevelopPlan, LocalContrastPlan, RenderPlan, SelectionPlan,
+    ColorPlan, DevelopPlan, LocalContrastPlan, RenderPlan, RetouchPlan, SelectionPlan,
+    StraightenPlan,
 };
 
 /// 32-bit words for a GPU buffer.
@@ -258,6 +259,93 @@ pub fn point_colors(plan: &DevelopPlan) -> Words {
     if points.is_empty() {
         (0..3).for_each(|_| words.floats([0.0; 4]));
     }
+    words
+}
+
+/// The develop shader's `Retouch` uniform and `removals` entries (never
+/// empty), with the offset of each removal's fill in the `patches` buffer
+/// built by [`patches`].
+pub fn retouch(plan: Option<&RetouchPlan>) -> (Words, Words) {
+    let (mut uniform, mut entries) = (Words::default(), Words::default());
+    let Some(plan) = plan else {
+        (0..6).for_each(|_| uniform.uints([0; 4]));
+        entries.uints([0; 4]);
+        return (uniform, entries);
+    };
+    uniform.floats([
+        plan.origin[0],
+        plan.origin[1],
+        plan.step_x[0],
+        plan.step_x[1],
+    ]);
+    uniform.floats([plan.step_y[0], plan.step_y[1], 0.0, 0.0]);
+    uniform.floats([
+        plan.sensor_origin[0],
+        plan.sensor_origin[1],
+        plan.sensor_step[0],
+        plan.sensor_step[1],
+    ]);
+    uniform.vec3(plan.wb_multipliers);
+    uniform.vec3(plan.clip);
+
+    let mut strokes = Words::default();
+    let mut points = Words::default();
+    let (mut stroke_count, mut point_count, mut patch_offset) = (0u32, 0u32, 0u32);
+    for removal in &plan.removals {
+        let weight = &removal.weight;
+        let patch = &removal.patch;
+        entries.floats(weight.bounds);
+        entries.uints([stroke_count, weight.strokes.len() as u32, 0, 0]);
+        let rect = patch.sensor_rect;
+        entries.floats([rect.x, rect.y, rect.w, rect.h].map(|v| v as f32));
+        entries.uints([patch_offset, patch.width as u32, patch.height as u32, 0]);
+        for stroke in &weight.strokes {
+            strokes.uints([
+                point_count,
+                stroke.points.len() as u32,
+                stroke.radius.to_bits(),
+                stroke.fade_start.to_bits(),
+            ]);
+            for point in &stroke.points {
+                points.floats([point[0], point[1], 0.0, 0.0]);
+            }
+            point_count += stroke.points.len() as u32;
+        }
+        stroke_count += weight.strokes.len() as u32;
+        patch_offset += patch.rgb.len() as u32;
+    }
+    let removal_entries = 4 * plan.removals.len() as u32;
+    uniform.uints([
+        plan.removals.len() as u32,
+        removal_entries,
+        removal_entries + stroke_count,
+        0,
+    ]);
+    entries.0.extend(strokes.0);
+    entries.0.extend(points.0);
+    (uniform, entries)
+}
+
+/// Every fill's samples, in the order [`retouch`] gives their offsets.
+pub fn patches(plan: &RetouchPlan) -> Words {
+    Words(
+        plan.removals
+            .iter()
+            .flat_map(|removal| removal.patch.rgb.iter().map(|v| v.to_bits()))
+            .collect(),
+    )
+}
+
+/// The straighten shader's `Frame` uniform.
+pub fn straighten(plan: &StraightenPlan) -> Words {
+    let mut words = Words::default();
+    words.floats([
+        plan.origin[0],
+        plan.origin[1],
+        plan.step_x[0],
+        plan.step_x[1],
+    ]);
+    words.floats([plan.step_y[0], plan.step_y[1], 0.0, 0.0]);
     words
 }
 

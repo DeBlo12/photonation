@@ -8,10 +8,12 @@
 use super::*;
 use photonation_color::ColorSpace;
 use photonation_develop::{
-    CombineMode, GradingWheel, LinearGradient, LocalAdjustments, Mask, MaskComponent, MaskGroup,
-    MaskShape, OklabLch, PointColor, PointCurve, ProcessVersion, RadialGradient,
+    BrushStroke, CombineMode, GradingWheel, LinearGradient, LocalAdjustments, Mask, MaskComponent,
+    MaskGroup, MaskShape, OklabLch, PointColor, PointCurve, ProcessVersion, RadialGradient,
+    Removal, RemovalMethod,
 };
-use photonation_image::{CfaColor, CfaPattern, Orientation, Rect};
+use photonation_image::{CfaColor, CfaPattern, NormRect, Orientation, Rect};
+use photonation_pipeline::{removal_canvas, removal_jobs};
 use std::sync::{Mutex, OnceLock};
 
 /// Largest difference of any 8-bit sample: transcendental functions and
@@ -28,6 +30,7 @@ fn shaders_validate() {
         ("resize", RESIZE_SHADER),
         ("finish", FINISH_SHADER),
         ("local_contrast", LOCAL_CONTRAST_SHADER),
+        ("straighten", STRAIGHTEN_SHADER),
     ] {
         let module = naga::front::wgsl::parse_str(source)
             .unwrap_or_else(|e| panic!("{name}.wgsl: {}", e.emit_to_string(source)));
@@ -173,11 +176,21 @@ fn samples(image: &OutputImage) -> &[u8] {
 
 /// Renders on both paths and checks that they agree.
 fn assert_matches_cpu(sensor: SensorImage, settings: &Settings, opts: &RenderOptions) {
+    assert_matches_cpu_with_fills(&Arc::new(sensor), settings, &RemovalFills::new(), opts);
+}
+
+/// [`assert_matches_cpu`] with removal fills.
+fn assert_matches_cpu_with_fills(
+    sensor: &Arc<SensorImage>,
+    settings: &Settings,
+    fills: &RemovalFills,
+    opts: &RenderOptions,
+) {
     let Some(mut gpu) = renderer() else { return };
-    let sensor = Arc::new(sensor);
-    let cpu = photonation_pipeline::render(&sensor, settings, opts).expect("CPU render");
+    let cpu =
+        photonation_pipeline::render_with_fills(sensor, settings, fills, opts).expect("CPU render");
     let ours = gpu
-        .render(&sensor, settings, &RemovalFills::new(), opts)
+        .render(sensor, settings, fills, opts)
         .expect("GPU render");
     assert_eq!((ours.width, ours.height), (cpu.width, cpu.height));
     assert_eq!(ours.color_space, cpu.color_space);
@@ -322,26 +335,177 @@ fn new_photos_replace_the_uploaded_mosaic() {
 }
 
 #[test]
-fn unsupported_renders_say_so() {
+fn sixteen_bit_renders_say_so() {
     let Some(mut gpu) = renderer() else { return };
     let sensor = Arc::new(bayer(64, 48));
-    let fills = RemovalFills::new();
     let sixteen = RenderOptions {
         bit_depth: BitDepth::Sixteen,
         ..RenderOptions::default()
     };
     let error = gpu
-        .render(&sensor, &Settings::default(), &fills, &sixteen)
+        .render(
+            &sensor,
+            &Settings::default(),
+            &RemovalFills::new(),
+            &sixteen,
+        )
         .expect_err("16-bit");
     assert!(error.is_unsupported(), "{error}");
-    let straightened = Settings {
-        crop_angle: 3.0,
+}
+
+fn straightened(angle: f32) -> Settings {
+    Settings {
+        crop: Some(NormRect {
+            left: 0.1,
+            top: 0.15,
+            right: 0.8,
+            bottom: 0.9,
+        }),
+        crop_angle: angle,
+        ..busy_settings()
+    }
+}
+
+#[test]
+fn straightened_crops_match() {
+    for angle in [3.0, -12.5, 45.0] {
+        for opts in [full_size(), preview(60)] {
+            assert_matches_cpu(bayer(160, 110), &straightened(angle), &opts);
+        }
+    }
+    // No crop: the largest frame of the photo's aspect.
+    let uncropped = Settings {
+        crop_angle: -7.0,
         ..Settings::default()
     };
-    let error = gpu
-        .render(&sensor, &straightened, &fills, &full_size())
-        .expect_err("straightened");
-    assert!(error.is_unsupported(), "{error}");
+    assert_matches_cpu(bayer(120, 84), &uncropped, &full_size());
+}
+
+#[test]
+fn straightened_crops_follow_orientation_with_masks_and_local_contrast() {
+    let s = Settings {
+        clarity: 40.0,
+        texture: -30.0,
+        crop: straightened(8.0).crop,
+        crop_angle: 8.0,
+        ..masked_settings()
+    };
+    for orientation in [Orientation::Rotate90, Orientation::Rotate180] {
+        let mut sensor = bayer(150, 100);
+        sensor.orientation = orientation;
+        assert_matches_cpu(sensor, &s, &full_size());
+    }
+    assert_matches_cpu(xtrans(96, 72), &s, &preview(50));
+}
+
+/// A removal brushed across `center` (normalized display coordinates).
+fn removal_at(center: [f64; 2], radius: f64, feather: f32) -> Removal {
+    Removal {
+        feather,
+        ..Removal::new(
+            RemovalMethod::ContentAware,
+            BrushStroke {
+                points: vec![
+                    center,
+                    [center[0] + 0.08, center[1] + 0.03],
+                    [center[0] + 0.1, center[1] + 0.12],
+                ],
+                radius,
+            },
+        )
+    }
+}
+
+/// Fills every active removal of `settings` in order, like the engine,
+/// with a stand-in for the inpainter: the canvas mirrored, so the fill
+/// differs from the photo it covers.
+fn fill_all(sensor: &SensorImage, settings: &Settings) -> RemovalFills {
+    let mut fills = RemovalFills::new();
+    for job in removal_jobs(settings) {
+        let canvas = removal_canvas(sensor, settings, job.index, &fills).expect("canvas");
+        let rgb = &canvas.canvas.rgb;
+        let width = canvas.canvas.width;
+        let mirrored: Vec<f32> = rgb
+            .chunks_exact(width * 3)
+            .flat_map(|row| {
+                row.chunks_exact(3)
+                    .rev()
+                    .flatten()
+                    .copied()
+                    .collect::<Vec<f32>>()
+            })
+            .collect();
+        let patch = canvas.patch(&mirrored);
+        fills.insert(job.key, Arc::new(patch));
+    }
+    fills
+}
+
+#[test]
+fn removals_match() {
+    let sensor = Arc::new(SensorImage::highlight_pattern(160, 110));
+    let mut s = busy_settings();
+    s.removals = vec![
+        removal_at([0.3, 0.3], 0.08, 40.0),
+        removal_at([0.6, 0.5], 0.12, 80.0),
+        // Overlapping the first: fills apply in order.
+        removal_at([0.35, 0.35], 0.05, 0.0),
+    ];
+    let fills = fill_all(&sensor, &s);
+    assert_eq!(fills.len(), 3);
+    for process in [ProcessVersion::V1, ProcessVersion::V2] {
+        let s = Settings {
+            process,
+            ..s.clone()
+        };
+        for opts in [full_size(), preview(70)] {
+            assert_matches_cpu_with_fills(&sensor, &s, &fills, &opts);
+        }
+    }
+    // Straightened, turned and with only some removals filled.
+    let mut turned = Settings {
+        crop_angle: 6.0,
+        ..s.clone()
+    };
+    turned.removals.truncate(2);
+    let some = fill_all(
+        &sensor,
+        &Settings {
+            removals: turned.removals[..1].to_vec(),
+            ..turned.clone()
+        },
+    );
+    assert_matches_cpu_with_fills(&sensor, &turned, &some, &full_size());
+}
+
+#[test]
+fn removal_fills_stay_uploaded_until_they_change() {
+    let Some(mut gpu) = renderer() else { return };
+    let sensor = Arc::new(bayer(120, 84));
+    let s = Settings {
+        removals: vec![removal_at([0.4, 0.4], 0.1, 50.0)],
+        ..Settings::default()
+    };
+    let fills = fill_all(&sensor, &s);
+    let render = |gpu: &mut GpuRenderer, s: &Settings, fills: &RemovalFills| {
+        gpu.render(&sensor, s, fills, &full_size())
+            .expect("GPU render")
+    };
+    render(&mut gpu, &s, &fills);
+    let first = gpu.fills.as_ref().map(|fills| fills.buffer.clone());
+    let brighter = Settings {
+        exposure: 0.5,
+        ..s.clone()
+    };
+    render(&mut gpu, &brighter, &fills);
+    let second = gpu.fills.as_ref().map(|fills| fills.buffer.clone());
+    assert!(
+        first.is_some() && first == second,
+        "fills were uploaded again"
+    );
+    let refilled = fill_all(&sensor, &s);
+    render(&mut gpu, &s, &refilled);
+    assert!(gpu.fills.as_ref().map(|fills| fills.buffer.clone()) != first);
 }
 
 #[test]
@@ -501,7 +665,6 @@ fn piled_up_masks_match() {
 fn timings_at_24_megapixels() {
     let Some(mut gpu) = renderer() else { return };
     let sensor = Arc::new(bayer(6024, 4020));
-    let fills = RemovalFills::new();
     let time = |label: &str, render: &mut dyn FnMut() -> OutputImage| {
         render(); // warm up: uploads, caches
         let start = std::time::Instant::now();
@@ -519,14 +682,32 @@ fn timings_at_24_megapixels() {
         texture: 30.0,
         ..masked_settings()
     };
+    let straightened = Settings {
+        crop_angle: 3.0,
+        ..busy_settings()
+    };
+    let mut removed = busy_settings();
+    removed.removals = vec![
+        removal_at([0.3, 0.3], 0.05, 50.0),
+        removal_at([0.6, 0.5], 0.08, 50.0),
+    ];
+    let removal_fills = fill_all(&sensor, &removed);
     for (edits, settings) in [
         ("global", busy_settings()),
         ("3 masks", masked_settings()),
         ("3 masks, Texture, Clarity", clarity),
+        ("straightened 3°", straightened),
+        ("2 removals", removed),
     ] {
+        let fills = if settings.removals.is_empty() {
+            RemovalFills::new()
+        } else {
+            removal_fills.clone()
+        };
         for (size, opts) in [("full size", full_size()), ("1600 px", preview(1600))] {
             time(&format!("CPU {size}, {edits}"), &mut || {
-                photonation_pipeline::render(&sensor, &settings, &opts).expect("CPU")
+                photonation_pipeline::render_with_fills(&sensor, &settings, &fills, &opts)
+                    .expect("CPU")
             });
             time(&format!("GPU {size}, {edits}"), &mut || {
                 gpu.render(&sensor, &settings, &fills, &opts).expect("GPU")

@@ -2,9 +2,8 @@
 // Copyright (C) 2026 The Photonation contributors
 
 //! The preview worker's renderer: on the GPU where it can (feature `gpu`,
-//! see `photonation-gpu`), else on the CPU pipeline. Renders the GPU path
-//! doesn't cover yet (straightened crops, removals) go
-//! to the CPU one by one; a GPU failure moves every later
+//! see `photonation-gpu`), else on the CPU pipeline. Renders too large for
+//! the GPU go to the CPU one by one; a GPU failure moves every later
 //! preview to the CPU.
 
 use crate::service::{RenderedImage, render_rgb8};

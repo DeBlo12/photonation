@@ -21,6 +21,7 @@
 
 use crate::band::{Graph, Point, PointOp};
 use crate::masks::{PixelToMask, mask_space};
+use crate::plan::{RemovalPlan, RetouchPlan};
 use crate::resize::Resize;
 use crate::source::{Demosaic, SensorSource};
 use crate::{CameraModel, WORKING};
@@ -81,16 +82,18 @@ impl RetouchPatch {
 /// stroke, fading to none at the radius.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RemovalWeight {
-    strokes: Vec<StrokeWeight>,
+    pub strokes: Vec<StrokeWeight>,
     /// Metric bounds `[left, top, right, bottom]`; zero weight outside.
-    bounds: [f32; 4],
+    pub bounds: [f32; 4],
 }
 
+/// One brush stroke: a polyline and the distances where its weight starts
+/// to fade and reaches none.
 #[derive(Clone, Debug, PartialEq)]
-struct StrokeWeight {
-    points: Vec<[f32; 2]>,
-    radius: f32,
-    fade_start: f32,
+pub struct StrokeWeight {
+    pub points: Vec<[f32; 2]>,
+    pub radius: f32,
+    pub fade_start: f32,
 }
 
 impl RemovalWeight {
@@ -237,6 +240,28 @@ impl Retouch {
     }
 }
 
+impl Retouch {
+    fn plan(&self) -> RetouchPlan {
+        RetouchPlan {
+            origin: self.positions.origin,
+            step_x: self.positions.step_x,
+            step_y: self.positions.step_y,
+            sensor_origin: self.origin,
+            sensor_step: self.step,
+            wb_multipliers: self.wb_multipliers,
+            clip: self.clip,
+            removals: self
+                .removals
+                .iter()
+                .map(|removal| RemovalPlan {
+                    weight: removal.weight.clone(),
+                    patch: removal.patch.clone(),
+                })
+                .collect(),
+        }
+    }
+}
+
 impl PointOp for Retouch {
     fn apply(&self, y: usize, row: &mut [f32]) {
         let sensor_y = self.origin[1] + (y as f32 + 0.5) * self.step[1];
@@ -286,14 +311,30 @@ pub(crate) fn push_retouch(
     }
 }
 
-/// Whether any of `removals` has a fill in `fills` (the render then has a
-/// retouch stage).
-pub(crate) fn applies(removals: &[Removal], fills: &RemovalFills) -> bool {
-    !fills.is_empty()
-        && removal_chain_fingerprints(removals)
-            .into_iter()
-            .flatten()
-            .any(|key| fills.contains_key(&key))
+/// The retouch stage [`push_retouch`] would add, as data; `None` when it
+/// adds none.
+pub(crate) fn retouch_plan(
+    sensor: &SensorImage,
+    settings: &Settings,
+    fills: &RemovalFills,
+    source_region: Rect,
+    size: (usize, usize),
+    wb_multipliers: [f32; 3],
+    clip: [f32; 3],
+) -> Option<RetouchPlan> {
+    if fills.is_empty() {
+        return None;
+    }
+    Retouch::new(
+        sensor,
+        &settings.removals,
+        fills,
+        source_region,
+        size,
+        wb_multipliers,
+        clip,
+    )
+    .map(|stage| stage.plan())
 }
 
 /// A removal still to fill: its index in the (sanitized) settings and the

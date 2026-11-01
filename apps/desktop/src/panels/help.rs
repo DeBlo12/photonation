@@ -41,6 +41,7 @@ pub enum Page {
     GettingStarted,
     Library,
     Developing,
+    Presets,
     WhiteBalance,
     Light,
     Presence,
@@ -63,7 +64,12 @@ pub enum Page {
 const CHAPTERS: [(&str, &[Page]); 4] = [
     (
         "Basics",
-        &[Page::GettingStarted, Page::Library, Page::Developing],
+        &[
+            Page::GettingStarted,
+            Page::Library,
+            Page::Developing,
+            Page::Presets,
+        ],
     ),
     (
         "Adjustments",
@@ -94,10 +100,11 @@ const CHAPTERS: [(&str, &[Page]); 4] = [
 ];
 
 impl Page {
-    pub const ALL: [Page; 19] = [
+    pub const ALL: [Page; 20] = [
         Page::GettingStarted,
         Page::Library,
         Page::Developing,
+        Page::Presets,
         Page::WhiteBalance,
         Page::Light,
         Page::Presence,
@@ -121,6 +128,7 @@ impl Page {
             Page::GettingStarted => "Getting started",
             Page::Library => "Rating and culling",
             Page::Developing => "How a photo is developed",
+            Page::Presets => "Presets and copying settings",
             Page::WhiteBalance => "White Balance",
             Page::Light => "Light",
             Page::Presence => "Presence",
@@ -1498,6 +1506,83 @@ fn content(page: Page) -> Content {
             ],
             see_also: &[Page::Export],
         },
+        Page::Presets => Content {
+            lede: "Give many photos the same look: apply a preset, or copy one photo's \
+                   settings and paste them onto others."
+                .into(),
+            blocks: vec![
+                Block::Heading("Presets"),
+                term(
+                    "The Presets card",
+                    "sits at the top of the inspector; click its title to open it. Rest \
+                     the pointer on a preset to see it on the photo, click to apply it. \
+                     Edit › Apply Preset lists them too.",
+                ),
+                term(
+                    "A preset sets only its own settings.",
+                    "One saved with Exposure and Curves leaves the photo's white balance, \
+                     contrast and everything else as they were, so presets combine with \
+                     your own edits.",
+                ),
+                term(
+                    "Built in:",
+                    "the Photonation group sets the look (contrast, presence, colour, \
+                     curves, mixer and grading) and keeps each photo's own white \
+                     balance, exposure, highlights, shadows, whites and blacks. Moving \
+                     from one to another replaces the look; Natural takes it away again.",
+                ),
+                term(
+                    "New Preset",
+                    "(the + on the card, or Edit › New Preset…) saves the photo's \
+                     settings under a name and group. Tick the settings to include: white \
+                     balance and point colours are left out at first, since they belong \
+                     to one photo's light and colours.",
+                ),
+                term(
+                    "Import",
+                    "(on the card, or Edit › Import Presets…) adds Lightroom presets \
+                     (.xmp, from Lightroom Classic 7.3 on, or Camera Raw) and Photonation \
+                     presets (.json). The dialog opens in Lightroom's presets folder when \
+                     there is one. Lightroom features Photonation lacks, such as \
+                     profiles, grain and vignettes, are left out, so such presets look \
+                     different; a message says how many.",
+                ),
+                term(
+                    "Delete",
+                    "a preset of your own by right-clicking it; its file goes to the \
+                     system's bin. Photos it was applied to keep their settings.",
+                ),
+                Block::Heading("Copy and paste"),
+                term(
+                    "Copy Settings…",
+                    format!(
+                        "({}) asks which settings to copy, grouped like the cards. Crop, \
+                         masks and removals are left out at first: they fit one photo's \
+                         framing and content.",
+                        theme::SHORTCUT_COPY_SETTINGS
+                    ),
+                ),
+                term(
+                    "Paste Settings",
+                    format!(
+                        "({}) sets the copied settings on the photo and leaves the rest.",
+                        theme::SHORTCUT_PASTE_SETTINGS
+                    ),
+                ),
+                Block::Heading("Many photos at once"),
+                text(
+                    "Presets and Paste apply to the photo shown and every selected photo, \
+                     as ratings do: select photos in the grid or filmstrip with \
+                     Ctrl/⌘-click or Shift-click, then apply. The photo shown can be undone; \
+                     the others are saved straight away.",
+                ),
+                tip(
+                    "Edit one photo of a shoot, copy its settings, select the rest in the \
+                     grid (G) and paste. Then fine-tune exposure photo by photo.",
+                ),
+            ],
+            see_also: &[Page::Library, Page::Lightroom],
+        },
         Page::Lightroom => Content {
             lede: "Photos you edited in Lightroom open with their Lightroom settings, so \
                    you can carry on where you left off."
@@ -1516,8 +1601,9 @@ fn content(page: Page) -> Content {
                 ),
                 term(
                     "Not imported:",
-                    "masks, spot removal, noise reduction, lens corrections, Upright, \
-                     effects and black & white. A message names what was left out when the \
+                    "masks, spot removal, noise reduction, lens corrections, Upright and \
+                     effects. Black & white becomes Saturation −100, without Lightroom's \
+                     per-colour mix or toning. A message names what was left out when the \
                      photo opens.",
                 ),
                 text(
@@ -1537,7 +1623,7 @@ fn content(page: Page) -> Content {
                      catalog settings.",
                 ),
             ],
-            see_also: &[Page::GettingStarted, Page::Crop],
+            see_also: &[Page::GettingStarted, Page::Presets, Page::Crop],
         },
         Page::Shortcuts => Content {
             lede: "Letter and arrow keys work whenever you are not typing in a text field.".into(),
@@ -1570,6 +1656,11 @@ fn content(page: Page) -> Content {
                 Block::Heading("Editing"),
                 keys(&[theme::SHORTCUT_UNDO], "Undo"),
                 keys(&[theme::SHORTCUT_REDO], "Redo"),
+                keys(&[theme::SHORTCUT_COPY_SETTINGS], "Copy settings"),
+                keys(
+                    &[theme::SHORTCUT_PASTE_SETTINGS],
+                    "Paste settings (onto the selected photos too)",
+                ),
                 Block::Heading("View"),
                 keys(&["\\"], "Compare with the original"),
                 keys(&[theme::SHORTCUT_FIT], "Fit to window"),

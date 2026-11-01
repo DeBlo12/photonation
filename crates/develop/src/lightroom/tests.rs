@@ -259,3 +259,101 @@ fn sidecar_names_follow_lightroom() {
         PathBuf::from("/photos/IMG_0001.xmp")
     );
 }
+
+/// The shape of a Lightroom Classic preset (Settings folder): only the
+/// settings it was saved with, the name and group as `rdf:Alt`, and a
+/// creative profile under `crs:Look`.
+const MATTE_PRESET: &str = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Adobe XMP Core 7.0">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about=""
+    xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+   crs:PresetType="Normal"
+   crs:SupportsAmount2="True"
+   crs:Version="18.4"
+   crs:ProcessVersion="15.4"
+   crs:Contrast2012="-20"
+   crs:Shadows2012="+15"
+   crs:SaturationAdjustmentGreen="-35"
+   crs:SplitToningShadowHue="200"
+   crs:SplitToningShadowSaturation="12"
+   crs:ConvertToGrayscale="False"
+   crs:GrainAmount="25"
+   crs:HasSettings="True">
+   <crs:Name>
+    <rdf:Alt>
+     <rdf:li xml:lang="x-default">Faded Matte</rdf:li>
+    </rdf:Alt>
+   </crs:Name>
+   <crs:Group>
+    <rdf:Alt>
+     <rdf:li xml:lang="x-default">Film Looks</rdf:li>
+    </rdf:Alt>
+   </crs:Group>
+   <crs:Look>
+    <rdf:Description crs:Name="Adobe Vintage 07" crs:Amount="1"/>
+   </crs:Look>
+   <crs:ToneCurvePV2012>
+    <rdf:Seq>
+     <rdf:li>0, 30</rdf:li>
+     <rdf:li>255, 240</rdf:li>
+    </rdf:Seq>
+   </crs:ToneCurvePV2012>
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>"#;
+
+#[test]
+fn presets_apply_only_the_settings_they_hold() {
+    let imported = import_lightroom_preset(MATTE_PRESET, "file name")
+        .expect("parse")
+        .expect("settings");
+    let preset = &imported.preset;
+    assert_eq!(preset.name, "Faded Matte");
+    assert_eq!(preset.group, "Film Looks");
+    assert_eq!(
+        preset.parts,
+        [
+            SettingsPart::Contrast,
+            SettingsPart::Shadows,
+            SettingsPart::ToneCurve,
+            SettingsPart::ColorMixer,
+            SettingsPart::ColorGrading,
+        ]
+        .into()
+    );
+    assert_eq!(imported.not_imported, ["profile", "effects"]);
+
+    let photo = Settings {
+        exposure: 0.8,
+        contrast: 30.0,
+        ..Settings::default()
+    };
+    let applied = preset.applied_to(&photo);
+    assert_eq!(applied.exposure, 0.8, "not in the preset");
+    assert_eq!(applied.contrast, -20.0);
+    assert_eq!(applied.color_mixer.green.saturation, -35.0);
+    assert_eq!(applied.color_grading.shadows.hue, 200.0);
+    assert_eq!(
+        applied.tone_curve.master.0.first(),
+        Some(&[0.0, 30.0 / 255.0])
+    );
+}
+
+#[test]
+fn black_and_white_presets_desaturate_and_profiles_like_adobe_color_pass() {
+    let preset = MATTE_PRESET
+        .replace(
+            r#"crs:ConvertToGrayscale="False""#,
+            r#"crs:ConvertToGrayscale="True""#,
+        )
+        .replace("Adobe Vintage 07", "Adobe Color")
+        .replace("<crs:Name>", "<crs:Unnamed>")
+        .replace("</crs:Name>", "</crs:Unnamed>");
+    let imported = import_lightroom_preset(&preset, "BW 01")
+        .expect("parse")
+        .expect("settings");
+    assert_eq!(imported.preset.name, "BW 01", "named after the file");
+    assert!(imported.preset.parts.contains(&SettingsPart::Saturation));
+    assert_eq!(imported.preset.settings.saturation, -100.0);
+    assert_eq!(imported.not_imported, ["effects", "black & white toning"]);
+}

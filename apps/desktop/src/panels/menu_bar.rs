@@ -9,6 +9,7 @@ use crate::app::{PhotonationApp, Zoom};
 use crate::library::{EditedFilter, FlagFilter, LibraryChange, SortOrder};
 use crate::panels::help;
 use crate::panels::library_bar::BIN_NAME;
+use crate::panels::presets;
 use crate::theme;
 use crate::widgets::rating::label_key;
 use eframe::egui::{self, Button, Ui};
@@ -84,7 +85,37 @@ fn edit(app: &mut PhotonationApp, ui: &mut Ui) {
         app.redo();
     }
     ui.separator();
-    if item(ui, "Reset All Adjustments", "", app.current.is_some()) {
+    let has_photo = app.current.is_some();
+    if item(
+        ui,
+        "Copy Settings…",
+        theme::SHORTCUT_COPY_SETTINGS,
+        has_photo,
+    ) {
+        app.view.presets.show_copy = true;
+    }
+    let targets = app.rating_targets().len();
+    let paste = if targets > 1 {
+        format!("Paste Settings to {targets} Photos")
+    } else {
+        "Paste Settings".into()
+    };
+    let can_paste = has_photo && app.view.presets.copied.is_some();
+    if item(ui, &paste, theme::SHORTCUT_PASTE_SETTINGS, can_paste) {
+        app.paste_settings();
+    }
+    ui.separator();
+    ui.add_enabled_ui(has_photo, |ui| {
+        ui.menu_button("Apply Preset", |ui| presets::apply_menu(app, ui));
+    });
+    if item(ui, "New Preset…", "", has_photo) {
+        app.open_new_preset();
+    }
+    if item(ui, "Import Presets…", "", true) {
+        app.import_presets();
+    }
+    ui.separator();
+    if item(ui, "Reset All Adjustments", "", has_photo) {
         app.settings = Settings::default();
     }
 }

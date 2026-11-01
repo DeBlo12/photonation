@@ -29,6 +29,9 @@
   sidecar (Lightroom's imported), auto-advance, filter and sort, a grid
   with multi-select, a survey view of 2–8 photos, rejects to the system
   bin; embedded-preview thumbnails with a disk cache; a filmstrip scroll bar
+- Presets and copy/paste: settings parts copied on their own, presets that
+  apply only their parts, ten built-in looks, Lightroom `.xmp` presets
+  imported, hover previews, applied to every selected photo
 
 ## Next
 
@@ -45,7 +48,10 @@
    bounds miss a band, and fold local saturation into the colour step's Oklab
    round trip, to speed up masked renders.
 7. **Better demosaicing**: RCD or AMaZE for Bayer, Markesteijn for X-Trans.
-8. **Presets** and copy/paste of settings across photos.
+8. **Profiles**: a look stage after the camera matrix (Standard, Neutral,
+   Vivid, Monochrome as 3D lookup tables on CPU and GPU), selectable in
+   presets; a proper black & white treatment with a per-colour mix and
+   toning; presets with an Amount slider.
 9. **AVIF and JPEG XL export**; IPTC fields (title, caption, keywords) and
    the rating and label (`xmp:Rating`, `xmp:Label`) in export metadata.
 10. **Better removals**: one-click people selection (segmentation), dust

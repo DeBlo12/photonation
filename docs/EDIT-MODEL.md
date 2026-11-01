@@ -71,8 +71,11 @@ Checked against Lightroom's own exports: the frame sizes match to the pixel.
 Only the top-level properties of each `rdf:Description` are read, so a mask's
 own values (also `crs:` names) never leak into the global settings. Edits
 without an equivalent are listed in `not_imported` (masks, spot removal, noise
-reduction, lens corrections, upright, effects, black & white) and the editor
-names them when the photo opens. Values go through `Settings::sanitized`; DTDs
+reduction, lens corrections, upright, effects) and the editor names them when
+the photo opens. Black & white (`ConvertToGrayscale`) becomes Saturation −100,
+the nearest Photonation has; its per-colour mix (`GrayMixer*`) and any toning,
+which −100 removes too, are listed as "black & white mix" and "black & white
+toning". Values go through `Settings::sanitized`; DTDs
 are refused (no entity expansion) and the file is capped at
 `MAX_SIDECAR_BYTES`. Sliders share Lightroom's scales, but the rendering differs,
 so imported photos look similar rather than identical.
@@ -176,6 +179,70 @@ strokes of up to 1024 points, in mask space. The fill itself is not stored;
 it is recomputed from the raw file. Sanitizing caps the counts, drops
 non-finite points and clamps radii and feather. Details in
 [RETOUCH.md](RETOUCH.md).
+
+## Presets and copying settings (`presets.rs`, `built_in_presets.rs`)
+
+A `SettingsPart` is a piece of `Settings` that copies on its own, as in
+Lightroom's Copy Settings dialog: white balance; each Light, Presence and
+Color slider; the curves; the mixer bands; the point colours; colour
+grading; sharpening; the crop with its angle; the masks with their groups;
+the removals. `copy_parts` sets some parts of one photo's settings to
+another's and leaves the rest; `part.group()` names the card a part is on
+(`None` for the tools).
+
+`default_copy_parts` is everything but the tools, which fit one photo's
+framing and content; `default_preset_parts` also leaves out white balance
+and point colours, which belong to one photo's light and colours.
+
+A `Preset` is a name, a group, its `parts`, and settings that hold those
+parts (defaults elsewhere). `applied_to` copies just its parts, so a preset
+with Exposure leaves a photo's Contrast alone. The process version is not a
+part: a photo keeps its own (there is only V1 so far; a future process will
+decide how presets saved under the old one apply).
+
+**Files.** A user preset is a JSON file in the `presets` folder of the
+engine's data directory (`%APPDATA%\Photonation\presets`,
+`~/Library/Application Support/Photonation/presets`,
+`~/.local/share/photonation/presets`):
+
+```json
+{
+  "format": "photonation.preset",
+  "name": "Golden Hour",
+  "group": "User Presets",
+  "parts": ["exposure", "contrast", "tone_curve", "color_grading"],
+  "settings": { "exposure": 0.3, "contrast": 12.0 }
+}
+```
+
+`load_presets` reads every `*.json` there (capped at `MAX_SIDECAR_BYTES`
+each), sorted by group and name, and reports the files it could not read.
+Part names a build doesn't know are skipped and unknown fields ignored, so a
+preset from a newer build applies what it can. Names and groups are trimmed,
+stripped of control characters and capped at 64 characters.
+`save_new_preset` writes atomically under the preset's name with unsafe
+characters replaced (`B/W: high` → `B_W_ high.json`), numbering it when the
+name is taken.
+
+**Lightroom presets.** `import_preset_file` reads a `.json` preset or a
+Lightroom develop preset (`.xmp`, as Lightroom Classic 7.3 and later and
+Camera Raw save them; `import_lightroom_preset`). A Lightroom preset holds
+only the settings it was saved with, so its parts are the ones whose `crs:`
+properties are present (`Exposure2012` → Exposure, `ToneCurvePV2012*` or
+`Parametric*` → Curves, and so on); the values are read as for sidecars. Its
+name and group come from `crs:Name` and `crs:Group` (`rdf:Alt`), else the
+file name. Besides what sidecars leave out, a preset that picks a profile
+other than Adobe Color or Adobe Standard (`crs:Look`, `crs:CameraProfile`)
+lists "profile" in `not_imported`.
+
+**Built in** (`built_in_presets`): ten presets in the "Photonation" group:
+Natural, Vivid, Punchy, Soft, Faded, Warm Film, Cool, Black & White, Black
+& White Contrast and Black & White Soft. Each sets the same parts
+(Contrast, Texture, Clarity, Vibrance, Saturation, Curves, mixer bands and
+Color Grading), so moving from one to another replaces the look, and none
+touches white balance, exposure, highlights, shadows, whites, blacks,
+dehaze or sharpening, the photo's own corrections. Natural sets those
+parts to their defaults.
 
 ## Controls
 

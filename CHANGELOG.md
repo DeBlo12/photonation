@@ -8,6 +8,30 @@ changes to CI alone are not released.
 
 ## [Unreleased]
 
+### Added
+
+- Presets: a Presets card at the top of the inspector and Edit › Apply
+  Preset. Resting the pointer on a preset shows it on the photo; a click
+  applies it to the photo and every selected one. A preset sets only the
+  settings it was saved with, so one with Exposure leaves Contrast alone.
+- Ten built-in looks (Natural, Vivid, Punchy, Soft, Faded, Warm Film, Cool
+  and three black & white ones) that keep each photo's white balance and
+  exposure corrections.
+- New Preset… saves the photo's settings, with a checklist of what to
+  include, as a JSON file in the presets folder; a user preset can be
+  deleted from its context menu.
+- Import Presets… adds Lightroom develop presets (`.xmp`) and Photonation
+  presets, applying just the settings each holds and naming what had to be
+  left out (profiles, grain and the like).
+- Copy Settings… (Ctrl/⌘+Shift+C) with Lightroom's checklist of settings,
+  and Paste Settings (Ctrl/⌘+Shift+V) onto the photo and every selected one.
+- A Help page on presets and copying settings.
+
+### Changed
+
+- Lightroom black & white edits import as Saturation −100 instead of being
+  left out; the per-colour mix and toning are named as not imported.
+
 ## [0.15.1] - 2026-10-31
 
 ### Changed

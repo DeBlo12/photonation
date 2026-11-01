@@ -102,6 +102,7 @@ fn inspector(app: &mut PhotonationApp, ui: &mut Ui) {
                 return;
             }
             ui.spacing_mut().item_spacing.y = 8.0;
+            crate::panels::presets::card(app, ui);
             let as_shot = app.info.as_ref().map_or((5500.0, 0.0), |i| i.as_shot);
             let histogram = app.histogram.as_ref();
             for group in AdjustmentGroup::ALL {

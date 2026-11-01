@@ -6,8 +6,8 @@
 //! file is never written. Documented in docs/EDIT-MODEL.md.
 
 use crate::{
-    ColorLabel, Flag, GradingWheel, HslAdjustment, LibraryInfo, MAX_RATING, PointCurve, Settings,
-    WhiteBalance,
+    ColorLabel, Flag, GradingWheel, HslAdjustment, LibraryInfo, MAX_RATING, PointCurve, Preset,
+    Settings, SettingsPart, SettingsParts, WhiteBalance,
 };
 use photonation_image::{CropFrame, NormRect, Orientation};
 use std::collections::HashMap;
@@ -139,38 +139,195 @@ pub struct XmpError(String);
 /// Parses the text of a Lightroom `.xmp` sidecar. `Ok(None)` when it holds
 /// no develop settings (Lightroom also writes XMP for ratings and keywords).
 pub fn import_lightroom_xmp(text: &str) -> Result<Option<LightroomImport>, XmpError> {
+    let document = parse(text)?;
+    let properties = Properties::read(&document);
+    if !has_develop_settings(&properties) {
+        return Ok(None);
+    }
+    Ok(Some(LightroomImport {
+        settings: develop_settings(&properties),
+        not_imported: not_imported(&properties),
+    }))
+}
+
+/// A Lightroom develop preset and the Lightroom features it had to leave
+/// out.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LightroomPreset {
+    pub preset: Preset,
+    pub not_imported: Vec<&'static str>,
+}
+
+/// Parses a Lightroom develop preset (`.xmp`, as Lightroom Classic 7.3 and
+/// later save them). A preset holds only the settings it was saved with,
+/// so it applies just those [`SettingsPart`]s. `fallback_name` names a
+/// preset without a `crs:Name`. `Ok(None)` when it holds no develop
+/// settings.
+pub fn import_lightroom_preset(
+    text: &str,
+    fallback_name: &str,
+) -> Result<Option<LightroomPreset>, XmpError> {
+    let document = parse(text)?;
+    let properties = Properties::read(&document);
+    if !has_develop_settings(&properties) {
+        return Ok(None);
+    }
+    let name = localized_text(&document, "Name").unwrap_or(fallback_name);
+    let group = localized_text(&document, "Group").unwrap_or_default();
+    let mut not_imported = not_imported(&properties);
+    if let Some(profile) = profile(&document, &properties) {
+        not_imported.insert(0, profile);
+    }
+    Ok(Some(LightroomPreset {
+        preset: Preset::new(
+            name,
+            group,
+            &develop_settings(&properties),
+            present_parts(&properties),
+        ),
+        not_imported,
+    }))
+}
+
+fn parse(text: &str) -> Result<roxmltree::Document<'_>, XmpError> {
     let options = roxmltree::ParsingOptions {
         allow_dtd: false,
         ..roxmltree::ParsingOptions::default()
     };
-    let document = roxmltree::Document::parse_with_options(text, options)
-        .map_err(|error| XmpError(error.to_string()))?;
-    let properties = Properties::read(&document);
-    if properties.crs("ProcessVersion").is_none() && !properties.flag("HasSettings") {
-        return Ok(None);
-    }
+    roxmltree::Document::parse_with_options(text, options)
+        .map_err(|error| XmpError(error.to_string()))
+}
+
+fn has_develop_settings(properties: &Properties) -> bool {
+    properties.crs("ProcessVersion").is_some() || properties.flag("HasSettings")
+}
+
+fn develop_settings(properties: &Properties) -> Settings {
     let mut settings = Settings::default();
-    basic(&properties, &mut settings);
-    tone_curve(&properties, &mut settings);
-    color_mixer(&properties, &mut settings);
-    color_grading(&properties, &mut settings);
-    crop(&properties, &mut settings);
-    Ok(Some(LightroomImport {
-        settings: settings.sanitized(),
-        not_imported: not_imported(&properties),
-    }))
+    basic(properties, &mut settings);
+    tone_curve(properties, &mut settings);
+    color_mixer(properties, &mut settings);
+    color_grading(properties, &mut settings);
+    crop(properties, &mut settings);
+    // The nearest Photonation has to Lightroom's black & white treatment.
+    if properties.flag("ConvertToGrayscale") {
+        settings.saturation = -100.0;
+    }
+    settings.sanitized()
+}
+
+/// The parts of the settings a preset was saved with: the ones whose
+/// Lightroom properties it holds.
+fn present_parts(properties: &Properties) -> SettingsParts {
+    let names: Vec<&str> = properties
+        .values
+        .keys()
+        .chain(properties.lists.keys())
+        .filter(|(namespace, _)| *namespace == CAMERA_RAW_NAMESPACE)
+        .map(|(_, name)| *name)
+        .collect();
+    let has = |wanted: &[&str]| names.iter().any(|name| wanted.contains(name));
+    let has_prefix = |prefixes: &[&str]| {
+        names
+            .iter()
+            .any(|name| prefixes.iter().any(|prefix| name.starts_with(prefix)))
+    };
+    let checks = [
+        (
+            SettingsPart::WhiteBalance,
+            has(&["WhiteBalance", "Temperature", "Tint"]),
+        ),
+        (SettingsPart::Exposure, has(&["Exposure2012"])),
+        (SettingsPart::Contrast, has(&["Contrast2012"])),
+        (SettingsPart::Highlights, has(&["Highlights2012"])),
+        (SettingsPart::Shadows, has(&["Shadows2012"])),
+        (SettingsPart::Whites, has(&["Whites2012"])),
+        (SettingsPart::Blacks, has(&["Blacks2012"])),
+        (SettingsPart::Texture, has(&["Texture"])),
+        (SettingsPart::Clarity, has(&["Clarity2012"])),
+        (SettingsPart::Dehaze, has(&["Dehaze"])),
+        (SettingsPart::Vibrance, has(&["Vibrance"])),
+        (
+            SettingsPart::Saturation,
+            has(&["Saturation"]) || properties.flag("ConvertToGrayscale"),
+        ),
+        (
+            SettingsPart::ToneCurve,
+            has_prefix(&["Parametric", "ToneCurve"]),
+        ),
+        (
+            SettingsPart::ColorMixer,
+            has_prefix(&[
+                "HueAdjustment",
+                "SaturationAdjustment",
+                "LuminanceAdjustment",
+            ]),
+        ),
+        (
+            SettingsPart::ColorGrading,
+            has_prefix(&["SplitToning", "ColorGrade"]),
+        ),
+        (
+            SettingsPart::Sharpening,
+            has(&["Sharpness", "SharpenRadius"]),
+        ),
+        (SettingsPart::Crop, has(&["HasCrop"])),
+    ];
+    checks
+        .into_iter()
+        .filter(|(_, present)| *present)
+        .map(|(part, _)| part)
+        .collect()
+}
+
+/// A top-level `crs:` property holding a language alternative (`rdf:Alt`),
+/// like a preset's name: its first entry.
+fn localized_text<'input>(
+    document: &'input roxmltree::Document<'input>,
+    name: &str,
+) -> Option<&'input str> {
+    document
+        .descendants()
+        .filter(|node| node.has_tag_name((RDF_NAMESPACE, "Description")))
+        .flat_map(|description| description.children())
+        .find(|node| node.has_tag_name((CAMERA_RAW_NAMESPACE, name)))?
+        .descendants()
+        .find(|node| node.has_tag_name((RDF_NAMESPACE, "li")))?
+        .text()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+}
+
+/// "profile" when the preset picks a profile other than Lightroom's
+/// defaults (Adobe Color and Adobe Standard), which Photonation's
+/// rendering stands in for.
+fn profile(document: &roxmltree::Document, properties: &Properties) -> Option<&'static str> {
+    let look = document
+        .descendants()
+        .find(|node| node.has_tag_name((CAMERA_RAW_NAMESPACE, "Look")))
+        .and_then(|look| {
+            look.descendants().find_map(|node| {
+                node.attribute((CAMERA_RAW_NAMESPACE, "Name")).or_else(|| {
+                    node.has_tag_name((CAMERA_RAW_NAMESPACE, "Name"))
+                        .then(|| node.text())
+                        .flatten()
+                })
+            })
+        });
+    let chosen = [look, properties.crs("CameraProfile")];
+    chosen
+        .into_iter()
+        .flatten()
+        .map(str::trim)
+        .any(|name| !matches!(name, "" | "Adobe Color" | "Adobe Standard"))
+        .then_some("profile")
 }
 
 /// The rating and colour label in a Lightroom `.xmp` sidecar (`xmp:Rating`,
 /// where -1 means rejected, and `xmp:Label`). Lightroom keeps pick flags
 /// in its catalog, so none arrive.
 pub fn import_lightroom_library(text: &str) -> Result<LibraryInfo, XmpError> {
-    let options = roxmltree::ParsingOptions {
-        allow_dtd: false,
-        ..roxmltree::ParsingOptions::default()
-    };
-    let document = roxmltree::Document::parse_with_options(text, options)
-        .map_err(|error| XmpError(error.to_string()))?;
+    let document = parse(text)?;
     let properties = Properties::read(&document);
     let rating = properties
         .text(XMP_NAMESPACE, "Rating")
@@ -379,7 +536,7 @@ fn stored_size(properties: &Properties) -> [f64; 2] {
 /// Lightroom edits Photonation has no equivalent for yet.
 fn not_imported(properties: &Properties) -> Vec<&'static str> {
     let nonzero = |name: &str| properties.number(name).is_some_and(|value| value != 0.0);
-    let checks: [(&'static str, bool); 7] = [
+    let checks: [(&'static str, bool); 8] = [
         (
             "masks",
             [
@@ -420,7 +577,27 @@ fn not_imported(properties: &Properties) -> Vec<&'static str> {
             "effects",
             nonzero("PostCropVignetteAmount") || nonzero("GrainAmount"),
         ),
-        ("black & white", properties.flag("ConvertToGrayscale")),
+        // Imported as Saturation −100, without Lightroom's per-colour mix.
+        (
+            "black & white mix",
+            properties.flag("ConvertToGrayscale")
+                && properties.values.keys().any(|(_, name)| {
+                    name.starts_with("GrayMixer") && properties.number(name) != Some(0.0)
+                }),
+        ),
+        // Saturation −100 also removes the toning, which Lightroom keeps.
+        (
+            "black & white toning",
+            properties.flag("ConvertToGrayscale")
+                && [
+                    "SplitToningShadowSaturation",
+                    "SplitToningHighlightSaturation",
+                    "ColorGradeMidtoneSat",
+                    "ColorGradeGlobalSat",
+                ]
+                .iter()
+                .any(|name| nonzero(name)),
+        ),
     ];
     checks
         .into_iter()

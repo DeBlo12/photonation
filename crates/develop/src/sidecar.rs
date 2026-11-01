@@ -221,10 +221,14 @@ fn write_sidecar(
             source,
         })?;
     text.push('\n');
-    let io = |source| SidecarError::Io {
+    write_atomic(path, &text).map_err(|source| SidecarError::Io {
         path: path.into(),
         source,
-    };
+    })
+}
+
+/// Writes `text` to `path` atomically, as [`write_sidecar`] describes.
+pub(crate) fn write_atomic(path: &Path, text: &str) -> std::io::Result<()> {
     let directory = path
         .parent()
         .filter(|dir| !dir.as_os_str().is_empty())
@@ -235,10 +239,10 @@ fn write_sidecar(
     // instead of tempfile's owner-only default.
     #[cfg(unix)]
     temporary.permissions(std::os::unix::fs::PermissionsExt::from_mode(0o666));
-    let mut file = temporary.tempfile_in(directory).map_err(io)?;
-    file.write_all(text.as_bytes()).map_err(io)?;
-    file.as_file().sync_all().map_err(io)?;
-    file.persist(path).map_err(|e| io(e.error))?;
+    let mut file = temporary.tempfile_in(directory)?;
+    file.write_all(text.as_bytes())?;
+    file.as_file().sync_all()?;
+    file.persist(path).map_err(|e| e.error)?;
     Ok(())
 }
 

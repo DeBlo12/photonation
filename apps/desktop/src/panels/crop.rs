@@ -875,6 +875,7 @@ mod tests {
             image_rect: Rect::from_min_size(pos2(0.0, 0.0), egui::vec2(600.0, 400.0)),
             crop: CropFrame::full(PHOTO),
             space: photonation_develop::MaskSpace::new(PHOTO[0], PHOTO[1]),
+            lens: None,
         };
         let frame = CropFrame::from_center(PHOTO, [3000.0, 2000.0], [3000.0, 2000.0], 0.0);
         assert_eq!(

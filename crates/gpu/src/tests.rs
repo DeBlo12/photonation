@@ -8,9 +8,9 @@
 use super::*;
 use photonation_color::ColorSpace;
 use photonation_develop::{
-    BrushStroke, CombineMode, GradingWheel, LinearGradient, LocalAdjustments, Mask, MaskComponent,
-    MaskGroup, MaskShape, NoiseReduction, OklabLch, PointColor, PointCurve, ProcessVersion,
-    RadialGradient, Removal, RemovalMethod,
+    BrushStroke, CombineMode, GradingWheel, LensCorrection, LinearGradient, LocalAdjustments, Mask,
+    MaskComponent, MaskGroup, MaskShape, NoiseReduction, OklabLch, PointColor, PointCurve,
+    ProcessVersion, RadialGradient, Removal, RemovalMethod,
 };
 use photonation_image::{CfaColor, CfaPattern, NormRect, Orientation, Rect};
 use photonation_pipeline::{removal_canvas, removal_jobs};
@@ -382,6 +382,66 @@ fn straightened_crops_match() {
     assert_matches_cpu(bayer(120, 84), &uncropped, &full_size());
 }
 
+/// `sensor` as if taken with an EF 50mm f/1.8 STM on an EOS 250D, which
+/// the Lensfun database has distortion, chromatic aberration and
+/// vignetting calibrations for.
+fn with_canon_lens(mut sensor: SensorImage) -> SensorImage {
+    sensor.info.make = "Canon".into();
+    sensor.info.model = "Canon EOS 250D".into();
+    sensor.info.lens = Some("EF50mm f/1.8 STM".into());
+    sensor.info.focal_length = Some(50.0);
+    sensor.info.f_number = Some(2.0);
+    sensor
+}
+
+fn lens_corrected(manual_distortion: f32, manual_vignetting: f32) -> LensCorrection {
+    LensCorrection {
+        profile: true,
+        chromatic_aberration: true,
+        manual_distortion,
+        manual_vignetting,
+        ..LensCorrection::default()
+    }
+}
+
+#[test]
+fn lens_corrections_match() {
+    // The profile's corrections, with strong manual ones on top (enough to
+    // make the bicubic sampling's positions differ visibly), at full and
+    // half size.
+    for (distortion, vignetting) in [(0.0, 0.0), (70.0, 40.0), (-80.0, -60.0)] {
+        let settings = Settings {
+            lens: lens_corrected(distortion, vignetting),
+            ..busy_settings()
+        };
+        for opts in [full_size(), preview(70)] {
+            assert_matches_cpu(with_canon_lens(bayer(160, 110)), &settings, &opts);
+        }
+    }
+    // Only vignetting: nothing is resampled.
+    let vignetting = Settings {
+        lens: LensCorrection {
+            manual_vignetting: 80.0,
+            ..LensCorrection::default()
+        },
+        ..busy_settings()
+    };
+    assert_matches_cpu(bayer(120, 84), &vignetting, &full_size());
+    // With a turned crop, masks and local contrast, on portrait photos.
+    let s = Settings {
+        clarity: 30.0,
+        crop: straightened(-6.0).crop,
+        crop_angle: -6.0,
+        lens: lens_corrected(40.0, 20.0),
+        ..masked_settings()
+    };
+    for orientation in [Orientation::Rotate90, Orientation::FlipH] {
+        let mut sensor = with_canon_lens(bayer(150, 100));
+        sensor.orientation = orientation;
+        assert_matches_cpu(sensor, &s, &full_size());
+    }
+}
+
 #[test]
 fn straightened_crops_follow_orientation_with_masks_and_local_contrast() {
     let s = Settings {
@@ -727,6 +787,13 @@ fn timings_at_24_megapixels() {
         crop_angle: 3.0,
         ..busy_settings()
     };
+    let lens = Settings {
+        lens: LensCorrection {
+            manual_vignetting: 20.0,
+            ..lens_corrected(30.0, 0.0)
+        },
+        ..busy_settings()
+    };
     let mut removed = busy_settings();
     removed.removals = vec![
         removal_at([0.3, 0.3], 0.05, 50.0),
@@ -739,6 +806,7 @@ fn timings_at_24_megapixels() {
         ("3 masks, Texture, Clarity", clarity),
         ("noise reduction", denoised),
         ("straightened 3°", straightened),
+        ("lens corrections", lens),
         ("2 removals", removed),
     ] {
         let fills = if settings.removals.is_empty() {

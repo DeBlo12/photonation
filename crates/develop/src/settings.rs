@@ -309,6 +309,40 @@ impl NoiseReduction {
     }
 }
 
+/// Lens corrections: the lens profile's (from the Lensfun database, when it
+/// knows the camera and lens) and manual ones on top. Off by default, so
+/// photos edited before they existed render as they did.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LensCorrection {
+    /// Apply the profile's distortion and vignetting corrections.
+    pub profile: bool,
+    /// How much of the profile's distortion correction, 0..200 %.
+    pub distortion: f32,
+    /// How much of the profile's vignetting correction, 0..200 %.
+    pub vignetting: f32,
+    /// Remove lateral chromatic aberration as the profile measured it.
+    pub chromatic_aberration: bool,
+    /// −100..100: positive straightens barrel distortion, negative
+    /// pincushion.
+    pub manual_distortion: f32,
+    /// −100..100: positive brightens the corners, negative darkens them.
+    pub manual_vignetting: f32,
+}
+
+impl Default for LensCorrection {
+    fn default() -> Self {
+        LensCorrection {
+            profile: false,
+            distortion: 100.0,
+            vignetting: 100.0,
+            chromatic_aberration: false,
+            manual_distortion: 0.0,
+            manual_vignetting: 0.0,
+        }
+    }
+}
+
 /// Develop settings. Slider values use the familiar −100..100 scale unless
 /// noted; missing fields deserialize to their defaults so sidecars written
 /// by older builds stay readable.
@@ -343,6 +377,7 @@ pub struct Settings {
     pub color_grading: ColorGrading,
     pub sharpening: Sharpening,
     pub noise_reduction: NoiseReduction,
+    pub lens: LensCorrection,
     /// Crop on the displayed (oriented) image, inside the camera's default
     /// crop: the frame's top-left and bottom-right corners (see
     /// `photonation_image::CropFrame`). `None` is the whole photo, or the
@@ -384,6 +419,7 @@ impl Default for Settings {
             color_grading: ColorGrading::default(),
             sharpening: Sharpening::default(),
             noise_reduction: NoiseReduction::default(),
+            lens: LensCorrection::default(),
             crop: None,
             crop_angle: 0.0,
             masks: Vec::new(),

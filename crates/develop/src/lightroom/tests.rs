@@ -359,3 +359,28 @@ fn black_and_white_presets_desaturate_and_profiles_like_adobe_color_pass() {
     assert_eq!(imported.preset.settings.saturation, -100.0);
     assert_eq!(imported.not_imported, ["effects", "black & white toning"]);
 }
+
+#[test]
+fn lens_corrections_are_imported() {
+    let text = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/">
+     <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+      <rdf:Description rdf:about="" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+       crs:ProcessVersion="11.0"
+       crs:LensProfileEnable="1"
+       crs:LensProfileDistortionScale="80"
+       crs:AutoLateralCA="1"
+       crs:LensManualDistortionAmount="-12"
+       crs:VignetteAmount="+25"/>
+     </rdf:RDF>
+    </x:xmpmeta>"#;
+    let imported = import(text);
+    let lens = imported.settings.lens;
+    assert!(lens.profile && lens.chromatic_aberration);
+    assert_eq!((lens.distortion, lens.vignetting), (80.0, 100.0));
+    assert_eq!(
+        (lens.manual_distortion, lens.manual_vignetting),
+        (-12.0, 25.0)
+    );
+    assert!(imported.not_imported.is_empty());
+    assert!(!import(PORTRAIT_SIDECAR).settings.lens.profile);
+}

@@ -2,7 +2,8 @@
 // Copyright (C) 2026 The Photonation contributors
 
 use crate::{
-    ColorGrading, ColorMixer, NoiseReduction, Settings, Sharpening, ToneCurve, WhiteBalance,
+    ColorGrading, ColorMixer, LensCorrection, NoiseReduction, Settings, Sharpening, ToneCurve,
+    WhiteBalance,
 };
 
 /// The adjustment panels, in display order. Each can be reset or
@@ -17,10 +18,11 @@ pub enum AdjustmentGroup {
     ColorMixer,
     ColorGrading,
     Detail,
+    Lens,
 }
 
 impl AdjustmentGroup {
-    pub const ALL: [AdjustmentGroup; 8] = [
+    pub const ALL: [AdjustmentGroup; 9] = [
         AdjustmentGroup::WhiteBalance,
         AdjustmentGroup::Light,
         AdjustmentGroup::Presence,
@@ -29,6 +31,7 @@ impl AdjustmentGroup {
         AdjustmentGroup::ColorMixer,
         AdjustmentGroup::ColorGrading,
         AdjustmentGroup::Detail,
+        AdjustmentGroup::Lens,
     ];
 
     pub fn title(self) -> &'static str {
@@ -41,6 +44,7 @@ impl AdjustmentGroup {
             AdjustmentGroup::ColorMixer => "Color Mixer",
             AdjustmentGroup::ColorGrading => "Color Grading",
             AdjustmentGroup::Detail => "Detail",
+            AdjustmentGroup::Lens => "Lens Corrections",
         }
     }
 
@@ -80,6 +84,7 @@ impl AdjustmentGroup {
                 };
                 s.noise_reduction = NoiseReduction::default();
             }
+            AdjustmentGroup::Lens => s.lens = LensCorrection::default(),
         }
     }
 

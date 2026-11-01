@@ -11,7 +11,9 @@ display-ready image. This document follows that call from start to finish.
    the *displayed* (oriented) image and mapped back to sensor coordinates
    (`Orientation::display_rect_to_stored`); the output is that region. With an
    angle, the bounding box of the turned frame (`crop_frame`, see EDIT-MODEL.md)
-   plus a 3-pixel margin; the output is the frame's size.
+   plus a 3-pixel margin; the output is the frame's size. With lens geometry
+   corrected (§6b), the frame lies on the corrected photo: its edges, mapped
+   through the lens map for every channel, give the region to read.
 3. **Target size**: the output scaled so its long edge fits `long_edge`.
 4. **Demosaic method** (`Demosaic::choose`):
    - Bayer, output ≤ half size → `HalfSize` (one pixel per 2×2 quad: 4× fewer pixels, no interpolation).
@@ -29,7 +31,7 @@ display-ready image. This document follows that call from start to finish.
 | `Develop` | point | 0 | always |
 | `Denoise` (à trous wavelet) | spatial | 2 + 4 + … + 2^levels | noise reduction on |
 | `LocalContrast` | spatial | 3 × box radius | Texture or Clarity ≠ 0 |
-| `Straighten` (bicubic) | spatial | the frame's tilt across the band, + 2 | crop angle ≠ 0 |
+| `Straighten` (bicubic) | spatial | the frame's tilt (and lens map) across the band, + 2 | crop angle ≠ 0, or lens geometry corrected |
 | `Resize` (Lanczos-3) | spatial | filter support | output smaller than source |
 | `Encode` (OETF) | point | 0 | always |
 | `Sharpen` (unsharp mask) | spatial | 3σ | sharpening > 0 |
@@ -133,7 +135,8 @@ masks existed.
 
 Each pixel, in this order:
 
-0. **Highlight reconstruction** (process V2, §3c).
+0. **Highlight reconstruction** (process V2, §3c), then the **vignetting**
+   gain (§6b) on the camera RGB.
 1. **Camera → working** matrix, with exposure folded in:
    `2^(exposure + BASELINE_EXPOSURE + DNG BaselineExposure)`.
    *Local* exposure, temperature and tint then scale the channels (warmer:
@@ -214,10 +217,47 @@ sharpening don't take part.
 - **Straighten** (`straighten.rs`): resamples along the turned frame with a
   Catmull–Rom kernel, at the source's scale (half size after half-size
   demosaicing). Output pixel → output displayed → photo displayed → photo stored
-  → sensor → input is affine, so it is precomputed as an origin and two steps.
-  A band reads the input rows its corners reach, which overlap the next band's
-  by the tilt; turned renders therefore use one band per thread. Masks and local
+  → sensor → input is affine, so it is precomputed as an origin and two steps;
+  the lens map (§6b) then moves that position, per channel when chromatic
+  aberration is corrected (three bicubic samples instead of one). A band reads
+  the input rows its corners reach (with the lens map, its edge pixels: the
+  map is radial and monotonic), which overlap the next band's by the tilt;
+  resampled renders therefore use one band per thread. Masks and local
   contrast run before it, on the upright sensor region, so they need no change.
+
+## 6b. Lens corrections (`lens.rs`, `photonation-lens`)
+
+Profiles come from the Lensfun database (CC BY-SA 3.0), embedded unchanged in
+`crates/lens/lensfun/db` and parsed on first use (~40 ms). `photonation-lens`
+finds the camera by name and the lens as Lensfun's `FindLenses` does: every
+lens scores by crop factor, mount, focal range and aperture read from the
+names, and a fuzzy comparison of the names' words (every word of the camera's
+lens name must be in the database's). A lens may have entries calibrated on
+several sensor sizes; each correction uses the closest one no smaller than
+the camera's. Distortion and chromatic aberration are interpolated over the
+focal length (Lensfun's Hermite spline, terms scaled by the focal length
+where they follow 1/f), vignetting by inverse distance weighting over focal
+length, 1/aperture and 1/distance (distance unknown: far away). Hugin's
+models (ptlens, poly3, poly5; linear and poly3 TCA; pa vignetting) are then
+rewritten as polynomials in one radius, 1 at the photo's corners; distortion
+keeps the centre's scale, as Lensfun does.
+
+The settings scale the profile (Distortion and Vignetting, 0..200 %) and add
+manual corrections: Distortion multiplies the radius factor by
+`1 − 0.15 · amount · ρ²`, Vignetting brightens by `2 · amount · r³` stops.
+The pipeline turns that into:
+
+- **`LensMap`**: a corrected point at radius ρ (after a zoom) lies at
+  `ρ · F(ρ)` on the photo as shot, red and blue further scaled by their TCA
+  factors. The zoom is the largest that keeps every channel of the corrected
+  photo's edges on the photo (checked from the edges' middles to the
+  corners), so the corrected photo fills its frame. The crop is on the
+  corrected photo; masks and removals stay on the photo as shot, so the
+  desktop maps them through the lens map (`from_shot` inverts it by
+  bisection).
+- **`Vignette`**: the gain `2^(manual · r³) / (1 + k₁r² + k₂r⁴ + k₃r⁶)^amount`
+  at the source pixel's radius on the photo as shot, in `Develop` after
+  highlight reconstruction.
 - **Resize** (`resize.rs`): separable Lanczos-3 in linear light, widened when
   shrinking to avoid aliasing. Weights are precomputed per output row and column.
 - **Encode** (`encode.rs`): the output space's transfer curve from a 65 536-entry table.
@@ -256,16 +296,17 @@ demosaic method, levels, the removals' brush strokes and fills with the
 pixel → mask and pixel → sensor maps, the develop matrices and amounts,
 tone tables, colour step, the masks' prepared shapes and amounts with the
 pixel → mask space map, Texture and Clarity's amounts and radii, the
-straightened frame's affine map, Lanczos taps, transfer table, sharpening
+straightened frame's affine map and lens map, the vignetting gain's
+terms, Lanczos taps, transfer table, sharpening
 kernel). The shaders
 transcribe only the per-pixel maths.
 
 | Pass | Shader | Present when |
 |---|---|---|
-| Source + removal fills + highlight reconstruction + develop (with masks) + output gamut | `develop.wgsl` | always |
+| Source + removal fills + highlight reconstruction + vignetting + develop (with masks) + output gamut | `develop.wgsl` | always |
 | Noise reduction: to opponent, per level rows then columns + shrunk detail, combine | `denoise.wgsl` | noise reduction on |
 | Texture and Clarity: √luma, box passes, combine | `local_contrast.wgsl` | Texture or Clarity ≠ 0 |
-| Straighten (Catmull–Rom along the frame) | `straighten.wgsl` | crop angle ≠ 0 |
+| Straighten (Catmull–Rom along the frame, through the lens map) | `straighten.wgsl` | crop angle ≠ 0, or lens geometry corrected |
 | Resize, rows then columns | `resize.wgsl` | output smaller than source |
 | Encode | `finish.wgsl: encode` | always |
 | Sharpen, rows then columns | `finish.wgsl: sharpen_*` | sharpening > 0 |
@@ -287,8 +328,9 @@ fills are rendered (a slider drag uploads none); a new fill replaces them.
 
 Straightening resamples the whole developed image at once: each output
 pixel maps to an input position through the frame's affine map (origin
-and two steps, from `Straighten`), and the 4 × 4 Catmull–Rom taps around
-it are read with edges clamped, as the CPU's bands are.
+and two steps, from `Straighten`) and the lens map, and the 4 × 4
+Catmull–Rom taps around it are read with edges clamped, as the CPU's bands
+are.
 
 Texture and Clarity blur the whole image at once: each box pass loads a
 workgroup's 256 samples plus the radius on each side into shared memory
@@ -334,6 +376,8 @@ overlapping masks, and with Texture and Clarity on top (RTX 5080, Windows):
 | 1600 px, 2 removals | ~330 ms | ~11 ms |
 | Full size, noise reduction | ~1760 ms | ~108 ms |
 | 1600 px, noise reduction | ~370 ms | ~24 ms |
+| Full size, lens corrections | ~1150 ms | ~59 ms |
+| 1600 px, lens corrections | ~300 ms | ~15 ms |
 
 `cargo test --release -p photonation-gpu -- --ignored --nocapture` prints
 these timings.

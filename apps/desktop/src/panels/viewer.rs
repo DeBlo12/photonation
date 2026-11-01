@@ -14,8 +14,9 @@ use crate::photo_frame::PhotoFrame;
 use crate::theme;
 use crate::widgets::{self, Icon};
 use eframe::egui::{self, Align2, Color32, CursorIcon, Rect, Sense, Stroke, Vec2, pos2, vec2};
-use photonation_develop::MaskSpace;
+use photonation_develop::{AdjustmentGroup, MaskSpace};
 use photonation_image::CropFrame;
+use photonation_pipeline::LensMap;
 use photonation_pipeline::masks::MaskWeight;
 
 const MARGIN: f32 = 28.0;
@@ -247,10 +248,20 @@ pub fn photo_frame(app: &PhotonationApp, image_rect: Rect) -> Option<PhotoFrame>
     } else {
         photonation_pipeline::crop_frame(photo, app.settings.crop, app.settings.crop_angle)
     };
+    // Masks and removals stay on the photo as shot, the crop tool works on
+    // the corrected one.
+    let lens = &app.settings.lens;
+    let corrected = !app.view.cropping && !app.view.disabled.contains(&AdjustmentGroup::Lens);
+    let profile = (corrected && (lens.profile || lens.chromatic_aberration))
+        .then(|| photonation_pipeline::lens_profile(&info.camera))
+        .flatten();
     Some(PhotoFrame {
         image_rect,
         crop,
         space: MaskSpace::new(photo[0], photo[1]),
+        lens: corrected
+            .then(|| LensMap::new(photo, lens, profile.as_ref()))
+            .flatten(),
     })
 }
 

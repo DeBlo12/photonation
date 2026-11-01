@@ -17,7 +17,8 @@ a Lightroom-style develop module with a Photomator-inspired interface.
   (RGB and per channel), an 8-band colour mixer, point colours (pick a colour in
   the photo and shift its hue, saturation and luminance), colour grading wheels
   (shadows/midtones/highlights/global with blending and balance), sharpening,
-  luminance and colour noise reduction.
+  luminance and colour noise reduction, lens corrections (distortion,
+  vignetting and chromatic aberration from the bundled Lensfun database).
 - **Non-destructive**: originals are never touched; edits live in a JSON sidecar
   next to each photo (`IMG_0001.CR3.photonation.json`), with undo/redo.
 - **Fast and lean**: a band-parallel pipeline renders a 24 MP raw to full-size

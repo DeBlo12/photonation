@@ -9,3 +9,4 @@
 *.DNG binary
 Cargo.lock linguist-generated=true -diff
 *.ttf binary
+crates/lens/lensfun/** linguist-vendored -diff

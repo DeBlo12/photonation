@@ -46,7 +46,8 @@ pub struct RenderPlan {
     pub denoise: Option<DenoisePlan>,
     /// Texture and Clarity, at the source's size; `None` when both are 0.
     pub local_contrast: Option<LocalContrastPlan>,
-    /// A turned crop frame resampled upright; `None` without an angle.
+    /// A turned crop frame resampled upright, or the lens geometry
+    /// corrected; `None` without either.
     pub straighten: Option<StraightenPlan>,
     /// `None` when the source (or the straightened frame) already has the
     /// output size.
@@ -78,6 +79,9 @@ pub struct DevelopPlan {
     pub local: Option<LocalPlan>,
     pub working_to_output: [[f32; 3]; 3],
     pub output_luminance: [f32; 3],
+    /// Vignetting correction before everything but highlight
+    /// reconstruction; `None` without one.
+    pub vignette: Option<VignettePlan>,
 }
 
 /// Highlight reconstruction (see `highlights.rs`).
@@ -238,7 +242,21 @@ pub struct RemovalPlan {
     pub patch: Arc<RetouchPatch>,
 }
 
-/// Catmull–Rom resampling along a turned frame (see `straighten.rs`).
+/// The vignetting gain (see `lens.rs`): source pixel `(x, y)` lies at
+/// `origin + (x, y) · step` from the photo's centre, in half diagonals;
+/// with `r²` its squared distance, the gain is
+/// `2^(manual_ev · r³) / (1 + k₁r² + k₂r⁴ + k₃r⁶)^amount`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct VignettePlan {
+    pub origin: [f32; 2],
+    pub step: [f32; 2],
+    pub falloff: [f32; 3],
+    pub amount: f32,
+    pub manual_ev: f32,
+}
+
+/// Catmull–Rom resampling along a turned frame or through the lens
+/// corrections (see `straighten.rs`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct StraightenPlan {
     /// Output size, stored orientation.
@@ -249,6 +267,21 @@ pub struct StraightenPlan {
     pub origin: [f32; 2],
     pub step_x: [f32; 2],
     pub step_y: [f32; 2],
+    /// The lens correction applied to those positions; `None` without.
+    pub lens: Option<LensPlan>,
+}
+
+/// A radial map about `centre` (input pixels): an input offset `d` has the
+/// radius `ρ = |d ⊙ inverse_radius|` and moves to `d · F(ρ)`, where
+/// `F(ρ) = Σ distortion[i] ρⁱ`; red and blue then scale by
+/// `v + c ρ′ + b ρ′²` (`tca`'s rows, `[v, c, b]`) at their radius
+/// `ρ′ = ρ F(ρ)`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LensPlan {
+    pub centre: [f32; 2],
+    pub inverse_radius: [f32; 2],
+    pub distortion: [f32; 7],
+    pub tca: Option<[[f32; 3]; 2]>,
 }
 
 /// Separable Lanczos-3 weights (see `resize.rs`).
@@ -333,12 +366,28 @@ pub fn render_plan(
     )
     .with_highlight_reconstruction(&settings, clip)
     .with_local_adjustments(local)
-    .with_point_color_overlay(&settings, opts.point_color_overlay);
+    .with_point_color_overlay(&settings, opts.point_color_overlay)
+    .with_vignette(
+        crate::vignette(sensor, &settings),
+        sensor,
+        source_region,
+        source_size,
+    );
     let straighten = match &framing {
         Framing::Straight(_) => None,
-        Framing::Rotated { frame, size, .. } => {
-            Some(crate::straighten_stage(sensor, frame, *size, source_region, source_size).plan())
-        }
+        Framing::Resampled {
+            frame, size, lens, ..
+        } => Some(
+            crate::straighten_stage(
+                sensor,
+                frame,
+                lens.as_deref(),
+                *size,
+                source_region,
+                source_size,
+            )
+            .plan(),
+        ),
     };
     let developed_size = straighten.map_or(source_size, |straighten| straighten.size);
     Ok(RenderPlan {

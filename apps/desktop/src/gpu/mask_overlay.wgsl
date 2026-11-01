@@ -25,8 +25,9 @@ struct Component {
 };
 
 struct Overlay {
-    // Metric mask point of framebuffer pixel p:
-    // origin + p.x * step_x + p.y * step_y (a straightened crop turns it).
+    // Position on the lens corrected photo (normalized) of framebuffer
+    // pixel p: origin + p.x * step_x + p.y * step_y (a straightened crop
+    // turns it).
     origin: vec2<f32>,
     step_x: vec2<f32>,
     step_y: vec2<f32>,
@@ -35,6 +36,14 @@ struct Overlay {
     invert: u32,
     // Premultiplied colour at full weight.
     color: vec4<f32>,
+    // The lens corrections' map to the photo as shot
+    // (photonation_pipeline::LensMap::to_shot): xy: zoomed photo pixels per
+    // normalized unit, z: unit radii per pixel, w: 1 when on.
+    lens: vec4<f32>,
+    // xy: normalized units per photo pixel; zw: mask space scale.
+    lens_back: vec4<f32>,
+    // The radius factor's coefficients, c₀ … c₆.
+    distortion: array<vec4<f32>, 2>,
     components: array<Component, MAX_COMPONENTS>,
 };
 
@@ -86,8 +95,23 @@ fn weight(point: vec2<f32>) -> f32 {
     return selected;
 }
 
+// The mask point (metric, on the photo as shot) of a corrected position.
+fn mask_point(corrected: vec2<f32>) -> vec2<f32> {
+    var shot = corrected;
+    if overlay.lens.w != 0.0 {
+        let offset = (corrected - vec2<f32>(0.5)) * overlay.lens.xy;
+        let rho = length(offset) * overlay.lens.z;
+        let low = overlay.distortion[0];
+        let high = overlay.distortion[1];
+        let upper = high.x + rho * (high.y + rho * high.z);
+        let factor = low.x + rho * (low.y + rho * (low.z + rho * (low.w + rho * upper)));
+        shot = vec2<f32>(0.5) + offset * factor * overlay.lens_back.xy;
+    }
+    return shot * overlay.lens_back.zw;
+}
+
 @fragment
 fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
-    let point = overlay.origin + position.x * overlay.step_x + position.y * overlay.step_y;
-    return overlay.color * weight(point);
+    let corrected = overlay.origin + position.x * overlay.step_x + position.y * overlay.step_y;
+    return overlay.color * weight(mask_point(corrected));
 }

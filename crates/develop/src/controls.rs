@@ -251,6 +251,46 @@ pub static NOISE_CONTROLS: &[Control] = &[
     ),
 ];
 
+/// The Lens Corrections card: how much of the profile's corrections.
+pub static LENS_PROFILE_CONTROLS: &[Control] = &[
+    control!(
+        "lens-distortion",
+        "Distortion",
+        0.0,
+        200.0,
+        100.0,
+        lens.distortion
+    ),
+    control!(
+        "lens-vignetting",
+        "Vignetting",
+        0.0,
+        200.0,
+        100.0,
+        lens.vignetting
+    ),
+];
+
+/// The Lens Corrections card's manual corrections, on top of the profile.
+pub static LENS_MANUAL_CONTROLS: &[Control] = &[
+    control!(
+        "lens-manual-distortion",
+        "Distortion",
+        -100.0,
+        100.0,
+        0.0,
+        lens.manual_distortion
+    ),
+    control!(
+        "lens-manual-vignetting",
+        "Vignetting",
+        -100.0,
+        100.0,
+        0.0,
+        lens.manual_vignetting
+    ),
+];
+
 /// The crop tool's straighten angle.
 pub static CROP_CONTROLS: &[Control] = &[control!(
     "crop-angle",
@@ -343,6 +383,8 @@ pub fn all_controls() -> impl Iterator<Item = &'static Control> {
         .chain(GRADING_BLEND_CONTROLS)
         .chain(DETAIL_CONTROLS)
         .chain(NOISE_CONTROLS)
+        .chain(LENS_PROFILE_CONTROLS)
+        .chain(LENS_MANUAL_CONTROLS)
         .chain(CROP_CONTROLS)
 }
 

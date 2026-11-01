@@ -150,6 +150,10 @@ struct Adjustments {
     /// Sharpening amount, 0–150.
     #[arg(long)]
     sharpen: Option<f32>,
+    /// Correct distortion, vignetting and chromatic aberration with the
+    /// lens's profile from the Lensfun database.
+    #[arg(long)]
+    lens_profile: bool,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -197,6 +201,10 @@ impl Adjustments {
         }
         if let Some(v) = self.sharpen {
             s.sharpening.amount = v;
+        }
+        if self.lens_profile {
+            s.lens.profile = true;
+            s.lens.chromatic_aberration = true;
         }
         if self.temperature.is_some() || self.tint.is_some() {
             let (t0, tint0) = match s.white_balance {
@@ -253,6 +261,25 @@ fn info(files: &[PathBuf]) -> Result<()> {
         println!("  camera       {} {}", i.make, i.model);
         if let Some(lens) = &i.lens {
             println!("  lens         {lens}");
+        }
+        if let Some(profile) = photonation_pipeline::lens_profile(i) {
+            let corrections: Vec<&str> = [
+                (profile.distortion.is_some(), "distortion"),
+                (profile.vignetting.is_some(), "vignetting"),
+                (profile.tca.is_some(), "chromatic aberration"),
+            ]
+            .into_iter()
+            .filter_map(|(has, name)| has.then_some(name))
+            .collect();
+            println!(
+                "  profile      {} ({})",
+                profile.lens,
+                if corrections.is_empty() {
+                    "no calibration".to_owned()
+                } else {
+                    corrections.join(", ")
+                }
+            );
         }
         let mut exposure = Vec::new();
         if let Some(t) = i.exposure_time {

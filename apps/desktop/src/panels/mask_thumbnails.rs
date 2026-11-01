@@ -76,8 +76,8 @@ fn tint_key(mask: &Mask, frame: PhotoFrame, size: [usize; 2]) -> u64 {
     let mut hasher = DefaultHasher::new();
     // Floats don't implement Hash; their Debug text identifies them.
     format!(
-        "{:?} {} {:?} {:?}",
-        mask.components, mask.invert, frame.crop, frame.space
+        "{:?} {} {:?} {:?} {:?}",
+        mask.components, mask.invert, frame.crop, frame.space, frame.lens
     )
     .hash(&mut hasher);
     size.hash(&mut hasher);
@@ -126,6 +126,7 @@ mod tests {
             image_rect: Rect::NOTHING,
             crop: CropFrame::full([400.0, 200.0]),
             space: MaskSpace::new(400.0, 200.0),
+            lens: None,
         };
         let image = tint_image(&mask, frame, [40, 20]);
         assert_eq!(image[(10, 10)], theme::MASK_OVERLAY, "inside the circle");

@@ -50,6 +50,7 @@ pub enum Page {
     ColorMixer,
     ColorGrading,
     Detail,
+    Lens,
     Masks,
     Crop,
     Remove,
@@ -82,6 +83,7 @@ const CHAPTERS: [(&str, &[Page]); 4] = [
             Page::ColorMixer,
             Page::ColorGrading,
             Page::Detail,
+            Page::Lens,
         ],
     ),
     (
@@ -100,7 +102,7 @@ const CHAPTERS: [(&str, &[Page]); 4] = [
 ];
 
 impl Page {
-    pub const ALL: [Page; 20] = [
+    pub const ALL: [Page; 21] = [
         Page::GettingStarted,
         Page::Library,
         Page::Developing,
@@ -113,6 +115,7 @@ impl Page {
         Page::ColorMixer,
         Page::ColorGrading,
         Page::Detail,
+        Page::Lens,
         Page::Masks,
         Page::Crop,
         Page::Remove,
@@ -137,6 +140,7 @@ impl Page {
             Page::ColorMixer => "Color Mixer and Point Color",
             Page::ColorGrading => "Color Grading",
             Page::Detail => "Detail",
+            Page::Lens => "Lens Corrections",
             Page::Masks => "Masks and mask groups",
             Page::Crop => "Crop and straighten",
             Page::Remove => "Remove",
@@ -783,6 +787,11 @@ fn content(page: Page) -> Content {
                      applies to the fill exactly as to the rest of the photo.",
                 ),
                 step(
+                    "Vignetting",
+                    "is corrected here, still in the camera's linear light, so the \
+                     brightened corners develop like the rest of the photo.",
+                ),
+                step(
                     "Camera colour and Exposure.",
                     "The camera's colour matrix, adapted to the chosen white point, converts \
                      to a wide working space (linear Rec. 2020); Exposure scales the light \
@@ -818,8 +827,9 @@ fn content(page: Page) -> Content {
                     "local contrast at a small and a large radius.",
                 ),
                 step(
-                    "Straighten and resize.",
-                    "A turned crop is resampled upright, then the photo is scaled to the \
+                    "Straighten, lens geometry and resize.",
+                    "A turned crop is resampled upright and lens distortion and chromatic \
+                     aberration are corrected, in one pass; then the photo is scaled to the \
                      preview or export size.",
                 ),
                 step(
@@ -1203,6 +1213,58 @@ fn content(page: Page) -> Content {
                 ),
             ],
             see_also: &[Page::CompareZoom, Page::Export, Page::Presence],
+        },
+        Page::Lens => Content {
+            lede: "Lens Corrections undo what the lens did to the photo: curved straight \
+                   lines, darker corners and coloured fringes at edges."
+                .into(),
+            blocks: vec![
+                term(
+                    "Enable Profile Corrections",
+                    "corrects distortion and vignetting as measured for your lens on a \
+                     camera like yours. The card names the lens profile it found, or says \
+                     there is none.",
+                ),
+                term(
+                    "Remove Chromatic Aberration",
+                    "lines up the red and blue images with the green one, as the profile \
+                     measured them, which removes the coloured fringes along contrasty edges \
+                     towards the corners.",
+                ),
+                term(
+                    "Distortion and Vignetting",
+                    "(0 to 200, default 100) set how much of the profile's correction to \
+                     apply: less keeps some of the lens's character, more overcorrects.",
+                ),
+                Block::Heading("Manual"),
+                term(
+                    "Distortion",
+                    "(−100 to 100) straightens barrel distortion (lines bulging outwards) \
+                     with positive values and pincushion distortion (lines pinched inwards) \
+                     with negative ones, on top of the profile.",
+                ),
+                term(
+                    "Vignetting",
+                    "(−100 to 100) brightens the corners with positive values and darkens \
+                     them with negative ones, up to two stops.",
+                ),
+                Block::Heading("How it works"),
+                text(
+                    "Profiles come from the Lensfun database, which Photonation includes, so \
+                     they work offline. It holds calibrations for thousands of lenses; \
+                     phones and many compact cameras are not in it.",
+                ),
+                text(
+                    "Correcting distortion moves the photo's edges, so the photo is enlarged \
+                     just enough to keep its frame filled. The crop is drawn on the corrected \
+                     photo, while masks and removals stay on what they cover.",
+                ),
+                tip(
+                    "Turn the correction on before straightening: lines that look crooked \
+                     may only be bent by the lens.",
+                ),
+            ],
+            see_also: &[Page::Crop, Page::Lightroom, Page::Developing],
         },
         Page::Masks => Content {
             lede: "Masks apply adjustments to part of the photo: darken a sky, brighten a \
@@ -1646,14 +1708,14 @@ fn content(page: Page) -> Content {
                     "Imported:",
                     "white balance, the Light, Presence and Color sliders, parametric and \
                      point curves, the colour mixer, split toning and colour grading, \
-                     sharpening, and the crop with its angle.",
+                     sharpening, noise reduction, lens corrections (with the lens's profile \
+                     from the Lensfun database), and the crop with its angle.",
                 ),
                 term(
                     "Not imported:",
-                    "masks, spot removal, noise reduction, lens corrections, Upright and \
-                     effects. Black & white becomes Saturation −100, without Lightroom's \
-                     per-colour mix or toning. A message names what was left out when the \
-                     photo opens.",
+                    "masks, spot removal, Upright and effects. Black & white becomes \
+                     Saturation −100, without Lightroom's per-colour mix or toning. A message \
+                     names what was left out when the photo opens.",
                 ),
                 text(
                     "The sliders share Lightroom's scales, but the rendering differs, so \

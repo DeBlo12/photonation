@@ -186,6 +186,7 @@ mod tests {
             image_rect: Rect::from_min_size(pos2(0.0, 0.0), vec2(600.0, 400.0)),
             crop: CropFrame::full([6000.0, 4000.0]),
             space: MaskSpace::new(6000.0, 4000.0),
+            lens: None,
         }
     }
 

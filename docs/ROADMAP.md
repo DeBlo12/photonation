@@ -38,18 +38,19 @@
 - Straighten by drawing a level line, and Auto straighten
 - Noise reduction: luminance (with detail) and colour, à trous wavelet
   shrinkage on CPU and GPU
+- Lens corrections from the bundled Lensfun database (distortion,
+  vignetting, chromatic aberration) with manual distortion and vignetting,
+  on CPU and GPU; Lightroom's lens corrections import
 
 ## Next
 
 In this order:
 
-1. **Lens corrections** from the Lensfun database (distortion, vignetting,
-   chromatic aberration), with manual sliders on top.
-2. **More masks**: a brush, creating gradients by dragging on the photo, masks
+1. **More masks**: a brush, creating gradients by dragging on the photo, masks
    in compare mode, and later AI subject and sky masks. Skip masks whose
    bounds miss a band, and fold local saturation into the colour step's Oklab
    round trip, to speed up masked renders.
-3. **Better removals**: one-click people selection (segmentation), dust
+2. **Better removals**: one-click people selection (segmentation), dust
    spot and wire/fence detection, full-resolution tiled fills, a disk cache
    for fills. See [RETOUCH.md](RETOUCH.md).
 

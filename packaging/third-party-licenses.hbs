@@ -1,0 +1,22 @@
+Photonation: third-party licences
+=================================
+
+Photonation is licensed under the GNU General Public License v3.0 or later
+(LICENSE). The binaries include the following third-party crates, which keep
+their own licences, reproduced below. See NOTICE for an overview.
+
+{{#each overview}}
+  {{{name}}}: {{count}} crate(s)
+{{/each}}
+
+{{#each licenses}}
+--------------------------------------------------------------------------------
+{{{name}}}
+Used by:
+{{#each used_by}}
+  {{crate.name}} {{crate.version}}{{#if crate.repository}} ({{crate.repository}}){{/if}}
+{{/each}}
+
+{{{text}}}
+
+{{/each}}

@@ -30,6 +30,21 @@ if (-not $SkipBuild) {
     }
 }
 
+# The licence texts of every compiled-in crate (NOTICE, "Obligations when
+# distributing binaries"). Needs cargo-about:
+#   cargo install cargo-about --locked --features cli
+if (-not (Get-Command cargo-about -ErrorAction SilentlyContinue)) {
+    throw 'cargo-about not found. Install it with: cargo install cargo-about --locked --features cli'
+}
+Push-Location $root
+try {
+    cargo about generate --locked --workspace --fail `
+        -o target\THIRD-PARTY-LICENSES.txt packaging\third-party-licenses.hbs
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+} finally {
+    Pop-Location
+}
+
 # ISCC from PATH, or from Inno Setup's per-user or per-machine install.
 $iscc = (Get-Command ISCC.exe -ErrorAction SilentlyContinue).Source
 if (-not $iscc) {

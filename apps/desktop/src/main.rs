@@ -15,6 +15,7 @@ mod library;
 mod panels;
 mod photo_frame;
 mod preferences;
+mod presets;
 mod screenshot;
 mod theme;
 mod widgets;

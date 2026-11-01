@@ -12,6 +12,7 @@
 //! photo; [`Removal`]s replace brushed areas with a fill. A photo's rating,
 //! flag and label ([`LibraryInfo`]) share its sidecar without being edits.
 
+mod built_in_presets;
 mod controls;
 mod groups;
 mod library;
@@ -19,10 +20,12 @@ mod lightroom;
 mod mask_groups;
 mod masks;
 mod point_colors;
+mod presets;
 mod removals;
 mod settings;
 mod sidecar;
 
+pub use built_in_presets::{BUILT_IN_PRESET_GROUP, built_in_presets};
 pub use controls::{
     BASIC_CONTROLS, CROP_CONTROLS, Control, DETAIL_CONTROLS, GRADING_BLEND_CONTROLS,
     GRADING_CONTROLS, LOCAL_CONTROLS, MIXER_CONTROLS, PARAMETRIC_CURVE_CONTROLS,
@@ -31,7 +34,8 @@ pub use controls::{
 pub use groups::AdjustmentGroup;
 pub use library::{ColorLabel, Flag, LibraryInfo, MAX_RATING};
 pub use lightroom::{
-    LightroomImport, XmpError, import_lightroom_library, import_lightroom_xmp, lightroom_xmp_path,
+    LightroomImport, LightroomPreset, XmpError, import_lightroom_library, import_lightroom_preset,
+    import_lightroom_xmp, lightroom_xmp_path,
 };
 pub use mask_groups::{
     MAX_MASK_GROUP_NAME_CHARS, MAX_MASK_GROUPS, MaskGroup, group_members, remove_group,
@@ -42,6 +46,11 @@ pub use masks::{
     MAX_MASKS, Mask, MaskComponent, MaskShape, MaskSpace, RadialGradient,
 };
 pub use point_colors::{MAX_POINT_COLORS, MAX_SAMPLED_CHROMA, OklabLch, PointColor};
+pub use presets::{
+    DEFAULT_PRESET_GROUP, MAX_PRESET_NAME_CHARS, PRESET_EXTENSION, Preset, PresetError,
+    PresetFileError, SettingsPart, SettingsParts, StoredPresetFile, copy_parts, default_copy_parts,
+    default_preset_parts, import_preset_file, load_presets, save_new_preset, save_preset,
+};
 pub use removals::{
     BrushStroke, MAX_BRUSH_RADIUS, MAX_REMOVAL_STROKES, MAX_REMOVALS, MAX_STROKE_POINTS,
     MIN_BRUSH_RADIUS, Removal, RemovalMethod, removal_chain_fingerprints,

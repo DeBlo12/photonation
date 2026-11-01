@@ -18,6 +18,7 @@ pub mod mask_thumbnails;
 pub mod masks;
 pub mod menu_bar;
 pub mod point_colors;
+pub mod presets;
 pub mod removal_brush;
 pub mod removals;
 pub mod settings;

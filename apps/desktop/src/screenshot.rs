@@ -17,6 +17,8 @@
 //! `PHOTONATION_SCREENSHOT_SETTINGS=general` (or `=export`) opens Settings;
 //! `PHOTONATION_SCREENSHOT_LIBRARY=grid` shows the grid, `=survey` the
 //! first three photos in the survey view.
+//! `PHOTONATION_SCREENSHOT_PRESETS=1` opens the Presets card (`=copy`
+//! also opens Copy Settings, `=new` the New Preset dialog).
 
 use eframe::egui;
 use std::path::PathBuf;
@@ -72,6 +74,17 @@ impl Screenshot {
         }
         if std::env::var_os("PHOTONATION_SCREENSHOT_REMOVE").is_some() {
             view.show_removals = true;
+        }
+        if let Some(presets) = std::env::var_os("PHOTONATION_SCREENSHOT_PRESETS") {
+            view.presets.expanded = true;
+            view.presets.show_copy = presets == "copy";
+            if presets == "new" {
+                view.presets.new_preset = Some(crate::presets::NewPreset {
+                    name: "Golden Hour".into(),
+                    group: photonation_develop::DEFAULT_PRESET_GROUP.into(),
+                    parts: view.presets.preset_parts.clone(),
+                });
+            }
         }
         if std::env::var_os("PHOTONATION_SCREENSHOT_EXPORT").is_some() {
             view.show_export = true;

@@ -211,6 +211,8 @@ pub struct ViewState {
     pub removal_brush: RemovalBrush,
     /// The stroke being painted; it joins the settings on release.
     pub painting: Option<BrushStroke>,
+    /// Presets, copied settings and their dialogs.
+    pub presets: crate::presets::PresetsView,
 }
 
 impl Default for ViewState {
@@ -257,6 +259,7 @@ impl Default for ViewState {
             selected_removal: None,
             removal_brush: RemovalBrush::default(),
             painting: None,
+            presets: Default::default(),
         }
     }
 }
@@ -386,6 +389,7 @@ impl PhotonationApp {
         app.gpu_setting_at_launch = app.preferences.gpu.clone();
         app.view.export_options = app.preferences.export_options();
         app.preferences.library.apply(&mut app.view.library);
+        app.load_presets();
         // Load the inpainting model in the background, so the first
         // generative removal doesn't wait for it.
         app.engine.request_model_status();
@@ -625,9 +629,15 @@ impl PhotonationApp {
         AdjustmentGroup::apply_disabled(&self.settings, &self.view.disabled)
     }
 
-    /// What the viewer shows: the crop tool shows the whole photo.
+    /// What the viewer shows: the crop tool shows the whole photo, and a
+    /// preset under the pointer shows on the photo.
     fn preview_settings(&self) -> Settings {
-        let settings = self.effective_settings();
+        let settings = self
+            .view
+            .presets
+            .hover
+            .clone()
+            .unwrap_or_else(|| self.effective_settings());
         if self.view.cropping {
             panels::crop::uncropped(settings)
         } else {
@@ -920,6 +930,8 @@ impl PhotonationApp {
             settings,
             help,
             close_help,
+            copy_settings,
+            paste_settings,
         ) = ctx.input_mut(|i| {
             // Before the crop tool and the sheets see Esc: Help is in front.
             let close_help =
@@ -950,6 +962,8 @@ impl PhotonationApp {
                 i.consume_key(Modifiers::COMMAND, Key::Comma),
                 i.consume_key(Modifiers::NONE, Key::F1),
                 close_help,
+                i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::C),
+                i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::V),
             )
         });
         if redo {
@@ -992,6 +1006,12 @@ impl PhotonationApp {
         if reset_zoom {
             self.view.zoom = Zoom::Fit;
             self.view.pan = egui::Vec2::ZERO;
+        }
+        if copy_settings && self.current.is_some() {
+            self.view.presets.show_copy = true;
+        }
+        if paste_settings {
+            self.paste_settings();
         }
     }
 
@@ -1060,6 +1080,8 @@ impl eframe::App for PhotonationApp {
 
         let settings_before = self.settings.clone();
         let disabled_before = self.view.disabled.clone();
+        // The panels set it again while the pointer stays on a preset.
+        let preset_hover_before = self.view.presets.hover.take();
         let cropping_before = self.view.cropping;
 
         panels::menu_bar::show(self, ui);
@@ -1102,6 +1124,10 @@ impl eframe::App for PhotonationApp {
         }
         if self.view.help.open {
             panels::help::show(&mut self.view, &ctx);
+        }
+        panels::presets::dialogs(self, &ctx);
+        if self.view.presets.hover != preset_hover_before {
+            self.refresh();
         }
 
         if self.settings.removals != settings_before.removals {

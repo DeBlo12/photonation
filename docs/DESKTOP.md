@@ -206,6 +206,40 @@ after a confirmation, then reopens the folder on the nearest keeper.
 Sort order, grid size and auto-advance are remembered between launches
 (`LibraryPreferences`); the filter is not.
 
+## Presets and copy/paste (`presets.rs`, `panels/presets.rs`)
+
+`ViewState::presets` (`PresetsView`) holds the built-in presets, the user's
+(read from the presets folder at start and after every save, import or
+delete), the copied settings with their parts, and the dialogs' state.
+
+**Applying.** `apply_preset` and `paste_settings` go through
+`change_settings`, which changes every photo in `rating_targets`: the
+current photo in memory (one undo step, committed at once), the others
+through their sidecars (`load_photo` → change → `save_photo`, keeping the
+rating, then a thumbnail refresh). A sidecar that can't be read is left
+alone, as for ratings.
+
+**Previews.** Resting the pointer on a preset, in the card or the Edit menu,
+sets `presets.hover` to the photo's effective settings with the preset
+applied. The frame takes the previous value at its start and the panels set
+it again while the pointer stays; when it changes, `refresh` bumps the
+generation and `preview_settings` renders the hover settings instead. The
+photo's settings are untouched until a click.
+
+**UI.** The Presets card sits above the adjustment cards (folded at first):
+groups that fold, one row per preset, `+` (New Preset…) and Import in the
+header, Delete Preset… on a user preset's context menu (the file goes to
+the system bin after a confirmation). Edit › Copy Settings… (Ctrl/⌘+Shift+C)
+opens a checklist of parts grouped like the cards, with a mixed state on a
+group whose parts are partly ticked, and remembers the choice for the
+session; Edit › Paste Settings (Ctrl/⌘+Shift+V) names how many photos it
+will change. Edit › Apply Preset lists the presets by group, New Preset…
+asks for a name, a group and the parts, and Import Presets… takes `.xmp` and
+`.json` files, starting in Lightroom's presets folder
+(`%APPDATA%\Adobe\CameraRaw\Settings`,
+`~/Library/Application Support/Adobe/CameraRaw/Settings`) when there is one,
+and copies them into the presets folder.
+
 ## Masks
 
 **Panel** (`panels/masks.rs`), top to bottom:
@@ -444,5 +478,6 @@ opens the export sheet; `PHOTONATION_SCREENSHOT_HELP=1` the Help window
 (or a page's title, e.g. `=Crop and straighten`, for that page);
 `PHOTONATION_SCREENSHOT_SETTINGS=general` (or `=export`) the Settings window;
 `PHOTONATION_SCREENSHOT_LIBRARY=grid` the grid (`=survey` surveys the first
-two photos). The screenshot window opens unfocused and lets the pointer
+two photos); `PHOTONATION_SCREENSHOT_PRESETS=1` opens the Presets card
+(`=copy` with Copy Settings, `=new` with the New Preset dialog). The screenshot window opens unfocused and lets the pointer
 through, so a run never takes the keyboard from whoever is at the computer.

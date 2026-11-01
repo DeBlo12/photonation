@@ -8,6 +8,14 @@ changes to CI alone are not released.
 
 ## [Unreleased]
 
+### Added
+
+- Straighten by drawing a line: in the crop tool, turn on **Level** (or hold
+  Ctrl/⌘) and drag along the horizon or something upright, and the frame
+  turns to make it level or plumb. **Auto** finds the horizon or the
+  verticals itself and levels the photo by them (up to 20°), and leaves it
+  alone when the photo has no clear straight lines.
+
 ## [0.17.1] - 2026-11-01
 
 ### Changed

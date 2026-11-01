@@ -1273,6 +1273,17 @@ fn content(page: Page) -> Content {
                      gives it its size back.",
                 ),
                 term(
+                    "Level:",
+                    "turn on Level, or hold Ctrl (⌘ on a Mac), and drag along the horizon or \
+                     something upright. The frame turns to make the line level, or plumb if \
+                     it is closer to upright.",
+                ),
+                term(
+                    "Auto",
+                    "levels the photo by its horizon or verticals, up to 20° either way. \
+                     Photos without clear straight lines are left as they are.",
+                ),
+                term(
                     "Aspect",
                     "keeps a ratio: Original (the default), Free, 1:1, 4:5, 5:7, 2:3 or \
                      9:16, in the frame's orientation. The swap button turns portrait into \

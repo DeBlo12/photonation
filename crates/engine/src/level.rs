@@ -28,8 +28,9 @@ const MIN_GRADIENT: f32 = 40.0;
 /// to have lines at all. Set on real photos: portraits and branches reach
 /// about 10, a village of roofs 12, railings and window frames 25 and more.
 const CONFIDENCE: f64 = 12.0;
-/// Fewest voters at the best tilt, as a share of the working pixels.
-const MIN_VOTERS: f64 = 0.002;
+/// Fewest voters at the best tilt, as a share of the working long side:
+/// together, lines a quarter of the photo across.
+const MIN_VOTERS: f64 = 0.25;
 
 /// An edge pixel and its direction (degrees clockwise from the x axis,
 /// −90..90).
@@ -85,7 +86,7 @@ pub fn level_angle(rgb: &[u8], width: usize, height: usize) -> Option<f64> {
     if best == 0 || best + 1 == steps {
         return None;
     }
-    if (best_voters as f64) < MIN_VOTERS * (width * height) as f64 {
+    if (best_voters as f64) < MIN_VOTERS * width.max(height) as f64 {
         return None;
     }
     let mut scores: Vec<f64> = votes.iter().map(|(score, _)| *score).collect();
@@ -179,8 +180,12 @@ mod tests {
 
     /// Small deterministic noise, −amount..amount.
     fn noise(x: f64, y: f64, amount: f64) -> f64 {
-        let hash = ((x * 12.9898 + y * 78.233).sin() * 43758.545).fract();
-        (hash * 2.0 - 1.0) * amount
+        let mut hash = (x as u64) << 32 | y as u64;
+        // splitmix64's finalizer: no structure left for the edges to find.
+        hash = (hash ^ (hash >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+        hash = (hash ^ (hash >> 27)).wrapping_mul(0x94d049bb133111eb);
+        hash ^= hash >> 31;
+        ((hash >> 11) as f64 / (1u64 << 53) as f64 * 2.0 - 1.0) * amount
     }
 
     fn level(rgb: &[u8]) -> Option<f64> {
@@ -191,11 +196,11 @@ mod tests {
     fn a_tilted_horizon_is_levelled() {
         for tilt in [-6.5, -1.2, 0.0, 3.0, 11.0] {
             let slope = f64::to_radians(tilt).tan();
-            // Sky above, darker ground below, the line through the middle.
+            // Sky above, darker ground below, the line through the middle,
+            // soft over a few pixels as a lens draws it.
             let rgb = image(|x, y| {
                 let horizon = 300.0 + (x - 450.0) * slope;
-                let base = if y < horizon { 200.0 } else { 70.0 };
-                base + noise(x, y, 12.0)
+                135.0 + 65.0 * ((horizon - y) / 1.5).clamp(-1.0, 1.0) + noise(x, y, 12.0)
             });
             let angle = level(&rgb).expect("a horizon");
             assert!((angle - tilt).abs() < 0.2, "{tilt}: {angle}");
@@ -210,8 +215,8 @@ mod tests {
         let shift = tilt.to_radians().tan();
         let rgb = image(|x, y| {
             let u = x + (y - 300.0) * shift;
-            let stripe = (u / 90.0).floor() as i64 % 2 == 0;
-            (if stripe { 180.0 } else { 90.0 }) + noise(x, y, 10.0)
+            let wave = (u * std::f64::consts::PI / 90.0).sin();
+            135.0 + 45.0 * (4.0 * wave).clamp(-1.0, 1.0) + noise(x, y, 10.0)
         });
         let angle = level(&rgb).expect("verticals");
         assert!((angle - tilt).abs() < 0.2, "{angle}");

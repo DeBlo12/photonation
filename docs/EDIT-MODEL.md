@@ -197,8 +197,8 @@ and point colours, which belong to one photo's light and colours.
 A `Preset` is a name, a group, its `parts`, and settings that hold those
 parts (defaults elsewhere). `applied_to` copies just its parts, so a preset
 with Exposure leaves a photo's Contrast alone. The process version is not a
-part: a photo keeps its own (there is only V1 so far; a future process will
-decide how presets saved under the old one apply).
+part: a photo keeps its own, whichever process the preset was saved
+under.
 
 **Files.** A user preset is a JSON file in the `presets` folder of the
 engine's data directory (`%APPDATA%\Photonation\presets`,
@@ -295,3 +295,14 @@ a new process version**; old versions stay frozen, so earlier edits keep their
 look until the user updates them. Sidecars from a newer build are rejected with a
 clear error instead of rendering wrongly. Pure bug fixes (crashes, NaNs, decoder
 errors) may land in place.
+
+| Process | Change |
+|---|---|
+| 1 | The first process |
+| 2 | Highlight reconstruction ([PIPELINE.md](PIPELINE.md) §3c): each raw channel keeps its own headroom and clipped channels are rebuilt from the others |
+
+New photos and Reset All use the latest process. A sidecar without a
+`process` field predates process versions and reads as process 1. The
+inspector offers photos edited with an older process an **Update to Process
+N** button, one undo step like any edit; presets and pasted settings leave
+a photo's process alone.

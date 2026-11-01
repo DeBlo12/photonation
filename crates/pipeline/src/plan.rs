@@ -32,9 +32,11 @@ pub struct RenderPlan {
     /// Output pixels are written in display orientation.
     pub orientation: Orientation,
     /// Per colour channel: a raw sample normalizes to
-    /// `min((raw − black) × gain, 1)` (gain = white balance ÷ (white − black)).
+    /// `min((raw − black) × gain, clip)` (gain = white balance ÷ (white − black);
+    /// clip 1, or the channel's multiplier when highlights are reconstructed).
     pub black: [f32; 3],
     pub gain: [f32; 3],
+    pub clip: [f32; 3],
     pub develop: DevelopPlan,
     /// Texture and Clarity, at the source's size; `None` when both are 0.
     pub local_contrast: Option<LocalContrastPlan>,
@@ -48,6 +50,8 @@ pub struct RenderPlan {
 /// The develop stage's global steps (see `develop.rs`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct DevelopPlan {
+    /// Highlight reconstruction (process V2), before everything else.
+    pub reconstruction: Option<HighlightPlan>,
     /// White-balanced camera RGB → working RGB, exposure folded in.
     pub camera_to_working: [[f32; 3]; 3],
     pub working_luminance: [f32; 3],
@@ -65,6 +69,15 @@ pub struct DevelopPlan {
     pub local: Option<LocalPlan>,
     pub working_to_output: [[f32; 3]; 3],
     pub output_luminance: [f32; 3],
+}
+
+/// Highlight reconstruction (see `highlights.rs`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HighlightPlan {
+    /// Each channel's clip level in white-balanced camera RGB.
+    pub clip: [f32; 3],
+    /// Fraction of its clip where a channel starts to count as clipped.
+    pub soft_start: f32,
 }
 
 /// Per-channel tone tables over log2 of the scene value (see `tone.rs`).
@@ -232,8 +245,15 @@ pub fn render_plan(
     let target = scaled_size(framing.size(), opts.long_edge);
     let demosaic = crate::demosaic_for(sensor, &framing, target);
     let camera = CameraModel::new(sensor, &settings.white_balance);
-    let source = SensorSource::new(sensor, region, camera.wb_multipliers, demosaic);
+    let source = SensorSource::new(
+        sensor,
+        region,
+        camera.wb_multipliers,
+        demosaic,
+        settings.process.reconstructs_highlights(),
+    );
     let (source_region, source_size) = (source.region(), source.size());
+    let (black, gain, clip) = source.levels();
     if retouch::applies(&settings.removals, fills) {
         return Err(PlanError::Unsupported("removals"));
     }
@@ -249,9 +269,9 @@ pub fn render_plan(
         sensor.baseline_exposure,
         opts.color_space,
     )
+    .with_highlight_reconstruction(&settings, clip)
     .with_local_adjustments(local)
     .with_point_color_overlay(&settings, opts.point_color_overlay);
-    let (black, gain) = source.levels();
     Ok(RenderPlan {
         region: source_region,
         demosaic,
@@ -260,6 +280,7 @@ pub fn render_plan(
         orientation: sensor.orientation,
         black,
         gain,
+        clip,
         develop: develop.plan(),
         local_contrast: LocalContrast::new(settings.clarity, settings.texture, source_size)
             .as_ref()

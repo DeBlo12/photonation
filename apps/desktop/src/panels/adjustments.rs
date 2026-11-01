@@ -13,7 +13,8 @@ use crate::widgets::{
 use eframe::egui::{self, Color32, RichText, Ui};
 use photonation_develop::{
     AdjustmentGroup, BASIC_CONTROLS, ColorMixer, Control, DETAIL_CONTROLS, GRADING_BLEND_CONTROLS,
-    GRADING_CONTROLS, MIXER_CONTROLS, PARAMETRIC_CURVE_CONTROLS, Settings, WhiteBalance,
+    GRADING_CONTROLS, MIXER_CONTROLS, PARAMETRIC_CURVE_CONTROLS, ProcessVersion, Settings,
+    WhiteBalance,
 };
 use photonation_engine::Histogram;
 use photonation_pipeline::curve::Parametric;
@@ -102,6 +103,7 @@ fn inspector(app: &mut PhotonationApp, ui: &mut Ui) {
                 return;
             }
             ui.spacing_mut().item_spacing.y = 8.0;
+            process_notice(&mut app.settings, ui);
             crate::panels::presets::card(app, ui);
             let as_shot = app.info.as_ref().map_or((5500.0, 0.0), |i| i.as_shot);
             let histogram = app.histogram.as_ref();
@@ -132,6 +134,39 @@ fn inspector(app: &mut PhotonationApp, ui: &mut Ui) {
                 app.settings = Settings::default();
             }
         });
+}
+
+/// For a photo edited with an older process: what the latest one adds and
+/// a button that moves the photo to it (one undo step, like any edit).
+fn process_notice(settings: &mut Settings, ui: &mut Ui) {
+    if settings.process == ProcessVersion::LATEST {
+        return;
+    }
+    theme::card_frame().show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.label(
+            RichText::new(format!(
+                "Edited with process {}",
+                settings.process.number()
+            ))
+            .strong(),
+        );
+        ui.label(
+            RichText::new(format!(
+                "Process {} recovers detail in bright highlights that one                  colour channel clipped. Updating can brighten blown areas.",
+                ProcessVersion::LATEST.number()
+            ))
+            .size(11.5)
+            .color(theme::TEXT_SECONDARY),
+        );
+        ui.add_space(4.0);
+        if ui
+            .button(format!("Update to Process {}", ProcessVersion::LATEST.number()))
+            .clicked()
+        {
+            settings.process = ProcessVersion::LATEST;
+        }
+    });
 }
 
 /// One collapsible card, wiring its switch and reset to the view state.

@@ -14,17 +14,28 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(try_from = "u32", into = "u32")]
 pub enum ProcessVersion {
+    /// Every raw channel clips at the same level, so blown highlights stay
+    /// neutral but lose what the other channels still recorded.
     #[default]
     V1,
+    /// Highlight reconstruction: each channel keeps its own headroom and
+    /// clipped channels are rebuilt from the ones that weren't.
+    V2,
 }
 
 impl ProcessVersion {
-    pub const LATEST: ProcessVersion = ProcessVersion::V1;
+    pub const LATEST: ProcessVersion = ProcessVersion::V2;
 
     pub fn number(self) -> u32 {
         match self {
             ProcessVersion::V1 => 1,
+            ProcessVersion::V2 => 2,
         }
+    }
+
+    /// Whether highlights are reconstructed (V2 and later).
+    pub fn reconstructs_highlights(self) -> bool {
+        self != ProcessVersion::V1
     }
 }
 
@@ -40,6 +51,7 @@ impl TryFrom<u32> for ProcessVersion {
     fn try_from(v: u32) -> Result<Self, Self::Error> {
         match v {
             1 => Ok(ProcessVersion::V1),
+            2 => Ok(ProcessVersion::V2),
             _ => Err(format!(
                 "unsupported process version {v}; this build supports up to {}",
                 Self::LATEST.number()
@@ -274,6 +286,9 @@ impl Default for Sharpening {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
+    /// New settings use the latest process; a sidecar without one predates
+    /// process versions and keeps the first.
+    #[serde(default)]
     pub process: ProcessVersion,
     pub white_balance: WhiteBalance,
     /// Stops, −5..5.
@@ -454,6 +469,15 @@ mod tests {
         assert_eq!(s.exposure, 1.5);
         assert_eq!(s.sharpening, Sharpening::default());
         assert_eq!(s.process, ProcessVersion::V1);
+    }
+
+    #[test]
+    fn new_settings_use_the_latest_process() {
+        assert_eq!(Settings::default().process, ProcessVersion::LATEST);
+        let s: Settings = serde_json::from_str(r#"{"process": 2}"#).expect("parse");
+        assert!(s.process.reconstructs_highlights());
+        let v1: Settings = serde_json::from_str(r#"{"process": 1}"#).expect("parse");
+        assert!(!v1.process.reconstructs_highlights());
     }
 
     #[test]

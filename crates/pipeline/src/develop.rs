@@ -9,6 +9,7 @@
 use crate::band::PointOp;
 use crate::camera::WORKING;
 use crate::color::{ColorAdjust, DEHAZE_SATURATION, smoothstep};
+use crate::highlights::HighlightReconstruction;
 use crate::masks::{LocalAdjust, LocalAmounts};
 use crate::plan::{DevelopPlan, LocalLimits};
 use crate::tone::{BASELINE_EXPOSURE, MID_GREY, ToneLuts};
@@ -28,6 +29,8 @@ const MAX_LOCAL_EXPOSURE_EV: f32 = 10.0;
 const MAX_TONE_AMOUNT: f32 = 2.0;
 
 pub struct Develop {
+    /// Process V2 and later; `None` keeps V1's common clip.
+    reconstruction: Option<HighlightReconstruction>,
     camera_to_working: [[f32; 3]; 3],
     working_luminance: [f32; 3],
     haze: f32,
@@ -60,6 +63,7 @@ impl Develop {
         let adapt = bradford(xy_to_xyz(WORKING.white), xy_to_xyz(out.white));
         let working_to_output = out.from_xyz() * adapt * WORKING.to_xyz();
         Develop {
+            reconstruction: None,
             camera_to_working: camera_to_working.scale(exposure).to_f32(),
             working_luminance: WORKING.luminance().map(|v| v as f32),
             haze: s.dehaze / 100.0 * MAX_HAZE,
@@ -83,6 +87,16 @@ impl Develop {
         self
     }
 
+    /// Rebuilds clipped channels first (process V2); `clip` is each
+    /// channel's clip level, as the source passes it on.
+    pub fn with_highlight_reconstruction(mut self, s: &Settings, clip: [f32; 3]) -> Develop {
+        self.reconstruction = s
+            .process
+            .reconstructs_highlights()
+            .then(|| HighlightReconstruction::new(clip));
+        self
+    }
+
     /// Adds the masks' local adjustments (`None`: no active masks).
     pub fn with_local_adjustments(mut self, local: Option<LocalAdjust>) -> Develop {
         self.local = local;
@@ -92,6 +106,10 @@ impl Develop {
     /// The develop steps as data.
     pub fn plan(&self) -> DevelopPlan {
         DevelopPlan {
+            reconstruction: self
+                .reconstruction
+                .as_ref()
+                .map(HighlightReconstruction::plan),
             camera_to_working: self.camera_to_working,
             working_luminance: self.working_luminance,
             haze: self.haze,
@@ -252,6 +270,10 @@ impl Develop {
         camera_rgb: [f32; 3],
         local: &LocalAmounts,
     ) -> [f32; 3] {
+        let camera_rgb = match &self.reconstruction {
+            Some(reconstruction) => reconstruction.apply(camera_rgb),
+            None => camera_rgb,
+        };
         let mut rgb = apply3(&self.camera_to_working, camera_rgb);
         let (haze, highlights, shadows) = if MASKED {
             if local.exposure != 0.0 || local.temperature != 0.0 || local.tint != 0.0 {

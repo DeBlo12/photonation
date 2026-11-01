@@ -21,6 +21,8 @@ struct Sensor {
     mode: vec4<u32>,
     black: vec4<f32>,
     gain: vec4<f32>,
+    // Where each channel's values stop: 1, or its own clip (process V2).
+    clip: vec4<f32>,
     // CFA colours (0 red, 1 green, 2 blue), row-major, four per entry.
     cfa: array<vec4<u32>, 9>,
 }
@@ -35,6 +37,9 @@ struct Selection {
 }
 
 struct Develop {
+    // Highlight reconstruction: each channel's clip level; w: fraction of
+    // it where a channel starts to count as clipped, 0 when off.
+    reconstruction: vec4<f32>,
     camera_to_working: array<vec4<f32>, 3>,
     working_to_output: array<vec4<f32>, 3>,
     working_luminance: vec4<f32>,
@@ -136,9 +141,8 @@ fn cfa_color(x: u32, y: u32) -> u32 {
     return sensor.cfa[index / 4u][index % 4u];
 }
 
-// Clipped at 1 so every channel saturates at the same value.
 fn normalize(raw: u32, color: u32) -> f32 {
-    return min((f32(raw) - sensor.black[color]) * sensor.gain[color], 1.0);
+    return min((f32(raw) - sensor.black[color]) * sensor.gain[color], sensor.clip[color]);
 }
 
 // Reflects an index into 0..len without repeating the edge sample.
@@ -566,9 +570,49 @@ fn to_output_gamut(rgb: vec3<f32>) -> vec3<f32> {
     return clamp(out, vec3<f32>(0.0), vec3<f32>(1.0));
 }
 
+// Rebuilds clipped channels (pipeline `highlights.rs`): each is raised
+// toward what the channels that didn't clip say, and to the highest clip
+// among them; the colour of clipped pixels is held to V1's.
+fn reconstruct_highlights(rgb: vec3<f32>) -> vec3<f32> {
+    let clip = develop.reconstruction.xyz;
+    let clipped = vec3<f32>(
+        smooth_step(develop.reconstruction.w * clip.x, clip.x, rgb.x),
+        smooth_step(develop.reconstruction.w * clip.y, clip.y, rgb.y),
+        smooth_step(develop.reconstruction.w * clip.z, clip.z, rgb.z),
+    );
+    if all(clipped == vec3<f32>(0.0)) {
+        return rgb;
+    }
+    let trust = vec3<f32>(1.0) - clipped;
+    let trust_sum = trust.x + trust.y + trust.z;
+    var reference = max(max(rgb.x, rgb.y), rgb.z);
+    if trust_sum > 1e-6 {
+        reference = (trust.x * rgb.x + trust.y * rgb.y + trust.z * rgb.z) / trust_sum;
+    }
+    let floors = clipped * rgb;
+    let floor_or_reference = max(reference, max(max(floors.x, floors.y), floors.z));
+    let raised = rgb + clipped * max(vec3<f32>(floor_or_reference) - rgb, vec3<f32>(0.0));
+    // The colour is a guess where channels clip: hold it to V1's.
+    let grey = (raised.x + raised.y + raised.z) / 3.0;
+    let colour = raised - vec3<f32>(grey);
+    let colour_norm = length(colour);
+    if colour_norm <= 1e-6 {
+        return raised;
+    }
+    let common_clip = min(rgb, vec3<f32>(1.0));
+    let common_colour = common_clip - vec3<f32>((common_clip.x + common_clip.y + common_clip.z) / 3.0);
+    let limit = min(length(common_colour) / colour_norm, 1.0);
+    let most_clipped = max(max(clipped.x, clipped.y), clipped.z);
+    return vec3<f32>(grey) + colour * (1.0 - most_clipped * (1.0 - limit));
+}
+
 // The develop steps for one pixel; with masks, their summed adjustments
 // join the global ones (`working_pixel::<true>`).
-fn develop_pixel(camera_rgb: vec3<f32>, pixel: vec2<u32>) -> vec3<f32> {
+fn develop_pixel(camera_in: vec3<f32>, pixel: vec2<u32>) -> vec3<f32> {
+    var camera_rgb = camera_in;
+    if develop.reconstruction.w != 0.0 {
+        camera_rgb = reconstruct_highlights(camera_rgb);
+    }
     var rgb = rows3(develop.camera_to_working, camera_rgb);
     var haze = develop.light.x;
     var highlights = develop.light.y;

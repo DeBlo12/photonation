@@ -18,6 +18,7 @@ mod color;
 pub mod curve;
 mod develop;
 mod encode;
+mod highlights;
 mod local_contrast;
 pub mod masks;
 pub mod plan;
@@ -260,8 +261,10 @@ pub fn color_at(sensor: &SensorImage, settings: &Settings, point: [f64; 2]) -> O
         patch,
         camera.wb_multipliers,
         Demosaic::choose(&sensor.layout, false),
+        settings.process.reconstructs_highlights(),
     );
     let size = source.size();
+    let (_, _, clip) = source.levels();
     let local = masks::LocalAdjust::new(
         &settings.masks,
         &settings.mask_groups,
@@ -274,6 +277,7 @@ pub fn color_at(sensor: &SensorImage, settings: &Settings, point: [f64; 2]) -> O
         sensor.baseline_exposure,
         ColorSpace::Srgb,
     )
+    .with_highlight_reconstruction(&settings, clip)
     .with_local_adjustments(local);
     let band = source.render(0..size.1);
     let mut sum = [0.0f32; 3];
@@ -358,8 +362,15 @@ fn build_graph<'a>(
     let region = framing.region();
     let demosaic = demosaic_for(sensor, framing, target);
     let camera = CameraModel::new(sensor, &settings.white_balance);
-    let source = source::SensorSource::new(sensor, region, camera.wb_multipliers, demosaic);
+    let source = source::SensorSource::new(
+        sensor,
+        region,
+        camera.wb_multipliers,
+        demosaic,
+        settings.process.reconstructs_highlights(),
+    );
     let source_region = source.region();
+    let (_, _, clip) = source.levels();
 
     let mut graph = Graph::new(Box::new(source));
     retouch::push_retouch(
@@ -369,6 +380,7 @@ fn build_graph<'a>(
         fills,
         source_region,
         camera.wb_multipliers,
+        clip,
     );
     let local = masks::LocalAdjust::new(
         &settings.masks,
@@ -383,6 +395,7 @@ fn build_graph<'a>(
             sensor.baseline_exposure,
             opts.color_space,
         )
+        .with_highlight_reconstruction(settings, clip)
         .with_local_adjustments(local)
         .with_point_color_overlay(settings, opts.point_color_overlay),
     )));

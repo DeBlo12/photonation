@@ -9,7 +9,7 @@ use super::*;
 use photonation_color::ColorSpace;
 use photonation_develop::{
     CombineMode, GradingWheel, LinearGradient, LocalAdjustments, Mask, MaskComponent, MaskGroup,
-    MaskShape, OklabLch, PointColor, PointCurve, RadialGradient,
+    MaskShape, OklabLch, PointColor, PointCurve, ProcessVersion, RadialGradient,
 };
 use photonation_image::{CfaColor, CfaPattern, Orientation, Rect};
 use std::sync::{Mutex, OnceLock};
@@ -233,6 +233,19 @@ fn half_size_previews_match() {
 fn every_global_adjustment_matches() {
     for opts in [full_size(), preview(80)] {
         assert_matches_cpu(bayer(160, 110), &busy_settings(), &opts);
+    }
+}
+
+#[test]
+fn both_highlight_processes_match() {
+    for process in [ProcessVersion::V1, ProcessVersion::V2] {
+        let s = Settings {
+            process,
+            ..busy_settings()
+        };
+        assert_matches_cpu(SensorImage::highlight_pattern(160, 90), &s, &full_size());
+        assert_matches_cpu(bayer(160, 110), &s, &preview(70));
+        assert_matches_cpu(xtrans(96, 72), &s, &full_size());
     }
 }
 

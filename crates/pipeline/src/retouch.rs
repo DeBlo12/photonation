@@ -191,6 +191,8 @@ pub struct Retouch {
     origin: [f32; 2],
     step: [f32; 2],
     wb_multipliers: [f32; 3],
+    /// Per channel: where the source stops values (see `SensorSource::levels`).
+    clip: [f32; 3],
 }
 
 impl Retouch {
@@ -204,6 +206,7 @@ impl Retouch {
         region: Rect,
         size: (usize, usize),
         wb_multipliers: [f32; 3],
+        clip: [f32; 3],
     ) -> Option<Retouch> {
         let space = mask_space(sensor);
         let applied: Vec<AppliedRemoval> = removals
@@ -229,6 +232,7 @@ impl Retouch {
                 region.h as f32 / size.1.max(1) as f32,
             ],
             wb_multipliers,
+            clip,
         })
     }
 }
@@ -247,7 +251,8 @@ impl PointOp for Retouch {
                 let fill = removal.patch.sample(sensor_x, sensor_y);
                 for channel in 0..3 {
                     // White balance and clip exactly as the source does.
-                    let value = (fill[channel] * self.wb_multipliers[channel]).min(1.0);
+                    let value =
+                        (fill[channel] * self.wb_multipliers[channel]).min(self.clip[channel]);
                     pixel[channel] += (value - pixel[channel]) * weight;
                 }
             }
@@ -263,6 +268,7 @@ pub(crate) fn push_retouch(
     fills: &RemovalFills,
     source_region: Rect,
     wb_multipliers: [f32; 3],
+    clip: [f32; 3],
 ) {
     if fills.is_empty() {
         return;
@@ -274,6 +280,7 @@ pub(crate) fn push_retouch(
         source_region,
         graph.size(),
         wb_multipliers,
+        clip,
     ) {
         graph.push(Box::new(Point(stage)));
     }
@@ -399,9 +406,12 @@ pub fn removal_canvas(
     let demosaic = Demosaic::choose(&sensor.layout, half_size_is_enough);
     // Demosaic white balanced as shot, like a render: demosaicing does not
     // commute with per-channel scaling, so balancing afterwards would not
-    // match the photo. The patch divides the balance back out.
+    // match the photo. The patch divides the balance back out. Each channel
+    // keeps its own headroom, so a fill in a blown area is as bright as
+    // the highlights reconstructed around it (process V2); V1 renders clip
+    // it at 1 like the rest of the photo.
     let display_balance = CameraModel::new(sensor, &WhiteBalance::AsShot).wb_multipliers;
-    let source = SensorSource::new(sensor, region, display_balance, demosaic);
+    let source = SensorSource::new(sensor, region, display_balance, demosaic, true);
     let source_region = source.region();
     let mut graph = Graph::new(Box::new(source));
     let earlier = Settings {
@@ -414,6 +424,7 @@ pub fn removal_canvas(
         &earlier,
         fills,
         source_region,
+        display_balance,
         display_balance,
     );
     if graph.size() != target {

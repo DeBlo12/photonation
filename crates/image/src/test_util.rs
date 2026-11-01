@@ -53,4 +53,29 @@ impl SensorImage {
             info: CameraInfo::default(),
         }
     }
+
+    /// [`SensorImage::test_pattern`] lit by a neutral light that runs from
+    /// dark on the left to 2.5 × the green clip on the right: green clips
+    /// first, then blue, then red, and the right edge is clipped in every
+    /// channel. The light dims toward the bottom, so rows differ.
+    pub fn highlight_pattern(width: usize, height: usize) -> SensorImage {
+        let mut image = SensorImage::test_pattern(width, height, Orientation::Normal);
+        let neutral = image.color.as_shot_neutral.unwrap_or([1.0; 3]);
+        let (black, white) = (image.black[0], image.white);
+        let mut state = 0x9e37_79b9_7f4a_7c15u64;
+        for y in 0..height {
+            for x in 0..width {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                let noise = (state % 100) as f32;
+                let light =
+                    2.5 * (x as f32 / width as f32) * (1.0 - 0.3 * (y as f32 / height as f32));
+                let channel = CfaPattern::rggb().color_at(y, x) as usize;
+                let raw = black + light * neutral[channel] as f32 * (white - black) + noise;
+                image.data[y * width + x] = raw.min(white) as u16;
+            }
+        }
+        image
+    }
 }

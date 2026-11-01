@@ -33,6 +33,12 @@ changes to CI alone are not released.
   verticals itself and levels the photo by them (up to 20°), and leaves it
   alone when the photo has no clear straight lines.
 
+### Fixed
+
+- In narrow windows the toolbar's photo details no longer run under the
+  buttons on the right; the file name and camera summary are shortened
+  instead.
+
 ## [0.17.1] - 2026-11-01
 
 ### Changed

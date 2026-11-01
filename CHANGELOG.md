@@ -8,6 +8,8 @@ changes to CI alone are not released.
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-11-01
+
 ### Added
 
 - Presets: a Presets card at the top of the inspector and Edit › Apply
@@ -31,6 +33,7 @@ changes to CI alone are not released.
 
 - Lightroom black & white edits import as Saturation −100 instead of being
   left out; the per-colour mix and toning are named as not imported.
+  ([#23](https://github.com/DeBlo12/photonation/pull/23))
 
 ## [0.15.1] - 2026-10-31
 
@@ -326,7 +329,8 @@ changes to CI alone are not released.
 
 - Licensed under GPL-3.0-or-later.
 
-[Unreleased]: https://github.com/DeBlo12/photonation/compare/v0.15.1...HEAD
+[Unreleased]: https://github.com/DeBlo12/photonation/compare/v0.16.0...HEAD
+[0.16.0]: https://github.com/DeBlo12/photonation/compare/v0.15.1...v0.16.0
 [0.15.1]: https://github.com/DeBlo12/photonation/compare/v0.15.0...v0.15.1
 [0.15.0]: https://github.com/DeBlo12/photonation/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/DeBlo12/photonation/compare/v0.13.0...v0.14.0

@@ -223,6 +223,34 @@ pub static DETAIL_CONTROLS: &[Control] = &[
     control!("sharpen-radius", "Radius", 0.5, 3.0, 1.0, sharpening.radius),
 ];
 
+/// Noise reduction, under the sharpening on the Detail card.
+pub static NOISE_CONTROLS: &[Control] = &[
+    control!(
+        "noise-luminance",
+        "Luminance",
+        0.0,
+        100.0,
+        0.0,
+        noise_reduction.luminance
+    ),
+    control!(
+        "noise-detail",
+        "Detail",
+        0.0,
+        100.0,
+        50.0,
+        noise_reduction.detail
+    ),
+    control!(
+        "noise-color",
+        "Color",
+        0.0,
+        100.0,
+        0.0,
+        noise_reduction.color
+    ),
+];
+
 /// The crop tool's straighten angle.
 pub static CROP_CONTROLS: &[Control] = &[control!(
     "crop-angle",
@@ -314,6 +342,7 @@ pub fn all_controls() -> impl Iterator<Item = &'static Control> {
         .chain(GRADING_CONTROLS.iter().flatten())
         .chain(GRADING_BLEND_CONTROLS)
         .chain(DETAIL_CONTROLS)
+        .chain(NOISE_CONTROLS)
         .chain(CROP_CONTROLS)
 }
 

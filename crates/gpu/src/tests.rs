@@ -9,8 +9,8 @@ use super::*;
 use photonation_color::ColorSpace;
 use photonation_develop::{
     BrushStroke, CombineMode, GradingWheel, LinearGradient, LocalAdjustments, Mask, MaskComponent,
-    MaskGroup, MaskShape, OklabLch, PointColor, PointCurve, ProcessVersion, RadialGradient,
-    Removal, RemovalMethod,
+    MaskGroup, MaskShape, NoiseReduction, OklabLch, PointColor, PointCurve, ProcessVersion,
+    RadialGradient, Removal, RemovalMethod,
 };
 use photonation_image::{CfaColor, CfaPattern, NormRect, Orientation, Rect};
 use photonation_pipeline::{removal_canvas, removal_jobs};
@@ -31,6 +31,7 @@ fn shaders_validate() {
         ("finish", FINISH_SHADER),
         ("local_contrast", LOCAL_CONTRAST_SHADER),
         ("straighten", STRAIGHTEN_SHADER),
+        ("denoise", DENOISE_SHADER),
     ] {
         let module = naga::front::wgsl::parse_str(source)
             .unwrap_or_else(|e| panic!("{name}.wgsl: {}", e.emit_to_string(source)));
@@ -525,6 +526,38 @@ fn texture_and_clarity_match() {
 }
 
 #[test]
+fn noise_reduction_matches() {
+    for (luminance, detail, color) in [(60.0, 50.0, 0.0), (0.0, 50.0, 80.0), (100.0, 0.0, 100.0)] {
+        let settings = Settings {
+            noise_reduction: NoiseReduction {
+                luminance,
+                detail,
+                color,
+            },
+            ..busy_settings()
+        };
+        // Full size runs five levels, previews four at half size.
+        for opts in [full_size(), preview(150)] {
+            assert_matches_cpu(bayer(640, 420), &settings, &opts);
+        }
+    }
+    // With Texture and Clarity after it, turned, on a portrait photo.
+    let settings = Settings {
+        noise_reduction: NoiseReduction {
+            luminance: 40.0,
+            detail: 70.0,
+            color: 50.0,
+        },
+        clarity: 30.0,
+        crop_angle: 4.0,
+        ..masked_settings()
+    };
+    let mut sensor = bayer(500, 330);
+    sensor.orientation = Orientation::from_exif(6);
+    assert_matches_cpu(sensor, &settings, &preview(200));
+}
+
+#[test]
 fn texture_and_clarity_with_masks_and_orientation_match() {
     let settings = Settings {
         clarity: 45.0,
@@ -682,6 +715,14 @@ fn timings_at_24_megapixels() {
         texture: 30.0,
         ..masked_settings()
     };
+    let denoised = Settings {
+        noise_reduction: NoiseReduction {
+            luminance: 50.0,
+            detail: 50.0,
+            color: 50.0,
+        },
+        ..busy_settings()
+    };
     let straightened = Settings {
         crop_angle: 3.0,
         ..busy_settings()
@@ -696,6 +737,7 @@ fn timings_at_24_megapixels() {
         ("global", busy_settings()),
         ("3 masks", masked_settings()),
         ("3 masks, Texture, Clarity", clarity),
+        ("noise reduction", denoised),
         ("straightened 3°", straightened),
         ("2 removals", removed),
     ] {

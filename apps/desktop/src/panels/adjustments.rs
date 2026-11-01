@@ -13,8 +13,8 @@ use crate::widgets::{
 use eframe::egui::{self, Color32, RichText, Ui};
 use photonation_develop::{
     AdjustmentGroup, BASIC_CONTROLS, ColorMixer, Control, DETAIL_CONTROLS, GRADING_BLEND_CONTROLS,
-    GRADING_CONTROLS, MIXER_CONTROLS, PARAMETRIC_CURVE_CONTROLS, ProcessVersion, Settings,
-    WhiteBalance,
+    GRADING_CONTROLS, MIXER_CONTROLS, NOISE_CONTROLS, PARAMETRIC_CURVE_CONTROLS, ProcessVersion,
+    Settings, WhiteBalance,
 };
 use photonation_engine::Histogram;
 use photonation_pipeline::curve::Parametric;
@@ -125,7 +125,7 @@ fn inspector(app: &mut PhotonationApp, ui: &mut Ui) {
                         AdjustmentGroup::ToneCurve => curves(ui, settings, view, histogram),
                         AdjustmentGroup::ColorMixer => color_mixer(ui, settings, view),
                         AdjustmentGroup::ColorGrading => color_grading(ui, settings, view),
-                        AdjustmentGroup::Detail => control_sliders(ui, settings, DETAIL_CONTROLS),
+                        AdjustmentGroup::Detail => detail(ui, settings),
                     },
                 );
             }
@@ -229,6 +229,18 @@ pub fn control_slider<Target>(
     )
 }
 
+/// Sharpening, then noise reduction under its own heading.
+fn detail(ui: &mut Ui, settings: &mut Settings) {
+    control_sliders(ui, settings, DETAIL_CONTROLS);
+    ui.add_space(4.0);
+    ui.label(
+        RichText::new("Noise Reduction")
+            .size(12.0)
+            .color(theme::TEXT_SECONDARY),
+    );
+    control_sliders(ui, settings, NOISE_CONTROLS);
+}
+
 fn control_sliders(ui: &mut Ui, settings: &mut Settings, controls: &[Control]) {
     for control in controls {
         control_slider(ui, settings, control, &style_for(control.id));
@@ -245,7 +257,7 @@ pub fn style_for(id: &str) -> SliderStyle {
             format: |v| format!("{v:.1}"),
             ..SliderStyle::default()
         },
-        "sharpen-amount" => SliderStyle {
+        "sharpen-amount" | "noise-luminance" | "noise-detail" | "noise-color" => SliderStyle {
             format: |v| format!("{v:.0}"),
             ..SliderStyle::default()
         },

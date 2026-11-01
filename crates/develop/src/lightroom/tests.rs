@@ -102,6 +102,11 @@ fn global_settings_are_imported() {
     assert_eq!((s.texture, s.dehaze), (5.0, 3.0));
     assert_eq!(s.highlights, 0.0, "missing values keep their defaults");
     assert_eq!(s.sharpening.amount, 40.0);
+    assert_eq!(s.noise_reduction.luminance, 20.0);
+    assert_eq!(
+        s.noise_reduction.color, 0.0,
+        "missing values keep their defaults"
+    );
     assert_eq!(s.tone_curve.parametric.lights, -10.0);
     assert_eq!(s.tone_curve.parametric.midtone_split, 45.0);
 }
@@ -157,10 +162,7 @@ fn crops_are_turned_to_the_displayed_image() {
 
 #[test]
 fn unsupported_edits_are_reported() {
-    assert_eq!(
-        import(PORTRAIT_SIDECAR).not_imported,
-        vec!["masks", "noise reduction"]
-    );
+    assert_eq!(import(PORTRAIT_SIDECAR).not_imported, vec!["masks"]);
 }
 
 #[test]

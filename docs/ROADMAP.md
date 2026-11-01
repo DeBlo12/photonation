@@ -36,13 +36,15 @@
   and clipped channels are rebuilt from the others, on CPU and GPU
 - Every preview on the GPU: straightened crops and removal fills too
 - Straighten by drawing a level line, and Auto straighten
+- Noise reduction: luminance (with detail) and colour, à trous wavelet
+  shrinkage on CPU and GPU
 
 ## Next
 
 In this order:
 
-1. **Noise reduction** (luminance and colour) and **lens corrections**
-   (distortion, vignetting, chromatic aberration).
+1. **Lens corrections** from the Lensfun database (distortion, vignetting,
+   chromatic aberration), with manual sliders on top.
 2. **More masks**: a brush, creating gradients by dragging on the photo, masks
    in compare mode, and later AI subject and sky masks. Skip masks whose
    bounds miss a band, and fold local saturation into the colour step's Oklab

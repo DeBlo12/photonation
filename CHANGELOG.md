@@ -10,6 +10,12 @@ changes to CI alone are not released.
 
 ### Added
 
+- Noise reduction on the Detail card: **Luminance** smooths grain,
+  **Detail** keeps fine texture, **Color** removes coloured speckles and
+  blotches. It runs before Texture and Clarity and matches between previews
+  and exports. Lightroom's noise reduction now imports. On the graphics card
+  it adds about 13 ms to a 1600 px preview.
+
 - Straighten by drawing a line: in the crop tool, turn on **Level** (or hold
   Ctrl/⌘) and drag along the horizon or something upright, and the frame
   turns to make it level or plumb. **Auto** finds the horizon or the

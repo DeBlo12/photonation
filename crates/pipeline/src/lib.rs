@@ -16,6 +16,7 @@ pub mod band;
 mod camera;
 mod color;
 pub mod curve;
+mod denoise;
 mod develop;
 mod encode;
 mod highlights;
@@ -399,6 +400,10 @@ fn build_graph<'a>(
         .with_local_adjustments(local)
         .with_point_color_overlay(settings, opts.point_color_overlay),
     )));
+    if let Some(denoise) = denoise::Denoise::new(&settings.noise_reduction, demosaic.source_scale())
+    {
+        graph.push(Box::new(denoise));
+    }
     if let Some(local) =
         local_contrast::LocalContrast::new(settings.clarity, settings.texture, graph.size())
     {

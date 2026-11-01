@@ -10,7 +10,7 @@ use photonation_image::{Orientation, SensorLayout};
 use photonation_pipeline::Demosaic;
 use photonation_pipeline::masks::ShapeWeight;
 use photonation_pipeline::plan::{
-    ColorPlan, DevelopPlan, LocalContrastPlan, RenderPlan, RetouchPlan, SelectionPlan,
+    ColorPlan, DenoisePlan, DevelopPlan, LocalContrastPlan, RenderPlan, RetouchPlan, SelectionPlan,
     StraightenPlan,
 };
 
@@ -354,6 +354,15 @@ pub fn local_contrast(plan: &LocalContrastPlan) -> Words {
     let mut words = Words::default();
     words.floats([plan.clarity, plan.texture, 0.0, 0.0]);
     words.vec3(plan.luma);
+    words
+}
+
+/// The denoise shader's `Level` uniform for wavelet level `level`.
+pub fn denoise_level(plan: &DenoisePlan, level: usize) -> Words {
+    let [luminance, color] = plan.thresholds[level];
+    let mut words = Words::default();
+    words.uints([1 << level, u32::from(level == 0), 0, 0]);
+    words.floats([luminance, color, plan.detail_kept, 0.0]);
     words
 }
 

@@ -37,6 +37,14 @@ impl Demosaic {
         }
     }
 
+    /// Sensor pixels one demosaiced pixel spans across.
+    pub fn source_scale(self) -> usize {
+        match self {
+            Demosaic::HalfSize => 2,
+            _ => 1,
+        }
+    }
+
     /// Rows/columns of context read around each pixel.
     fn halo(self) -> usize {
         match self {

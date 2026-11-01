@@ -809,6 +809,11 @@ fn content(page: Page) -> Content {
                      hue, instead of clipping into a different colour.",
                 ),
                 step(
+                    "Noise reduction,",
+                    "smoothing grain and colour speckles before local contrast can bring \
+                     them out.",
+                ),
+                step(
                     "Texture and Clarity,",
                     "local contrast at a small and a large radius.",
                 ),
@@ -1156,13 +1161,29 @@ fn content(page: Page) -> Content {
             see_also: &[Page::Curves, Page::ColorMixer],
         },
         Page::Detail => Content {
-            lede: "Detail sharpens the finished photo.".into(),
+            lede: "Detail sharpens the finished photo and smooths its noise.".into(),
             blocks: vec![
                 term("Sharpening", "(0 to 150, default 40) sets the strength."),
                 term(
                     "Radius",
                     "(0.5 to 3 pixels) sets the size of the detail it enhances: small for \
                      fine texture, larger for bolder edges.",
+                ),
+                Block::Heading("Noise Reduction"),
+                term(
+                    "Luminance",
+                    "(0 to 100, default 0) smooths grain. Raise it until the grain in a \
+                     smooth area such as sky or skin is gone.",
+                ),
+                term(
+                    "Detail",
+                    "(default 50) keeps more of the fine detail luminance smoothing would \
+                     take, and with it a little grain.",
+                ),
+                term(
+                    "Color",
+                    "(0 to 100, default 0) removes coloured speckles and blotches, which \
+                     high-ISO photos show in their shadows, and leaves brightness alone.",
                 ),
                 Block::Heading("How it works"),
                 text(
@@ -1171,7 +1192,15 @@ fn content(page: Page) -> Content {
                      a small web export and a full-size print are each sharpened for their \
                      own pixels.",
                 ),
-                tip("Judge sharpening at 1:1, where one photo pixel is one screen pixel."),
+                text(
+                    "Noise reduction works before Texture and Clarity, so they enhance the \
+                     photo's detail rather than its grain. It scales with the photo, so a \
+                     preview shows what an export will look like.",
+                ),
+                tip(
+                    "Judge sharpening and noise reduction at 1:1, where one photo pixel is \
+                     one screen pixel.",
+                ),
             ],
             see_also: &[Page::CompareZoom, Page::Export, Page::Presence],
         },

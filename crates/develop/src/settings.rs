@@ -280,6 +280,35 @@ impl Default for Sharpening {
     }
 }
 
+/// Noise reduction, 0..100 each. Off by default, so photos edited before it
+/// existed render as they did.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NoiseReduction {
+    /// Smooths luminance noise (grain).
+    pub luminance: f32,
+    /// How much fine detail luminance smoothing keeps.
+    pub detail: f32,
+    /// Smooths colour noise (coloured speckles and blotches).
+    pub color: f32,
+}
+
+impl Default for NoiseReduction {
+    fn default() -> Self {
+        NoiseReduction {
+            luminance: 0.0,
+            detail: 50.0,
+            color: 0.0,
+        }
+    }
+}
+
+impl NoiseReduction {
+    pub fn is_active(&self) -> bool {
+        self.luminance > 0.0 || self.color > 0.0
+    }
+}
+
 /// Develop settings. Slider values use the familiar −100..100 scale unless
 /// noted; missing fields deserialize to their defaults so sidecars written
 /// by older builds stay readable.
@@ -313,6 +342,7 @@ pub struct Settings {
     pub point_colors: Vec<PointColor>,
     pub color_grading: ColorGrading,
     pub sharpening: Sharpening,
+    pub noise_reduction: NoiseReduction,
     /// Crop on the displayed (oriented) image, inside the camera's default
     /// crop: the frame's top-left and bottom-right corners (see
     /// `photonation_image::CropFrame`). `None` is the whole photo, or the
@@ -353,6 +383,7 @@ impl Default for Settings {
             point_colors: Vec::new(),
             color_grading: ColorGrading::default(),
             sharpening: Sharpening::default(),
+            noise_reduction: NoiseReduction::default(),
             crop: None,
             crop_angle: 0.0,
             masks: Vec::new(),

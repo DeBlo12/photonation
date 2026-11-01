@@ -27,6 +27,7 @@ display-ready image. This document follows that call from start to finish.
 | `SensorSource` | source | 2 (MHC, neighbour average), 0 otherwise | always |
 | `Retouch` | point | 0 | a removal has a fill (`render_with_fills`) |
 | `Develop` | point | 0 | always |
+| `Denoise` (à trous wavelet) | spatial | 2 + 4 + … + 2^levels | noise reduction on |
 | `LocalContrast` | spatial | 3 × box radius | Texture or Clarity ≠ 0 |
 | `Straighten` (bicubic) | spatial | the frame's tilt across the band, + 2 | crop angle ≠ 0 |
 | `Resize` (Lanczos-3) | spatial | filter support | output smaller than source |
@@ -188,6 +189,21 @@ sharpening don't take part.
 
 ## 6. Spatial stages
 
+- **Noise reduction** (`denoise.rs`): each pixel goes to a square-root
+  domain, where noise is roughly even from shadows to highlights, as
+  luminance `(r + 2g + b) / 4` and the differences `b − g`, `r − g`. An à
+  trous wavelet (the B3 spline `[1 4 6 4 1] / 16` with `2^level − 1` holes
+  between taps, rows then columns, edges clamped) splits each into detail
+  at five levels and a coarse rest. Each level's detail shrinks by
+  `d · d² / (d² + t²)`: barely below the threshold `t`, hardly above it.
+  Luminance thresholds follow the grain expected at each level
+  (`LUMINANCE_LEVELS`) times Luminance; Detail puts back up to 60 % of what
+  smoothing removed. Colour thresholds stay strong at coarse levels
+  (`COLOR_NOISE`), since demosaicing leaves colour noise blotchy. After
+  half-size demosaicing a pixel averages four, so the finest level is skipped
+  and luminance thresholds halve: previews remove what exports remove. Each
+  pixel's sums run in a fixed order, so the result doesn't depend on the band
+  height.
 - **Local contrast** (`local_contrast.rs`): detail = √luma − blur(√luma), added
   back at a large radius (Clarity, midtone-weighted) and a small one (Texture).
   The blur is three running-sum box passes (≈ Gaussian, O(1) per pixel). The
@@ -247,6 +263,7 @@ transcribe only the per-pixel maths.
 | Pass | Shader | Present when |
 |---|---|---|
 | Source + removal fills + highlight reconstruction + develop (with masks) + output gamut | `develop.wgsl` | always |
+| Noise reduction: to opponent, per level rows then columns + shrunk detail, combine | `denoise.wgsl` | noise reduction on |
 | Texture and Clarity: √luma, box passes, combine | `local_contrast.wgsl` | Texture or Clarity ≠ 0 |
 | Straighten (Catmull–Rom along the frame) | `straighten.wgsl` | crop angle ≠ 0 |
 | Resize, rows then columns | `resize.wgsl` | output smaller than source |
@@ -291,7 +308,8 @@ X-Trans, linear DNG, clipped highlights under processes 1 and 2,
 straightened crops at several angles with masks, Texture and Clarity,
 overlapping removals, every orientation, crops, custom white balance, every
 global adjustment, masks of every shape, combination and local adjustment,
-groups and piled-up masks, Texture and Clarity in both directions, other
+groups and piled-up masks, Texture and Clarity in both directions, noise
+reduction at full and half size, other
 output spaces, the point colour overlay)
 and allow
 at most 2 levels of difference per 8-bit sample and 0.01 on average (in
@@ -314,6 +332,8 @@ overlapping masks, and with Texture and Clarity on top (RTX 5080, Windows):
 | 1600 px, straightened 3° | ~470 ms | ~10 ms |
 | Full size, 2 removals | ~1280 ms | ~55 ms |
 | 1600 px, 2 removals | ~330 ms | ~11 ms |
+| Full size, noise reduction | ~1760 ms | ~108 ms |
+| 1600 px, noise reduction | ~370 ms | ~24 ms |
 
 `cargo test --release -p photonation-gpu -- --ignored --nocapture` prints
 these timings.

@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 The Photonation contributors
 
-use crate::{ColorGrading, ColorMixer, Settings, Sharpening, ToneCurve, WhiteBalance};
+use crate::{
+    ColorGrading, ColorMixer, NoiseReduction, Settings, Sharpening, ToneCurve, WhiteBalance,
+};
 
 /// The adjustment panels, in display order. Each can be reset or
 /// temporarily disabled as a unit.
@@ -75,7 +77,8 @@ impl AdjustmentGroup {
                 s.sharpening = Sharpening {
                     amount: 0.0,
                     ..Sharpening::default()
-                }
+                };
+                s.noise_reduction = NoiseReduction::default();
             }
         }
     }
@@ -84,7 +87,10 @@ impl AdjustmentGroup {
     pub fn is_modified(self, s: &Settings) -> bool {
         let mut reset = s.clone();
         match self {
-            AdjustmentGroup::Detail => reset.sharpening = Sharpening::default(),
+            AdjustmentGroup::Detail => {
+                reset.sharpening = Sharpening::default();
+                reset.noise_reduction = NoiseReduction::default();
+            }
             other => other.reset(&mut reset),
         }
         reset != *s

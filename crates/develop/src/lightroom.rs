@@ -271,6 +271,14 @@ fn present_parts(properties: &Properties) -> SettingsParts {
             SettingsPart::Sharpening,
             has(&["Sharpness", "SharpenRadius"]),
         ),
+        (
+            SettingsPart::NoiseReduction,
+            has(&[
+                "LuminanceSmoothing",
+                "LuminanceNoiseReductionDetail",
+                "ColorNoiseReduction",
+            ]),
+        ),
         (SettingsPart::Crop, has(&["HasCrop"])),
     ];
     checks
@@ -371,6 +379,15 @@ fn basic(properties: &Properties, settings: &mut Settings) {
         ("Saturation", &mut settings.saturation),
         ("Sharpness", &mut settings.sharpening.amount),
         ("SharpenRadius", &mut settings.sharpening.radius),
+        (
+            "LuminanceSmoothing",
+            &mut settings.noise_reduction.luminance,
+        ),
+        (
+            "LuminanceNoiseReductionDetail",
+            &mut settings.noise_reduction.detail,
+        ),
+        ("ColorNoiseReduction", &mut settings.noise_reduction.color),
     ] {
         properties.read_into(name, target);
     }
@@ -536,7 +553,7 @@ fn stored_size(properties: &Properties) -> [f64; 2] {
 /// Lightroom edits Photonation has no equivalent for yet.
 fn not_imported(properties: &Properties) -> Vec<&'static str> {
     let nonzero = |name: &str| properties.number(name).is_some_and(|value| value != 0.0);
-    let checks: [(&'static str, bool); 8] = [
+    let checks: [(&'static str, bool); 7] = [
         (
             "masks",
             [
@@ -549,7 +566,6 @@ fn not_imported(properties: &Properties) -> Vec<&'static str> {
             .any(|name| properties.has_structure(name)),
         ),
         ("spot removal", properties.has_structure("RetouchAreas")),
-        ("noise reduction", nonzero("LuminanceSmoothing")),
         (
             "lens corrections",
             properties.flag("LensProfileEnable")

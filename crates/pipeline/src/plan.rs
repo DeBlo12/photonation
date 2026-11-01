@@ -14,9 +14,9 @@ use crate::band::Source;
 use crate::masks::{LocalAmounts, MaskWeight};
 use crate::retouch::{RemovalWeight, RetouchPatch};
 use crate::{
-    Demosaic, Framing, RemovalFills, RenderOptions, camera::CameraModel, develop::Develop,
-    encode::Encode, local_contrast::LocalContrast, masks, resize::Resize, retouch, scaled_size,
-    sharpen::Sharpen, source::SensorSource,
+    Demosaic, Framing, RemovalFills, RenderOptions, camera::CameraModel, denoise::Denoise,
+    develop::Develop, encode::Encode, local_contrast::LocalContrast, masks, resize::Resize,
+    retouch, scaled_size, sharpen::Sharpen, source::SensorSource,
 };
 use photonation_develop::Settings;
 use photonation_image::{Orientation, Rect, SensorImage};
@@ -42,6 +42,8 @@ pub struct RenderPlan {
     /// Removal fills blended in before developing; `None` without any.
     pub retouch: Option<RetouchPlan>,
     pub develop: DevelopPlan,
+    /// Noise reduction, at the source's size; `None` when it is off.
+    pub denoise: Option<DenoisePlan>,
     /// Texture and Clarity, at the source's size; `None` when both are 0.
     pub local_contrast: Option<LocalContrastPlan>,
     /// A turned crop frame resampled upright; `None` without an angle.
@@ -182,6 +184,17 @@ pub struct LocalLimits {
     pub max_tone_amount: f32,
     /// Saturation local Dehaze restores per unit.
     pub dehaze_saturation: f32,
+}
+
+/// Noise reduction (see `denoise.rs`): à trous wavelet shrinkage of
+/// square-root luminance and colour differences.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DenoisePlan {
+    /// Per level, finest first (step `2^level`): the luminance and the
+    /// colour threshold.
+    pub thresholds: Vec<[f32; 2]>,
+    /// Share of the luminance detail removed that is put back.
+    pub detail_kept: f32,
 }
 
 /// Texture and Clarity (see `local_contrast.rs`): detail of √luma against
@@ -339,6 +352,9 @@ pub fn render_plan(
         clip,
         retouch,
         develop: develop.plan(),
+        denoise: Denoise::new(&settings.noise_reduction, demosaic.source_scale())
+            .as_ref()
+            .map(Denoise::plan),
         local_contrast: LocalContrast::new(settings.clarity, settings.texture, source_size)
             .as_ref()
             .map(LocalContrast::plan),

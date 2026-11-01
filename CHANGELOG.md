@@ -8,6 +8,31 @@ changes to CI alone are not released.
 
 ## [Unreleased]
 
+### Added
+
+- Lens corrections on a new **Lens Corrections** card: **Enable Profile
+  Corrections** straightens distortion and brightens vignetted corners with
+  the lens's profile, **Remove Chromatic Aberration** lines up the colour
+  channels, and Distortion and Vignetting sliders set how much of the
+  profile to apply, with manual ones on top. Profiles come from the Lensfun
+  database (CC BY-SA 3.0, credited in About), included so they work
+  offline. The corrected photo is enlarged just enough to fill its frame;
+  masks and removals stay on what they cover. Lightroom's lens corrections
+  now import, and `photonation info` names the profile found
+  (`photonation edit --lens-profile` turns it on).
+
+- Noise reduction on the Detail card: **Luminance** smooths grain,
+  **Detail** keeps fine texture, **Color** removes coloured speckles and
+  blotches. It runs before Texture and Clarity and matches between previews
+  and exports. Lightroom's noise reduction now imports. On the graphics card
+  it adds about 13 ms to a 1600 px preview.
+
+- Straighten by drawing a line: in the crop tool, turn on **Level** (or hold
+  Ctrl/⌘) and drag along the horizon or something upright, and the frame
+  turns to make it level or plumb. **Auto** finds the horizon or the
+  verticals itself and levels the photo by them (up to 20°), and leaves it
+  alone when the photo has no clear straight lines.
+
 ## [0.17.1] - 2026-11-01
 
 ### Changed

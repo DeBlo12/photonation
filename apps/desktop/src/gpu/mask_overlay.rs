@@ -15,8 +15,8 @@ use photonation_pipeline::masks::{MaskWeight, ShapeWeight};
 use std::num::NonZeroU64;
 
 const SHADER: &str = include_str!("mask_overlay.wgsl");
-/// Words in the shader's `Overlay` header: three 16-byte rows.
-const HEADER_WORDS: usize = 12;
+/// Words in the shader's `Overlay` header: seven 16-byte rows.
+const HEADER_WORDS: usize = 28;
 /// Words per entry of its `components` array: three 16-byte rows.
 const COMPONENT_WORDS: usize = 12;
 /// The shader's whole `Overlay` uniform, in 32-bit words.
@@ -130,12 +130,13 @@ impl MaskOverlay {
     fn uniform_words(&self, pixels_per_point: f32, linear_framebuffer: bool) -> Vec<u32> {
         // Framebuffer pixel p (with its centre at p + 0.5, as the shader
         // sees it) is screen point p / pixels_per_point.
-        // The mapping is affine (a straightened crop turns it), so the
-        // origin and one step along each axis describe it.
-        let origin = self.frame.screen_to_metric(pos2(0.0, 0.0));
+        // The mapping to the corrected photo is affine (a straightened crop
+        // turns it), so the origin and one step along each axis describe
+        // it; the shader follows the lens map from there.
+        let origin = self.frame.to_corrected(pos2(0.0, 0.0));
         let one_pixel = 1.0 / pixels_per_point;
         let step_along = |screen| {
-            let next = self.frame.screen_to_metric(screen);
+            let next = self.frame.to_corrected(screen);
             [next[0] - origin[0], next[1] - origin[1]]
         };
         let step_x = step_along(pos2(one_pixel, 0.0));
@@ -152,6 +153,29 @@ impl MaskOverlay {
         words.extend([step_y[0], step_y[1]].map(|v| (v as f32).to_bits()));
         words.extend([components.len() as u32, u32::from(self.weight.invert)]);
         words.extend(color.map(f32::to_bits));
+        let scale = self.frame.space.scale();
+        let floats = |values: [f64; 4]| values.map(|v| (v as f32).to_bits());
+        match &self.frame.lens {
+            Some(lens) => {
+                let [width, height] = lens.size();
+                let zoom = lens.zoom();
+                words.extend(floats([
+                    width * zoom,
+                    height * zoom,
+                    2.0 / width.hypot(height),
+                    1.0,
+                ]));
+                words.extend(floats([1.0 / width, 1.0 / height, scale[0], scale[1]]));
+                let d = lens.distortion();
+                words.extend(floats([d[0], d[1], d[2], d[3]]));
+                words.extend(floats([d[4], d[5], d[6], 0.0]));
+            }
+            None => {
+                words.extend(floats([0.0; 4]));
+                words.extend(floats([0.0, 0.0, scale[0], scale[1]]));
+                words.extend([0; 8]);
+            }
+        }
         for (shape, mode) in components {
             words.extend(component_words(shape, *mode));
         }
@@ -227,9 +251,10 @@ mod tests {
     use super::*;
     use eframe::egui::{Rect, vec2};
     use photonation_develop::{
-        LinearGradient, Mask, MaskComponent, MaskShape, MaskSpace, RadialGradient,
+        LensCorrection, LinearGradient, Mask, MaskComponent, MaskShape, MaskSpace, RadialGradient,
     };
     use photonation_image::{CropFrame, NormRect};
+    use photonation_pipeline::LensMap;
 
     #[test]
     fn shader_compiles_and_validates() {
@@ -253,10 +278,22 @@ mod tests {
     /// that the packing and the pixel mapping reproduce the pipeline's weights.
     fn shader_twin(words: &[u32], pixel_centre: [f32; 2]) -> f32 {
         let f = |index: usize| f32::from_bits(words[index]);
-        let point = [
+        let corrected = [
             f(0) + pixel_centre[0] * f(2) + pixel_centre[1] * f(4),
             f(1) + pixel_centre[0] * f(3) + pixel_centre[1] * f(5),
         ];
+        let shot = if f(15) != 0.0 {
+            let offset = [(corrected[0] - 0.5) * f(12), (corrected[1] - 0.5) * f(13)];
+            let rho = (offset[0] * offset[0] + offset[1] * offset[1]).sqrt() * f(14);
+            let factor = (20..27).rev().fold(0.0, |sum, i| sum * rho + f(i));
+            [
+                0.5 + offset[0] * factor * f(16),
+                0.5 + offset[1] * factor * f(17),
+            ]
+        } else {
+            corrected
+        };
+        let point = [shot[0] * f(18), shot[1] * f(19)];
         let ramp = |edge0: f32, edge1: f32, x: f32| {
             let t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
             t * t * (3.0 - 2.0 * t)
@@ -307,11 +344,25 @@ mod tests {
             0.0,
         );
         let straightened = CropFrame::largest([6000.0, 4000.0], 1.5, -8.0);
-        for crop in [cropped, straightened] {
+        let lens = LensMap::new(
+            [6000.0, 4000.0],
+            &LensCorrection {
+                manual_distortion: -70.0,
+                ..LensCorrection::default()
+            },
+            None,
+        );
+        for (crop, lens) in [
+            (cropped, None),
+            (straightened, None),
+            (cropped, lens),
+            (straightened, lens),
+        ] {
             packed_uniforms_match(PhotoFrame {
                 image_rect: Rect::from_min_size(pos2(40.0, 30.0), vec2(600.0, 400.0)),
                 crop,
                 space,
+                lens,
             });
         }
     }

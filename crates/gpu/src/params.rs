@@ -10,7 +10,7 @@ use photonation_image::{Orientation, SensorLayout};
 use photonation_pipeline::Demosaic;
 use photonation_pipeline::masks::ShapeWeight;
 use photonation_pipeline::plan::{
-    ColorPlan, DevelopPlan, LocalContrastPlan, RenderPlan, RetouchPlan, SelectionPlan,
+    ColorPlan, DenoisePlan, DevelopPlan, LocalContrastPlan, RenderPlan, RetouchPlan, SelectionPlan,
     StraightenPlan,
 };
 
@@ -191,6 +191,20 @@ pub fn develop(plan: &DevelopPlan) -> Words {
         }
         None => (0..5).for_each(|_| words.uints([0; 4])),
     }
+    match &plan.vignette {
+        Some(vignette) => {
+            let [k1, k2, k3] = vignette.falloff;
+            words.floats([
+                vignette.origin[0],
+                vignette.origin[1],
+                vignette.step[0],
+                vignette.step[1],
+            ]);
+            words.floats([k1, k2, k3, vignette.amount]);
+            words.floats([vignette.manual_ev, 1.0, 0.0, 0.0]);
+        }
+        None => (0..3).for_each(|_| words.floats([0.0; 4])),
+    }
     words
 }
 
@@ -346,6 +360,18 @@ pub fn straighten(plan: &StraightenPlan) -> Words {
         plan.step_x[1],
     ]);
     words.floats([plan.step_y[0], plan.step_y[1], 0.0, 0.0]);
+    let lens = plan.lens.as_ref();
+    let centre = lens.map_or([0.0; 2], |lens| lens.centre);
+    let inverse_radius = lens.map_or([0.0; 2], |lens| lens.inverse_radius);
+    words.floats([centre[0], centre[1], inverse_radius[0], inverse_radius[1]]);
+    let d = lens.map_or([0.0; 7], |lens| lens.distortion);
+    words.floats([d[0], d[1], d[2], d[3]]);
+    words.floats([d[4], d[5], d[6], 0.0]);
+    let tca = lens.and_then(|lens| lens.tca);
+    for row in tca.unwrap_or([[0.0; 3]; 2]) {
+        words.vec3(row);
+    }
+    words.uints([u32::from(lens.is_some()), u32::from(tca.is_some()), 0, 0]);
     words
 }
 
@@ -354,6 +380,15 @@ pub fn local_contrast(plan: &LocalContrastPlan) -> Words {
     let mut words = Words::default();
     words.floats([plan.clarity, plan.texture, 0.0, 0.0]);
     words.vec3(plan.luma);
+    words
+}
+
+/// The denoise shader's `Level` uniform for wavelet level `level`.
+pub fn denoise_level(plan: &DenoisePlan, level: usize) -> Words {
+    let [luminance, color] = plan.thresholds[level];
+    let mut words = Words::default();
+    words.uints([1 << level, u32::from(level == 0), 0, 0]);
+    words.floats([luminance, color, plan.detail_kept, 0.0]);
     words
 }
 

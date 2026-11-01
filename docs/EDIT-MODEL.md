@@ -17,7 +17,8 @@ balance.
 | Curves | `tone_curve`: `parametric` (highlights, lights, darks, shadows + three splits), point curves `master`, `red`, `green`, `blue` |
 | Color Mixer | `color_mixer`: hue/saturation/luminance for red, orange, yellow, green, aqua, blue, purple, magenta; `point_colors` (see below) |
 | Color Grading | `color_grading`: `shadows`, `midtones`, `highlights`, `global` wheels (hue, saturation, luminance), `blending`, `balance` |
-| Detail | `sharpening`: amount, radius |
+| Detail | `sharpening`: amount, radius; `noise_reduction`: luminance, detail, color |
+| Lens Corrections | `lens`: `profile` and `chromatic_aberration` (on/off), `distortion` and `vignetting` (the profile's, 0..200 %), `manual_distortion` and `manual_vignetting` (−100..100) |
 | — | `crop` and `crop_angle` (see below), `masks` and `mask_groups` (see below), `removals` (see [RETOUCH.md](RETOUCH.md)), `process` |
 
 `Settings::sanitized()` clamps everything into range and repairs bad input; the
@@ -61,6 +62,8 @@ Photonation sidecar takes over.
 | `Hue/Saturation/LuminanceAdjustment<Band>` | `color_mixer` |
 | `SplitToning{Shadow,Highlight}{Hue,Saturation}`, `ColorGrade*`, `SplitToningBalance` | `color_grading` |
 | `Sharpness`, `SharpenRadius` | `sharpening` |
+| `LuminanceSmoothing`, `LuminanceNoiseReductionDetail`, `ColorNoiseReduction` | `noise_reduction` |
+| `LensProfileEnable`, `LensProfileDistortionScale`, `LensProfileVignettingScale`, `AutoLateralCA`, `LensManualDistortionAmount`, `VignetteAmount` | `lens` (the profile is Lensfun's, not the one Lightroom chose) |
 | `HasCrop`, `CropLeft/Top/Right/Bottom`, `CropAngle` | `crop`, `crop_angle` |
 
 Lightroom stores the crop on the *stored* image; `CropFrame::oriented` turns it
@@ -70,8 +73,8 @@ Checked against Lightroom's own exports: the frame sizes match to the pixel.
 
 Only the top-level properties of each `rdf:Description` are read, so a mask's
 own values (also `crs:` names) never leak into the global settings. Edits
-without an equivalent are listed in `not_imported` (masks, spot removal, noise
-reduction, lens corrections, upright, effects) and the editor names them when
+without an equivalent are listed in `not_imported` (masks, spot removal,
+upright, effects) and the editor names them when
 the photo opens. Black & white (`ConvertToGrayscale`) becomes Saturation −100,
 the nearest Photonation has; its per-colour mix (`GrayMixer*`) and any toning,
 which −100 removes too, are listed as "black & white mix" and "black & white
@@ -185,7 +188,7 @@ non-finite points and clamps radii and feather. Details in
 A `SettingsPart` is a piece of `Settings` that copies on its own, as in
 Lightroom's Copy Settings dialog: white balance; each Light, Presence and
 Color slider; the curves; the mixer bands; the point colours; colour
-grading; sharpening; the crop with its angle; the masks with their groups;
+grading; sharpening; noise reduction; the crop with its angle; the masks with their groups;
 the removals. `copy_parts` sets some parts of one photo's settings to
 another's and leaves the rest; `part.group()` names the card a part is on
 (`None` for the tools).

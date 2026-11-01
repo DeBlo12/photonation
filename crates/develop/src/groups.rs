@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 The Photonation contributors
 
-use crate::{ColorGrading, ColorMixer, Settings, Sharpening, ToneCurve, WhiteBalance};
+use crate::{
+    ColorGrading, ColorMixer, LensCorrection, NoiseReduction, Settings, Sharpening, ToneCurve,
+    WhiteBalance,
+};
 
 /// The adjustment panels, in display order. Each can be reset or
 /// temporarily disabled as a unit.
@@ -15,10 +18,11 @@ pub enum AdjustmentGroup {
     ColorMixer,
     ColorGrading,
     Detail,
+    Lens,
 }
 
 impl AdjustmentGroup {
-    pub const ALL: [AdjustmentGroup; 8] = [
+    pub const ALL: [AdjustmentGroup; 9] = [
         AdjustmentGroup::WhiteBalance,
         AdjustmentGroup::Light,
         AdjustmentGroup::Presence,
@@ -27,6 +31,7 @@ impl AdjustmentGroup {
         AdjustmentGroup::ColorMixer,
         AdjustmentGroup::ColorGrading,
         AdjustmentGroup::Detail,
+        AdjustmentGroup::Lens,
     ];
 
     pub fn title(self) -> &'static str {
@@ -39,6 +44,7 @@ impl AdjustmentGroup {
             AdjustmentGroup::ColorMixer => "Color Mixer",
             AdjustmentGroup::ColorGrading => "Color Grading",
             AdjustmentGroup::Detail => "Detail",
+            AdjustmentGroup::Lens => "Lens Corrections",
         }
     }
 
@@ -75,8 +81,10 @@ impl AdjustmentGroup {
                 s.sharpening = Sharpening {
                     amount: 0.0,
                     ..Sharpening::default()
-                }
+                };
+                s.noise_reduction = NoiseReduction::default();
             }
+            AdjustmentGroup::Lens => s.lens = LensCorrection::default(),
         }
     }
 
@@ -84,7 +92,10 @@ impl AdjustmentGroup {
     pub fn is_modified(self, s: &Settings) -> bool {
         let mut reset = s.clone();
         match self {
-            AdjustmentGroup::Detail => reset.sharpening = Sharpening::default(),
+            AdjustmentGroup::Detail => {
+                reset.sharpening = Sharpening::default();
+                reset.noise_reduction = NoiseReduction::default();
+            }
             other => other.reset(&mut reset),
         }
         reset != *s

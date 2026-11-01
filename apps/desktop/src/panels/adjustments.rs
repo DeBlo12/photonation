@@ -13,10 +13,11 @@ use crate::widgets::{
 use eframe::egui::{self, Color32, RichText, Ui};
 use photonation_develop::{
     AdjustmentGroup, BASIC_CONTROLS, ColorMixer, Control, DETAIL_CONTROLS, GRADING_BLEND_CONTROLS,
-    GRADING_CONTROLS, MIXER_CONTROLS, PARAMETRIC_CURVE_CONTROLS, ProcessVersion, Settings,
-    WhiteBalance,
+    GRADING_CONTROLS, LENS_MANUAL_CONTROLS, LENS_PROFILE_CONTROLS, MIXER_CONTROLS, NOISE_CONTROLS,
+    PARAMETRIC_CURVE_CONTROLS, ProcessVersion, Settings, WhiteBalance,
 };
 use photonation_engine::Histogram;
+use photonation_image::CameraInfo;
 use photonation_pipeline::curve::Parametric;
 
 pub const CURVE_MODES: [&str; 5] = ["Parametric", "RGB", "Red", "Green", "Blue"];
@@ -107,6 +108,7 @@ fn inspector(app: &mut PhotonationApp, ui: &mut Ui) {
             crate::panels::presets::card(app, ui);
             let as_shot = app.info.as_ref().map_or((5500.0, 0.0), |i| i.as_shot);
             let histogram = app.histogram.as_ref();
+            let camera = app.info.as_ref().map(|info| &info.camera);
             for group in AdjustmentGroup::ALL {
                 group_card(
                     ui,
@@ -125,7 +127,8 @@ fn inspector(app: &mut PhotonationApp, ui: &mut Ui) {
                         AdjustmentGroup::ToneCurve => curves(ui, settings, view, histogram),
                         AdjustmentGroup::ColorMixer => color_mixer(ui, settings, view),
                         AdjustmentGroup::ColorGrading => color_grading(ui, settings, view),
-                        AdjustmentGroup::Detail => control_sliders(ui, settings, DETAIL_CONTROLS),
+                        AdjustmentGroup::Detail => detail(ui, settings),
+                        AdjustmentGroup::Lens => lens(ui, settings, camera),
                     },
                 );
             }
@@ -229,6 +232,48 @@ pub fn control_slider<Target>(
     )
 }
 
+/// Sharpening, then noise reduction under its own heading.
+fn detail(ui: &mut Ui, settings: &mut Settings) {
+    control_sliders(ui, settings, DETAIL_CONTROLS);
+    ui.add_space(4.0);
+    ui.label(
+        RichText::new("Noise Reduction")
+            .size(12.0)
+            .color(theme::TEXT_SECONDARY),
+    );
+    control_sliders(ui, settings, NOISE_CONTROLS);
+}
+
+/// The profile's corrections, naming the lens the database matched, then
+/// manual ones under their own heading.
+fn lens(ui: &mut Ui, settings: &mut Settings, camera: Option<&CameraInfo>) {
+    ui.checkbox(&mut settings.lens.profile, "Enable Profile Corrections");
+    ui.checkbox(
+        &mut settings.lens.chromatic_aberration,
+        "Remove Chromatic Aberration",
+    );
+    if settings.lens.profile || settings.lens.chromatic_aberration {
+        let profile = camera.and_then(photonation_pipeline::lens_profile);
+        let note = match &profile {
+            Some(profile) if profile.is_empty() => format!("{}: no calibration data", profile.lens),
+            Some(profile) => profile.lens.clone(),
+            None => "No profile for this camera and lens".to_owned(),
+        };
+        ui.label(RichText::new(note).size(11.5).color(theme::TEXT_SECONDARY))
+            .on_hover_text("Lens profiles come from the Lensfun database.");
+    }
+    if settings.lens.profile {
+        control_sliders(ui, settings, LENS_PROFILE_CONTROLS);
+    }
+    ui.add_space(4.0);
+    ui.label(
+        RichText::new("Manual")
+            .size(12.0)
+            .color(theme::TEXT_SECONDARY),
+    );
+    control_sliders(ui, settings, LENS_MANUAL_CONTROLS);
+}
+
 fn control_sliders(ui: &mut Ui, settings: &mut Settings, controls: &[Control]) {
     for control in controls {
         control_slider(ui, settings, control, &style_for(control.id));
@@ -245,7 +290,14 @@ pub fn style_for(id: &str) -> SliderStyle {
             format: |v| format!("{v:.1}"),
             ..SliderStyle::default()
         },
-        "sharpen-amount" => SliderStyle {
+        "sharpen-amount"
+        | "noise-luminance"
+        | "noise-detail"
+        | "noise-color"
+        | "lens-distortion"
+        | "lens-vignetting"
+        | "lens-manual-distortion"
+        | "lens-manual-vignetting" => SliderStyle {
             format: |v| format!("{v:.0}"),
             ..SliderStyle::default()
         },

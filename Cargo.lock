@@ -3364,12 +3364,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "photonation-lens"
+version = "0.17.1"
+dependencies = [
+ "roxmltree",
+]
+
+[[package]]
 name = "photonation-pipeline"
 version = "0.17.1"
 dependencies = [
  "photonation-color",
  "photonation-develop",
  "photonation-image",
+ "photonation-lens",
  "photonation-retouch",
  "rayon",
  "thiserror 2.0.21",

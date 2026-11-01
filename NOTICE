@@ -47,6 +47,13 @@ tract (https://github.com/sonos/tract), MIT OR Apache-2.0
   prost-derive), Zlib (foldhash) and Unicode-3.0 (unicode-ident). None of
   these crates ships an Apache NOTICE file that would have to be passed on.
 
+Lensfun database (https://github.com/lensfun/lensfun), CC BY-SA 3.0
+  Lens and camera calibration data by the Lensfun contributors, embedded
+  unchanged in every binary (crates/lens/lensfun/db, from Lensfun commit
+  bc5615d6). It stays a separate work under its own licence, in
+  crates/lens/lensfun/COPYING.CC_BY-SA_3.0; the desktop's About window credits
+  it. Changes to the data must be shared under the same licence.
+
 Obligations when distributing binaries
 --------------------------------------
 

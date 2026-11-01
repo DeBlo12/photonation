@@ -73,6 +73,13 @@ struct Develop {
     local_scales: vec4<f32>,
     // x: cap on summed exposure (EV), y: on summed tone amounts.
     local_caps: vec4<f32>,
+    // Vignetting correction (`VignettePlan`): xy: offset of pixel (0, 0)
+    // from the photo's centre, zw: step per pixel, in half diagonals.
+    vignette_position: vec4<f32>,
+    // xyz: the profile's falloff k₁, k₂, k₃; w: its amount.
+    vignette_falloff: vec4<f32>,
+    // x: manual stops at the corners; y: 1 when on.
+    vignette: vec4<f32>,
 }
 
 @group(0) @binding(0) var mosaic: texture_2d<u32>;
@@ -740,12 +747,25 @@ fn reconstruct_highlights(rgb: vec3<f32>) -> vec3<f32> {
     return vec3<f32>(grey) + colour * (1.0 - most_clipped * (1.0 - limit));
 }
 
+// The vignetting correction's gain at a pixel (`Vignette::gain`).
+fn vignette_gain(pixel: vec2<u32>) -> f32 {
+    let offset = develop.vignette_position.xy + vec2<f32>(pixel) * develop.vignette_position.zw;
+    let r2 = dot(offset, offset);
+    let k = develop.vignette_falloff;
+    let falloff = 1.0 + r2 * (k.x + r2 * (k.y + r2 * k.z));
+    let stops = develop.vignette.x * r2 * sqrt(r2) - k.w * log2(max(falloff, 1e-3));
+    return exp2(stops);
+}
+
 // The develop steps for one pixel; with masks, their summed adjustments
 // join the global ones (`working_pixel::<true>`).
 fn develop_pixel(camera_in: vec3<f32>, pixel: vec2<u32>) -> vec3<f32> {
     var camera_rgb = camera_in;
     if develop.reconstruction.w != 0.0 {
         camera_rgb = reconstruct_highlights(camera_rgb);
+    }
+    if develop.vignette.y != 0.0 {
+        camera_rgb *= vignette_gain(pixel);
     }
     var rgb = rows3(develop.camera_to_working, camera_rgb);
     var haze = develop.light.x;

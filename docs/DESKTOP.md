@@ -337,6 +337,17 @@ rule-of-thirds grid and the outside dimmed:
   the larger change, an edge drag resizes the other side around its middle.
 - **Angle** slider: turns the frame from where it was when the drag began, so
   turning back gives the frame its size back.
+- **Level** (or Ctrl/⌘ held): a drag draws a line instead, with its angle
+  beside it; on release the frame turns so the line comes out level, or
+  plumb if it is closer to upright (`line_level`). Level turns itself off
+  after one line.
+- **Auto** levels by the photo's own lines (`engine::level_angle`): a Hough
+  vote of the strongest Sobel edges of a ≤ 640 px luminance copy, over tilts
+  of ±20° in 0.1° steps, for horizontal and vertical lines together. It
+  answers only when the best tilt scores at least 12× the median one and
+  isn't at the end of the range; otherwise a toast says it found nothing.
+  It works on the tool's own preview (the whole photo, kept from the first
+  render asked for after the tool opened) and takes about 55 ms.
 - **Reset** removes the crop and the angle.
 
 The whole photo, unturned, is stored as no crop (`settings.crop = None`), so a

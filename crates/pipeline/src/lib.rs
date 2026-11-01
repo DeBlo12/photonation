@@ -4,8 +4,9 @@
 //! The develop pipeline.
 //!
 //! ```text
-//! sensor u16 ─▶ normalize + WB + demosaic ─▶ [removal fills] ─▶ camera→Rec.2020 · exposure · tone · colour
-//!            ─▶ output primaries ─▶ [straighten] ─▶ [resize] ─▶ encode ─▶ [sharpen]
+//! sensor u16 ─▶ normalize + WB + demosaic ─▶ [removal fills] ─▶ [vignetting] · camera→Rec.2020
+//!            · exposure · tone · colour ─▶ output primaries ─▶ [noise reduction]
+//!            ─▶ [Texture, Clarity] ─▶ [straighten, lens geometry] ─▶ [resize] ─▶ encode ─▶ [sharpen]
 //!            ─▶ u8/u16 (oriented)
 //! ```
 //!
@@ -16,9 +17,11 @@ pub mod band;
 mod camera;
 mod color;
 pub mod curve;
+mod denoise;
 mod develop;
 mod encode;
 mod highlights;
+mod lens;
 mod local_contrast;
 pub mod masks;
 pub mod plan;
@@ -32,6 +35,8 @@ mod tone;
 
 pub use camera::{CameraModel, WORKING, neutral_to_temp_tint};
 pub use color::nearest_mixer_band;
+pub use lens::{LensMap, lens_profile};
+pub use photonation_lens::Profile as LensProfile;
 pub use plan::{PlanError, RenderPlan, render_plan};
 pub use retouch::{
     RemovalCanvas, RemovalFills, RemovalJob, RetouchPatch, removal_canvas, removal_jobs,
@@ -85,30 +90,92 @@ pub enum RenderError {
 enum Framing {
     /// An unrotated crop is a rectangle on the sensor, rendered as it is.
     Straight(Rect),
-    /// A rotated crop frame: the sensor is read around it, then resampled.
-    Rotated {
+    /// A rotated crop frame, or any frame with lens geometry corrected: the
+    /// sensor is read around it, then resampled.
+    Resampled {
         region: Rect,
         frame: CropFrame,
         /// Full-resolution output size, stored orientation.
         size: (usize, usize),
+        /// The frame lies on the corrected photo; this finds it on the
+        /// photo as shot.
+        lens: Option<Box<LensMap>>,
     },
 }
 
 /// Photo pixels read around a rotated frame for the bicubic resampling.
 const STRAIGHTEN_MARGIN: f64 = 3.0;
+/// Points along each side of a frame mapped through the lens corrections
+/// to find what of the photo it covers.
+const LENS_BOUNDS_SAMPLES: usize = 256;
+
+/// The lens profile, when the lens corrections use it.
+fn profile_for(sensor: &SensorImage, settings: &Settings) -> Option<LensProfile> {
+    let lens = &settings.lens;
+    if lens.profile || lens.chromatic_aberration {
+        lens_profile(&sensor.info)
+    } else {
+        None
+    }
+}
+
+/// The lens corrections' geometry for `settings` (sanitized), `None` when
+/// it moves nothing.
+pub fn lens_map(sensor: &SensorImage, settings: &Settings) -> Option<LensMap> {
+    let (width, height) = sensor
+        .orientation
+        .display_size(sensor.crop.w, sensor.crop.h);
+    LensMap::new(
+        [width as f64, height as f64],
+        &settings.lens,
+        profile_for(sensor, settings).as_ref(),
+    )
+}
+
+/// The lens corrections' vignetting gain, `None` without one.
+fn vignette(sensor: &SensorImage, settings: &Settings) -> Option<lens::Vignette> {
+    lens::Vignette::new(&settings.lens, profile_for(sensor, settings).as_ref())
+}
+
+/// What of the photo as shot (normalized, displayed) `frame` on the
+/// corrected photo covers, any channel.
+fn lens_bounds(frame: &CropFrame, lens: &LensMap) -> NormRect {
+    let mut bounds = NormRect {
+        left: f64::INFINITY,
+        top: f64::INFINITY,
+        right: f64::NEG_INFINITY,
+        bottom: f64::NEG_INFINITY,
+    };
+    for i in 0..=LENS_BOUNDS_SAMPLES {
+        let t = i as f64 / LENS_BOUNDS_SAMPLES as f64;
+        for point in [[t, 0.0], [t, 1.0], [0.0, t], [1.0, t]] {
+            for [x, y] in lens.to_shot_channels(frame.to_photo(point)) {
+                bounds.left = bounds.left.min(x);
+                bounds.top = bounds.top.min(y);
+                bounds.right = bounds.right.max(x);
+                bounds.bottom = bounds.bottom.max(y);
+            }
+        }
+    }
+    bounds
+}
 
 impl Framing {
     /// `settings` must be sanitized.
     fn new(sensor: &SensorImage, settings: &Settings) -> Framing {
         let orientation = sensor.orientation;
-        if settings.crop_angle == 0.0 {
+        let lens = lens_map(sensor, settings);
+        if settings.crop_angle == 0.0 && lens.is_none() {
             let crop = settings.crop.unwrap_or(NormRect::FULL);
             return Framing::Straight(sensor.crop.sub(orientation.display_rect_to_stored(crop)));
         }
         let (photo_w, photo_h) = orientation.display_size(sensor.crop.w, sensor.crop.h);
         let photo = [photo_w as f64, photo_h as f64];
         let frame = crop_frame(photo, settings.crop, settings.crop_angle);
-        let bounds = frame.bounds();
+        let bounds = match &lens {
+            None => frame.bounds(),
+            Some(lens) => lens_bounds(&frame, lens),
+        };
         let (margin_x, margin_y) = (STRAIGHTEN_MARGIN / photo[0], STRAIGHTEN_MARGIN / photo[1]);
         let around = NormRect {
             left: bounds.left - margin_x,
@@ -118,18 +185,19 @@ impl Framing {
         }
         .clamped();
         let [frame_w, frame_h] = frame.size().map(|side| (side.round() as usize).max(1));
-        Framing::Rotated {
+        Framing::Resampled {
             region: sensor.crop.sub(orientation.display_rect_to_stored(around)),
             frame,
             // Swapping axes is its own inverse: display → stored size.
             size: orientation.display_size(frame_w, frame_h),
+            lens: lens.map(Box::new),
         }
     }
 
     /// The sensor area the render reads.
     fn region(&self) -> Rect {
         match self {
-            Framing::Straight(region) | Framing::Rotated { region, .. } => *region,
+            Framing::Straight(region) | Framing::Resampled { region, .. } => *region,
         }
     }
 
@@ -137,7 +205,7 @@ impl Framing {
     fn size(&self) -> (usize, usize) {
         match self {
             Framing::Straight(region) => (region.w, region.h),
-            Framing::Rotated { size, .. } => *size,
+            Framing::Resampled { size, .. } => *size,
         }
     }
 }
@@ -198,8 +266,9 @@ fn pick_patch(sensor: &SensorImage, settings: &Settings, point: [f64; 2]) -> Opt
     let orientation = sensor.orientation;
     let (region, stored) = match Framing::new(sensor, &settings.sanitized()) {
         Framing::Straight(region) => (region, orientation.to_stored_norm(point[0], point[1])),
-        Framing::Rotated { frame, .. } => {
-            let [photo_x, photo_y] = frame.to_photo(point);
+        Framing::Resampled { frame, lens, .. } => {
+            let corrected = frame.to_photo(point);
+            let [photo_x, photo_y] = lens.map_or(corrected, |lens| lens.to_shot(corrected));
             (sensor.crop, orientation.to_stored_norm(photo_x, photo_y))
         }
     };
@@ -278,7 +347,8 @@ pub fn color_at(sensor: &SensorImage, settings: &Settings, point: [f64; 2]) -> O
         ColorSpace::Srgb,
     )
     .with_highlight_reconstruction(&settings, clip)
-    .with_local_adjustments(local);
+    .with_local_adjustments(local)
+    .with_vignette(vignette(sensor, &settings), sensor, source.region(), size);
     let band = source.render(0..size.1);
     let mut sum = [0.0f32; 3];
     for y in band.row_range() {
@@ -333,7 +403,7 @@ pub fn render_with_fills(
             // A tilted frame's bands read input rows that overlap their
             // neighbours' by the tilt; one band per thread keeps the
             // overlap, which is computed twice, small.
-            Framing::Rotated { .. } => rows.max(target.1.div_ceil(rayon::current_num_threads())),
+            Framing::Resampled { .. } => rows.max(target.1.div_ceil(rayon::current_num_threads())),
         }
     });
     let layout = OutputLayout::new(target, sensor.orientation);
@@ -397,17 +467,31 @@ fn build_graph<'a>(
         )
         .with_highlight_reconstruction(settings, clip)
         .with_local_adjustments(local)
-        .with_point_color_overlay(settings, opts.point_color_overlay),
+        .with_point_color_overlay(settings, opts.point_color_overlay)
+        .with_vignette(
+            vignette(sensor, settings),
+            sensor,
+            source_region,
+            graph.size(),
+        ),
     )));
+    if let Some(denoise) = denoise::Denoise::new(&settings.noise_reduction, demosaic.source_scale())
+    {
+        graph.push(Box::new(denoise));
+    }
     if let Some(local) =
         local_contrast::LocalContrast::new(settings.clarity, settings.texture, graph.size())
     {
         graph.push(Box::new(local));
     }
-    if let Framing::Rotated { frame, size, .. } = framing {
+    if let Framing::Resampled {
+        frame, size, lens, ..
+    } = framing
+    {
         graph.push(Box::new(straighten_stage(
             sensor,
             frame,
+            lens.as_deref(),
             *size,
             source_region,
             graph.size(),
@@ -435,10 +519,11 @@ fn demosaic_for(sensor: &SensorImage, framing: &Framing, target: (usize, usize))
 }
 
 /// Resamples the developed source (`input` pixels covering `source_region`
-/// of the sensor) along `frame`, at the source's scale.
+/// of the sensor) along `frame`, through `lens`, at the source's scale.
 fn straighten_stage(
     sensor: &SensorImage,
     frame: &CropFrame,
+    lens: Option<&LensMap>,
     full_size: (usize, usize),
     source_region: Rect,
     input: (usize, usize),
@@ -453,20 +538,41 @@ fn straighten_stage(
         ((full_size.1 as f64 * input_scale[1]).round() as usize).max(1),
     );
     let (orientation, crop) = (sensor.orientation, sensor.crop);
-    // Output (stored) → output displayed → photo displayed → photo stored
-    // → sensor → input; every step is affine.
-    straighten::Straighten::new(out, |[x, y]| {
-        let (display_x, display_y) =
-            orientation.to_display_norm(x / out.0 as f64, y / out.1 as f64);
-        let [photo_x, photo_y] = frame.to_photo([display_x, display_y]);
-        let (stored_x, stored_y) = orientation.to_stored_norm(photo_x, photo_y);
+    let zoom = lens.map_or(1.0, LensMap::zoom);
+    let to_input = |[stored_x, stored_y]: [f64; 2]| {
         let sensor_x = crop.x as f64 + stored_x * crop.w as f64;
         let sensor_y = crop.y as f64 + stored_y * crop.h as f64;
         [
             (sensor_x - source_region.x as f64) * input_scale[0],
             (sensor_y - source_region.y as f64) * input_scale[1],
         ]
-    })
+    };
+    // The lens map is radial about the photo's centre, so it commutes with
+    // the orientation; in input pixels, its radius is half the diagonal.
+    let stage_lens = lens.map(|lens| {
+        let half_diagonal = (crop.w as f64).hypot(crop.h as f64) / 2.0;
+        straighten::StageLens {
+            centre: to_input([0.5, 0.5]),
+            inverse_radius: input_scale.map(|scale| 1.0 / (half_diagonal * scale)),
+            distortion: lens.distortion(),
+            tca: lens.tca(),
+        }
+    });
+    // Output (stored) → output displayed → corrected photo displayed (then
+    // zoomed for the lens map) → photo stored → sensor → input; every step
+    // is affine.
+    straighten::Straighten::new(
+        out,
+        |[x, y]| {
+            let (display_x, display_y) =
+                orientation.to_display_norm(x / out.0 as f64, y / out.1 as f64);
+            let [photo_x, photo_y] = frame.to_photo([display_x, display_y]);
+            let (photo_x, photo_y) = (0.5 + (photo_x - 0.5) * zoom, 0.5 + (photo_y - 0.5) * zoom);
+            let (stored_x, stored_y) = orientation.to_stored_norm(photo_x, photo_y);
+            to_input([stored_x, stored_y])
+        },
+        stage_lens,
+    )
 }
 
 /// Where each rendered (stored-orientation) pixel lands in the output buffer.

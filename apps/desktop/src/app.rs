@@ -281,6 +281,7 @@ impl ViewState {
         let open = !self.cropping;
         self.close_tools();
         self.cropping = open;
+        self.crop_tool.reset();
     }
 
     /// Opens or closes the Remove panel; it replaces the other tools.
@@ -728,6 +729,9 @@ impl PhotonationApp {
                         PreviewKind::Before => &mut self.before,
                     };
                     let size = [image.width, image.height];
+                    if kind == PreviewKind::Edited && self.view.cropping {
+                        self.view.crop_tool.rendered(generation, image.rgb, size);
+                    }
                     match slot {
                         Some(preview) => {
                             preview.texture.set(color_image, TextureOptions::LINEAR);
@@ -882,6 +886,9 @@ impl PhotonationApp {
                 kind: PreviewKind::Edited,
                 point_color_overlay,
             });
+            if self.view.cropping {
+                self.view.crop_tool.requested(self.generation);
+            }
         }
         // The original, framed like the edit so the two line up.
         let (crop, crop_angle) = if self.view.cropping {

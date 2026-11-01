@@ -209,6 +209,7 @@ fn develop_settings(properties: &Properties) -> Settings {
     color_mixer(properties, &mut settings);
     color_grading(properties, &mut settings);
     crop(properties, &mut settings);
+    lens(properties, &mut settings);
     // The nearest Photonation has to Lightroom's black & white treatment.
     if properties.flag("ConvertToGrayscale") {
         settings.saturation = -100.0;
@@ -270,6 +271,25 @@ fn present_parts(properties: &Properties) -> SettingsParts {
         (
             SettingsPart::Sharpening,
             has(&["Sharpness", "SharpenRadius"]),
+        ),
+        (
+            SettingsPart::NoiseReduction,
+            has(&[
+                "LuminanceSmoothing",
+                "LuminanceNoiseReductionDetail",
+                "ColorNoiseReduction",
+            ]),
+        ),
+        (
+            SettingsPart::LensCorrections,
+            has(&[
+                "LensProfileEnable",
+                "LensProfileDistortionScale",
+                "LensProfileVignettingScale",
+                "AutoLateralCA",
+                "LensManualDistortionAmount",
+                "VignetteAmount",
+            ]),
         ),
         (SettingsPart::Crop, has(&["HasCrop"])),
     ];
@@ -371,6 +391,31 @@ fn basic(properties: &Properties, settings: &mut Settings) {
         ("Saturation", &mut settings.saturation),
         ("Sharpness", &mut settings.sharpening.amount),
         ("SharpenRadius", &mut settings.sharpening.radius),
+        (
+            "LuminanceSmoothing",
+            &mut settings.noise_reduction.luminance,
+        ),
+        (
+            "LuminanceNoiseReductionDetail",
+            &mut settings.noise_reduction.detail,
+        ),
+        ("ColorNoiseReduction", &mut settings.noise_reduction.color),
+    ] {
+        properties.read_into(name, target);
+    }
+}
+
+/// Lightroom applies the profile it picked; ours comes from the Lensfun
+/// database, so a lens that isn't there stays uncorrected.
+fn lens(properties: &Properties, settings: &mut Settings) {
+    let lens = &mut settings.lens;
+    lens.profile = properties.flag("LensProfileEnable");
+    lens.chromatic_aberration = properties.flag("AutoLateralCA");
+    for (name, target) in [
+        ("LensProfileDistortionScale", &mut lens.distortion),
+        ("LensProfileVignettingScale", &mut lens.vignetting),
+        ("LensManualDistortionAmount", &mut lens.manual_distortion),
+        ("VignetteAmount", &mut lens.manual_vignetting),
     ] {
         properties.read_into(name, target);
     }
@@ -536,7 +581,7 @@ fn stored_size(properties: &Properties) -> [f64; 2] {
 /// Lightroom edits Photonation has no equivalent for yet.
 fn not_imported(properties: &Properties) -> Vec<&'static str> {
     let nonzero = |name: &str| properties.number(name).is_some_and(|value| value != 0.0);
-    let checks: [(&'static str, bool); 8] = [
+    let checks: [(&'static str, bool); 6] = [
         (
             "masks",
             [
@@ -549,14 +594,6 @@ fn not_imported(properties: &Properties) -> Vec<&'static str> {
             .any(|name| properties.has_structure(name)),
         ),
         ("spot removal", properties.has_structure("RetouchAreas")),
-        ("noise reduction", nonzero("LuminanceSmoothing")),
-        (
-            "lens corrections",
-            properties.flag("LensProfileEnable")
-                || nonzero("LensManualDistortionAmount")
-                || nonzero("VignetteAmount")
-                || nonzero("AutoLateralCA"),
-        ),
         (
             "upright and transform",
             properties

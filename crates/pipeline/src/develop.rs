@@ -10,11 +10,13 @@ use crate::band::PointOp;
 use crate::camera::WORKING;
 use crate::color::{ColorAdjust, DEHAZE_SATURATION, smoothstep};
 use crate::highlights::HighlightReconstruction;
+use crate::lens::Vignette;
 use crate::masks::{LocalAdjust, LocalAmounts};
-use crate::plan::{DevelopPlan, LocalLimits};
+use crate::plan::{DevelopPlan, LocalLimits, VignettePlan};
 use crate::tone::{BASELINE_EXPOSURE, MID_GREY, ToneLuts};
 use photonation_color::{ColorSpace, Mat3, Oklab, apply3, bradford, xy_to_xyz};
 use photonation_develop::Settings;
+use photonation_image::{Rect, SensorImage};
 
 /// Haze level removed (or added) at Dehaze ±100, in scene-linear units.
 const MAX_HAZE: f32 = 0.03;
@@ -41,8 +43,29 @@ pub struct Develop {
     working_to_output: [[f32; 3]; 3],
     output_luminance: [f32; 3],
     local: Option<LocalAdjust>,
+    vignette: Option<VignetteAt>,
     /// For local saturation.
     oklab: Oklab,
+}
+
+/// The vignetting correction with where each stage pixel lies: pixel
+/// `(x, y)`'s offset from the photo's centre is `origin + (x, y) · step`,
+/// in half diagonals (the stage grid is the sensor's, so it is axis
+/// aligned).
+#[derive(Clone, Copy, Debug)]
+struct VignetteAt {
+    vignette: Vignette,
+    origin: [f32; 2],
+    step: [f32; 2],
+}
+
+impl VignetteAt {
+    #[inline(always)]
+    fn gain(&self, x: usize, y: usize) -> f32 {
+        let dx = self.origin[0] + x as f32 * self.step[0];
+        let dy = self.origin[1] + y as f32 * self.step[1];
+        self.vignette.gain(dx * dx + dy * dy)
+    }
 }
 
 #[inline(always)]
@@ -74,6 +97,7 @@ impl Develop {
             working_to_output: working_to_output.to_f32(),
             output_luminance: out.luminance().map(|v| v as f32),
             local: None,
+            vignette: None,
             oklab: Oklab::new(WORKING),
         }
     }
@@ -100,6 +124,38 @@ impl Develop {
     /// Adds the masks' local adjustments (`None`: no active masks).
     pub fn with_local_adjustments(mut self, local: Option<LocalAdjust>) -> Develop {
         self.local = local;
+        self
+    }
+
+    /// Corrects vignetting (`None`: no correction) on a stage of `size`
+    /// pixels covering `region` of the sensor.
+    pub fn with_vignette(
+        mut self,
+        vignette: Option<Vignette>,
+        sensor: &SensorImage,
+        region: Rect,
+        size: (usize, usize),
+    ) -> Develop {
+        self.vignette = vignette.map(|vignette| {
+            let crop = sensor.crop;
+            let half_diagonal = (crop.w as f64).hypot(crop.h as f64) / 2.0;
+            let scale = [
+                region.w as f64 / size.0.max(1) as f64,
+                region.h as f64 / size.1.max(1) as f64,
+            ];
+            let centre = [
+                crop.x as f64 + crop.w as f64 / 2.0,
+                crop.y as f64 + crop.h as f64 / 2.0,
+            ];
+            let start = [region.x as f64, region.y as f64];
+            VignetteAt {
+                vignette,
+                origin: [0, 1].map(|axis| {
+                    ((start[axis] + 0.5 * scale[axis] - centre[axis]) / half_diagonal) as f32
+                }),
+                step: scale.map(|scale| (scale / half_diagonal) as f32),
+            }
+        });
         self
     }
 
@@ -132,6 +188,13 @@ impl Develop {
             }),
             working_to_output: self.working_to_output,
             output_luminance: self.output_luminance,
+            vignette: self.vignette.map(|at| VignettePlan {
+                origin: at.origin,
+                step: at.step,
+                falloff: at.vignette.falloff,
+                amount: at.vignette.amount,
+                manual_ev: at.vignette.manual_ev,
+            }),
         }
     }
 
@@ -243,8 +306,8 @@ impl Develop {
     #[cfg(test)]
     fn pixel(&self, camera_rgb: [f32; 3], local: Option<&LocalAmounts>) -> [f32; 3] {
         let working = match local {
-            None => self.working_pixel::<false>(camera_rgb, &LocalAmounts::NONE),
-            Some(local) => self.working_pixel::<true>(camera_rgb, local),
+            None => self.working_pixel::<false>(camera_rgb, &LocalAmounts::NONE, 1.0),
+            Some(local) => self.working_pixel::<true>(camera_rgb, local, 1.0),
         };
         self.to_output_gamut(working)
     }
@@ -252,13 +315,21 @@ impl Develop {
     /// Stage pixel `(x, y)` developed up to the output conversion: display
     /// linear, in the working space. What the colour pickers sample.
     pub fn working_at(&self, x: usize, y: usize, camera_rgb: [f32; 3]) -> [f32; 3] {
+        let gain = self.gain(x, y);
         match &self.local {
-            None => self.working_pixel::<false>(camera_rgb, &LocalAmounts::NONE),
-            Some(local) => self.working_pixel::<true>(camera_rgb, &local.at(x, y)),
+            None => self.working_pixel::<false>(camera_rgb, &LocalAmounts::NONE, gain),
+            Some(local) => self.working_pixel::<true>(camera_rgb, &local.at(x, y), gain),
         }
     }
 
-    /// The develop steps for one pixel, before the output conversion.
+    /// The vignetting correction's gain at stage pixel `(x, y)`.
+    #[inline(always)]
+    fn gain(&self, x: usize, y: usize) -> f32 {
+        self.vignette.as_ref().map_or(1.0, |at| at.gain(x, y))
+    }
+
+    /// The develop steps for one pixel, before the output conversion;
+    /// `gain` corrects vignetting.
     /// `MASKED` is false for renders without active masks: that copy is
     /// compiled separately with every local step removed, so unmasked
     /// renders cost what they did before masks existed. (Merely passing
@@ -269,12 +340,13 @@ impl Develop {
         &self,
         camera_rgb: [f32; 3],
         local: &LocalAmounts,
+        gain: f32,
     ) -> [f32; 3] {
         let camera_rgb = match &self.reconstruction {
             Some(reconstruction) => reconstruction.apply(camera_rgb),
             None => camera_rgb,
         };
-        let mut rgb = apply3(&self.camera_to_working, camera_rgb);
+        let mut rgb = apply3(&self.camera_to_working, camera_rgb.map(|v| v * gain));
         let (haze, highlights, shadows) = if MASKED {
             if local.exposure != 0.0 || local.temperature != 0.0 || local.tint != 0.0 {
                 rgb = self.local_light(rgb, local);
@@ -315,16 +387,22 @@ impl Develop {
 
 impl PointOp for Develop {
     fn apply(&self, y: usize, row: &mut [f32]) {
-        let pixels = row.chunks_exact_mut(3);
+        let pixels = row.chunks_exact_mut(3).enumerate();
         match &self.local {
-            None => pixels.for_each(|pixel| {
-                let working = self
-                    .working_pixel::<false>([pixel[0], pixel[1], pixel[2]], &LocalAmounts::NONE);
+            None => pixels.for_each(|(x, pixel)| {
+                let working = self.working_pixel::<false>(
+                    [pixel[0], pixel[1], pixel[2]],
+                    &LocalAmounts::NONE,
+                    self.gain(x, y),
+                );
                 pixel.copy_from_slice(&self.to_output_gamut(working));
             }),
-            Some(local) => pixels.enumerate().for_each(|(x, pixel)| {
-                let working =
-                    self.working_pixel::<true>([pixel[0], pixel[1], pixel[2]], &local.at(x, y));
+            Some(local) => pixels.for_each(|(x, pixel)| {
+                let working = self.working_pixel::<true>(
+                    [pixel[0], pixel[1], pixel[2]],
+                    &local.at(x, y),
+                    self.gain(x, y),
+                );
                 pixel.copy_from_slice(&self.to_output_gamut(working));
             }),
         }

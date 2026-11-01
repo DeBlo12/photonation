@@ -41,13 +41,15 @@ pub enum SettingsPart {
     PointColors,
     ColorGrading,
     Sharpening,
+    NoiseReduction,
+    LensCorrections,
     Crop,
     Masks,
     Removals,
 }
 
 impl SettingsPart {
-    pub const ALL: [SettingsPart; 20] = [
+    pub const ALL: [SettingsPart; 22] = [
         SettingsPart::WhiteBalance,
         SettingsPart::Exposure,
         SettingsPart::Contrast,
@@ -65,6 +67,8 @@ impl SettingsPart {
         SettingsPart::PointColors,
         SettingsPart::ColorGrading,
         SettingsPart::Sharpening,
+        SettingsPart::NoiseReduction,
+        SettingsPart::LensCorrections,
         SettingsPart::Crop,
         SettingsPart::Masks,
         SettingsPart::Removals,
@@ -90,6 +94,8 @@ impl SettingsPart {
             SettingsPart::PointColors => "point_colors",
             SettingsPart::ColorGrading => "color_grading",
             SettingsPart::Sharpening => "sharpening",
+            SettingsPart::NoiseReduction => "noise_reduction",
+            SettingsPart::LensCorrections => "lens_corrections",
             SettingsPart::Crop => "crop",
             SettingsPart::Masks => "masks",
             SettingsPart::Removals => "removals",
@@ -119,6 +125,8 @@ impl SettingsPart {
             SettingsPart::PointColors => "Point Colors",
             SettingsPart::ColorGrading => "Color Grading",
             SettingsPart::Sharpening => "Sharpening",
+            SettingsPart::NoiseReduction => "Noise Reduction",
+            SettingsPart::LensCorrections => "Lens Corrections",
             SettingsPart::Crop => "Crop and Straighten",
             SettingsPart::Masks => "Masks",
             SettingsPart::Removals => "Removals",
@@ -143,7 +151,8 @@ impl SettingsPart {
             SettingsPart::ToneCurve => AdjustmentGroup::ToneCurve,
             SettingsPart::ColorMixer | SettingsPart::PointColors => AdjustmentGroup::ColorMixer,
             SettingsPart::ColorGrading => AdjustmentGroup::ColorGrading,
-            SettingsPart::Sharpening => AdjustmentGroup::Detail,
+            SettingsPart::Sharpening | SettingsPart::NoiseReduction => AdjustmentGroup::Detail,
+            SettingsPart::LensCorrections => AdjustmentGroup::Lens,
             SettingsPart::Crop | SettingsPart::Masks | SettingsPart::Removals => return None,
         })
     }
@@ -175,6 +184,8 @@ impl SettingsPart {
             SettingsPart::PointColors => to.point_colors = from.point_colors.clone(),
             SettingsPart::ColorGrading => to.color_grading = from.color_grading,
             SettingsPart::Sharpening => to.sharpening = from.sharpening,
+            SettingsPart::NoiseReduction => to.noise_reduction = from.noise_reduction,
+            SettingsPart::LensCorrections => to.lens = from.lens,
             SettingsPart::Crop => {
                 to.crop = from.crop;
                 to.crop_angle = from.crop_angle;

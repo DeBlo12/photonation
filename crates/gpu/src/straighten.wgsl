@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 The Photonation contributors
 
-// Straightening (pipeline `straighten.rs`): resamples the developed image
-// along a turned crop frame with a Catmull–Rom kernel, so the frame's
-// content comes out upright. Parameters come from `StraightenPlan`.
+// Straightening and lens geometry (pipeline `straighten.rs`): resamples
+// the developed image along a turned crop frame and through the lens
+// corrections' radial map with a Catmull–Rom kernel, so the frame's content
+// comes out upright and undistorted; red and blue apart when chromatic
+// aberration is corrected. Parameters come from `StraightenPlan`.
 
 struct Frame {
     // xy: input position of output position (0, 0); zw: input step per
@@ -11,6 +13,15 @@ struct Frame {
     origin_step_x: vec4<f32>,
     // xy: input step per output pixel along y.
     step_y: vec4<f32>,
+    // The lens map (`LensPlan`): xy: centre, zw: inverse radius per axis.
+    lens: vec4<f32>,
+    // F(ρ)'s coefficients c₀ … c₆.
+    distortion: array<vec4<f32>, 2>,
+    // Red's and blue's radius factor v + c ρ + b ρ² (xyz).
+    tca_red: vec4<f32>,
+    tca_blue: vec4<f32>,
+    // x: lens map on, y: red and blue apart.
+    flags: vec4<u32>,
 }
 
 @group(0) @binding(0) var<uniform> frame: Frame;
@@ -29,15 +40,8 @@ fn catmull_rom(t: f32) -> vec4<f32> {
     );
 }
 
-@compute @workgroup_size(16, 16)
-fn main(@builtin(global_invocation_id) id: vec3<u32>) {
-    let size = textureDimensions(output);
-    if id.x >= size.x || id.y >= size.y {
-        return;
-    }
-    let position = vec2<f32>(id.xy) + vec2<f32>(0.5);
-    let input_position = frame.origin_step_x.xy + position.x * frame.origin_step_x.zw
-        + position.y * frame.step_y.xy;
+// The bicubic sample of the input at a continuous position.
+fn sample_at(input_position: vec2<f32>) -> vec3<f32> {
     let sample_position = input_position - vec2<f32>(0.5);
     let base = floor(sample_position);
     let weights_x = catmull_rom(sample_position.x - base.x);
@@ -50,6 +54,42 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
             let column = clamp(i32(base.x) - 1 + i, 0, last.x);
             let weight = weights_x[i] * weights_y[j];
             sum += textureLoad(input, vec2<i32>(column, row), 0).rgb * weight;
+        }
+    }
+    return sum;
+}
+
+fn distortion_factor(rho: f32) -> f32 {
+    let low = frame.distortion[0];
+    let high = frame.distortion[1];
+    let upper = high.x + rho * (high.y + rho * high.z);
+    return low.x + rho * (low.y + rho * (low.z + rho * (low.w + rho * upper)));
+}
+
+@compute @workgroup_size(16, 16)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+    let size = textureDimensions(output);
+    if id.x >= size.x || id.y >= size.y {
+        return;
+    }
+    let position = vec2<f32>(id.xy) + vec2<f32>(0.5);
+    let input_position = frame.origin_step_x.xy + position.x * frame.origin_step_x.zw
+        + position.y * frame.step_y.xy;
+    var sum: vec3<f32>;
+    if frame.flags.x == 0u {
+        sum = sample_at(input_position);
+    } else {
+        let centre = frame.lens.xy;
+        let offset = input_position - centre;
+        let rho = length(offset * frame.lens.zw);
+        let factor = distortion_factor(rho);
+        sum = sample_at(centre + offset * factor);
+        if frame.flags.y != 0u {
+            let shot = rho * factor;
+            let red = frame.tca_red.x + shot * (frame.tca_red.y + shot * frame.tca_red.z);
+            let blue = frame.tca_blue.x + shot * (frame.tca_blue.y + shot * frame.tca_blue.z);
+            sum.x = sample_at(centre + offset * (factor * red)).x;
+            sum.z = sample_at(centre + offset * (factor * blue)).z;
         }
     }
     // Bicubic lobes overshoot at edges; keep values displayable.

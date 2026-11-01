@@ -24,6 +24,7 @@ photonation-export = { path = "crates/export" }
 photonation-engine = { path = "crates/engine" }
 photonation-retouch = { path = "crates/retouch" }
 photonation-gpu = { path = "crates/gpu" }
+photonation-lens = { path = "crates/lens" }
 
 # foundation
 thiserror = "2"

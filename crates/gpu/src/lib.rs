@@ -7,6 +7,8 @@
 //! mosaic (u16 texture, uploaded once per photo)
 //!   ─▶ develop.wgsl: normalize + WB + demosaic + removal fills
 //!                    + develop (with masks) + output gamut
+//!   ─▶ denoise.wgsl: √ opponent, à trous levels shrunk, back to RGB
+//!                                                  (noise reduction on)
 //!   ─▶ local_contrast.wgsl: √luma, box blurs, detail added back
 //!                                                  (Texture or Clarity ≠ 0)
 //!   ─▶ straighten.wgsl: Catmull–Rom along the frame (crop angle ≠ 0)
@@ -26,7 +28,7 @@ mod params;
 use params::Words;
 use photonation_develop::Settings;
 use photonation_image::{BitDepth, OutputImage, Pixels, SensorImage, SensorLayout};
-use photonation_pipeline::plan::{LocalContrastPlan, RetouchPlan};
+use photonation_pipeline::plan::{DenoisePlan, LocalContrastPlan, RetouchPlan};
 use photonation_pipeline::{
     PlanError, RemovalFills, RenderOptions, RenderPlan, RetouchPatch, render_plan,
 };
@@ -36,6 +38,7 @@ const DEVELOP_SHADER: &str = include_str!("develop.wgsl");
 const RESIZE_SHADER: &str = include_str!("resize.wgsl");
 const FINISH_SHADER: &str = include_str!("finish.wgsl");
 const LOCAL_CONTRAST_SHADER: &str = include_str!("local_contrast.wgsl");
+const DENOISE_SHADER: &str = include_str!("denoise.wgsl");
 const STRAIGHTEN_SHADER: &str = include_str!("straighten.wgsl");
 
 /// Side of the 2D passes' square workgroups.
@@ -83,6 +86,10 @@ struct Pipelines {
     box_columns: wgpu::ComputePipeline,
     combine: wgpu::ComputePipeline,
     straighten: wgpu::ComputePipeline,
+    opponent: wgpu::ComputePipeline,
+    smooth_rows: wgpu::ComputePipeline,
+    smooth_columns: wgpu::ComputePipeline,
+    denoise_combine: wgpu::ComputePipeline,
 }
 
 impl Pipelines {
@@ -98,6 +105,7 @@ impl Pipelines {
         let finish = module("finish", FINISH_SHADER);
         let local_contrast = module("local contrast", LOCAL_CONTRAST_SHADER);
         let straighten = module("straighten", STRAIGHTEN_SHADER);
+        let denoise = module("denoise", DENOISE_SHADER);
         let pipeline = |module: &wgpu::ShaderModule, entry_point| {
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some(entry_point),
@@ -121,6 +129,10 @@ impl Pipelines {
             box_columns: pipeline(&local_contrast, "box_columns"),
             combine: pipeline(&local_contrast, "combine"),
             straighten: pipeline(&straighten, "main"),
+            opponent: pipeline(&denoise, "opponent"),
+            smooth_rows: pipeline(&denoise, "smooth_rows"),
+            smooth_columns: pipeline(&denoise, "smooth_columns"),
+            denoise_combine: pipeline(&denoise, "combine"),
         }
     }
 }
@@ -399,6 +411,10 @@ impl GpuRenderer {
             &develop_group,
             tiles(plan.source_size),
         );
+        let developed = match &plan.denoise {
+            None => developed,
+            Some(denoise) => self.denoise(&mut encoder, denoise, plan.source_size, &developed),
+        };
         let developed = match &plan.local_contrast {
             None => developed,
             Some(contrast) => {
@@ -629,6 +645,72 @@ impl GpuRenderer {
         );
         dispatch(encoder, &pipelines.combine, &combine_group, tiles(size));
         contrasted
+    }
+
+    /// Records noise reduction on `developed` (`size` pixels); returns the
+    /// result.
+    fn denoise(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        denoise: &DenoisePlan,
+        size: (usize, usize),
+        developed: &wgpu::Texture,
+    ) -> wgpu::Texture {
+        let pipelines = &self.pipelines;
+        // Approximations and sums ping-pong; the rows pass writes `rows`,
+        // which finally holds the result.
+        let approximations = [
+            self.image("approximation", size, RGBA),
+            self.image("approximation", size, RGBA),
+        ];
+        let sums = [
+            self.image("detail sum", size, RGBA),
+            self.image("detail sum", size, RGBA),
+        ];
+        let rows = self.image("smoothed rows", size, RGBA);
+        let group = self.bind_group(
+            &pipelines.opponent,
+            &[(1, view(developed)), (2, view(&approximations[0]))],
+        );
+        dispatch(encoder, &pipelines.opponent, &group, tiles(size));
+        for level in 0..denoise.thresholds.len() {
+            let amounts = self.uniform("denoise level", &params::denoise_level(denoise, level));
+            let (fine, coarse) = (&approximations[level % 2], &approximations[(level + 1) % 2]);
+            let group = self.bind_group(
+                &pipelines.smooth_rows,
+                &[(0, amounts.clone()), (1, view(fine)), (2, view(&rows))],
+            );
+            dispatch(encoder, &pipelines.smooth_rows, &group, tiles(size));
+            // The first level reads no sum; any image will do for its binding.
+            let sum_in = if level == 0 {
+                fine
+            } else {
+                &sums[(level + 1) % 2]
+            };
+            let group = self.bind_group(
+                &pipelines.smooth_columns,
+                &[
+                    (0, amounts),
+                    (1, view(fine)),
+                    (2, view(coarse)),
+                    (3, view(&rows)),
+                    (4, view(sum_in)),
+                    (5, view(&sums[level % 2])),
+                ],
+            );
+            dispatch(encoder, &pipelines.smooth_columns, &group, tiles(size));
+        }
+        let levels = denoise.thresholds.len();
+        let group = self.bind_group(
+            &pipelines.denoise_combine,
+            &[
+                (1, view(&approximations[levels % 2])),
+                (2, view(&rows)),
+                (4, view(&sums[(levels + 1) % 2])),
+            ],
+        );
+        dispatch(encoder, &pipelines.denoise_combine, &group, tiles(size));
+        rows
     }
 
     /// Waits for the render and copies its output to the CPU.

@@ -28,8 +28,8 @@ mod sidecar;
 pub use built_in_presets::{BUILT_IN_PRESET_GROUP, built_in_presets};
 pub use controls::{
     BASIC_CONTROLS, CROP_CONTROLS, Control, DETAIL_CONTROLS, GRADING_BLEND_CONTROLS,
-    GRADING_CONTROLS, LOCAL_CONTROLS, MIXER_CONTROLS, PARAMETRIC_CURVE_CONTROLS,
-    POINT_COLOR_CONTROLS, all_controls,
+    GRADING_CONTROLS, LENS_MANUAL_CONTROLS, LENS_PROFILE_CONTROLS, LOCAL_CONTROLS, MIXER_CONTROLS,
+    NOISE_CONTROLS, PARAMETRIC_CURVE_CONTROLS, POINT_COLOR_CONTROLS, all_controls,
 };
 pub use groups::AdjustmentGroup;
 pub use library::{ColorLabel, Flag, LibraryInfo, MAX_RATING};
@@ -56,8 +56,8 @@ pub use removals::{
     MIN_BRUSH_RADIUS, Removal, RemovalMethod, removal_chain_fingerprints,
 };
 pub use settings::{
-    ColorGrading, ColorMixer, GradingWheel, HslAdjustment, ParametricCurve, PointCurve,
-    ProcessVersion, Settings, Sharpening, ToneCurve, WhiteBalance,
+    ColorGrading, ColorMixer, GradingWheel, HslAdjustment, LensCorrection, NoiseReduction,
+    ParametricCurve, PointCurve, ProcessVersion, Settings, Sharpening, ToneCurve, WhiteBalance,
 };
 pub use sidecar::{
     MAX_SIDECAR_BYTES, PhotoSettings, PhotoSidecar, SIDECAR_EXTENSION, SettingsOrigin,

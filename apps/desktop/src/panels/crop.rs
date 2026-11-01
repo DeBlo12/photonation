@@ -3,9 +3,11 @@
 
 //! The crop tool. While it is open the viewer shows the whole photo with
 //! the crop frame over it: drag inside the frame to move it, its corners
-//! and edges to resize it, and outside it to turn it (straighten). The
-//! sidebar's crop card picks an aspect ratio and sets the angle. The frame
-//! always stays on the photo. See docs/DESKTOP.md.
+//! and edges to resize it, and outside it to turn it (straighten). With
+//! Level on, or Ctrl/⌘ held, a drag draws a line that the frame turns to
+//! level instead. The sidebar's crop card picks an aspect ratio, sets the
+//! angle and levels the photo automatically. The frame always stays on the
+//! photo. See docs/DESKTOP.md.
 
 use crate::app::PhotonationApp;
 use crate::panels::masks::card;
@@ -26,6 +28,8 @@ const GRAB_DISTANCE: f32 = 12.0;
 const GRIP_LENGTH: f32 = 16.0;
 /// Smallest frame side, in photo pixels.
 const MIN_SIDE: f64 = 32.0;
+/// Shortest level line, in screen points, that turns the frame.
+const MIN_LEVEL_LINE: f32 = 8.0;
 /// Frame positions between the start and the target a drag stops at, as a
 /// binary search: 2⁻²⁰ of the way is far below a pixel.
 const FIT_STEPS: usize = 20;
@@ -70,6 +74,8 @@ enum Grip {
     /// bottom (+1) side; 0 leaves that axis alone.
     Resize([i8; 2]),
     Turn,
+    /// Draws a line that the frame turns to level.
+    Level,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -88,6 +94,43 @@ pub struct CropTool {
     /// The frame when the angle slider started moving: turning it back
     /// gives the frame its size back.
     angle_base: Option<CropFrame>,
+    /// A drag draws a level line rather than moving the frame.
+    leveling: bool,
+    /// The level line's far end while it is drawn (photo pixels).
+    level_end: Option<[f64; 2]>,
+    /// The whole photo as the tool shows it, for Auto.
+    whole_photo: Option<WholePhoto>,
+    /// The first preview generation asked for while the tool is open:
+    /// earlier previews show the crop, not the whole photo.
+    whole_photo_from: Option<u64>,
+}
+
+/// A rendered preview's 8-bit RGB pixels.
+struct WholePhoto {
+    rgb: Vec<u8>,
+    size: [usize; 2],
+}
+
+impl CropTool {
+    /// Forgets the photo and any half-drawn line, as the tool opens.
+    pub fn reset(&mut self) {
+        *self = CropTool {
+            aspect: self.aspect,
+            ..CropTool::default()
+        };
+    }
+
+    /// Notes that preview `generation` was asked for while the tool is open.
+    pub fn requested(&mut self, generation: u64) {
+        self.whole_photo_from.get_or_insert(generation);
+    }
+
+    /// Keeps a rendered preview for Auto if it shows the whole photo.
+    pub fn rendered(&mut self, generation: u64, rgb: Vec<u8>, size: [usize; 2]) {
+        if self.whole_photo_from.is_some_and(|from| generation >= from) {
+            self.whole_photo = Some(WholePhoto { rgb, size });
+        }
+    }
 }
 
 /// The frame the settings describe on a `photo`-sized photo.
@@ -170,6 +213,8 @@ fn dragged(drag: &Drag, pointer: [f64; 2], ratio: Option<f64>) -> CropFrame {
             let angle = (angle + turned).clamp(-45.0, 45.0);
             start.with_angle(angle).constrained()
         }
+        // The frame turns once the line is drawn (`interact`).
+        Grip::Level => start,
         Grip::Resize(sides) => {
             let center = start.center();
             let [width, height] = start.size();
@@ -225,6 +270,19 @@ fn lock_ratio(low: &mut [f64; 2], high: &mut [f64; 2], sides: [i8; 2], ratio: f6
     }
 }
 
+/// The angle that levels a line drawn from `from` to `to` (photo pixels):
+/// it becomes horizontal, or vertical if it is closer to that.
+fn line_level(from: [f64; 2], to: [f64; 2]) -> f64 {
+    let direction = (to[1] - from[1]).atan2(to[0] - from[0]).to_degrees();
+    // A line has no sign: −90..90, then the nearer of level and plumb.
+    let direction = (direction + 90.0).rem_euclid(180.0) - 90.0;
+    if direction.abs() <= 45.0 {
+        direction
+    } else {
+        direction - 90.0 * direction.signum()
+    }
+}
+
 /// The largest frame of `ratio` inside `frame`, around its centre.
 fn with_ratio(frame: CropFrame, ratio: f64) -> CropFrame {
     let [width, height] = frame.size();
@@ -246,6 +304,7 @@ pub fn sidebar(app: &mut PhotonationApp, ui: &mut Ui) {
     let tool = &mut app.view.crop_tool;
     let frame = current_frame(settings, photo);
     let mut done = false;
+    let mut not_level = false;
     card(ui, |ui| {
         ui.horizontal(|ui| {
             ui.label(RichText::new("Crop").size(14.0).color(theme::TEXT));
@@ -308,17 +367,44 @@ pub fn sidebar(app: &mut PhotonationApp, ui: &mut Ui) {
         }
         ui.add_space(4.0);
         ui.horizontal(|ui| {
+            let auto_tip = "Auto straighten\nTurns the frame to level the photo's horizon or \
+                            straighten its verticals.";
+            let auto = ui.add_enabled_ui(tool.whole_photo.is_some(), |ui| {
+                tool_button(ui, "Auto", false, auto_tip)
+            });
+            if auto.inner.clicked()
+                && let Some(photo) = &tool.whole_photo
+            {
+                match photonation_engine::level_angle(&photo.rgb, photo.size[0], photo.size[1]) {
+                    Some(angle) => store(settings, frame.with_angle(angle).constrained()),
+                    None => not_level = true,
+                }
+            }
+            let level_tip = format!(
+                "Level\nDraw a line along the horizon or something upright; the frame \
+                 turns to make it level or plumb. Or hold {} and drag.",
+                theme::COMMAND_KEY
+            );
+            if tool_button(ui, "Level", tool.leveling, &level_tip).clicked() {
+                tool.leveling = !tool.leveling;
+            }
             if ui.button("Reset").clicked() {
                 settings.crop = None;
                 settings.crop_angle = 0.0;
             }
         });
         ui.label(
-            RichText::new("Drag outside the frame to straighten.")
-                .size(11.0)
-                .color(theme::TEXT_TERTIARY),
+            RichText::new(format!(
+                "Drag outside the frame to straighten, or {}-drag a level line.",
+                theme::COMMAND_KEY
+            ))
+            .size(11.0)
+            .color(theme::TEXT_TERTIARY),
         );
     });
+    if not_level {
+        app.notify("Auto found no horizon or verticals to level by.");
+    }
     if done {
         app.view.cropping = false;
     }
@@ -368,6 +454,7 @@ fn cursor(grip: Grip, dragging: bool) -> CursorIcon {
         Grip::Move if dragging => CursorIcon::Grabbing,
         Grip::Move => CursorIcon::Grab,
         Grip::Turn => CursorIcon::Alias,
+        Grip::Level => CursorIcon::Crosshair,
         Grip::Resize([0, _]) => CursorIcon::ResizeVertical,
         Grip::Resize([_, 0]) => CursorIcon::ResizeHorizontal,
         Grip::Resize([x, y]) if x == y => CursorIcon::ResizeNwSe,
@@ -386,17 +473,51 @@ pub fn interact(
     let photo = view.crop.photo_size();
     let frame = current_frame(&app.settings, photo);
     let tool = &mut app.view.crop_tool;
+    let leveling = tool.leveling || ui.input(|i| i.modifiers.command);
     if response.drag_started()
         && let Some(pointer) = response.interact_pointer_pos()
     {
         tool.drag = Some(Drag {
-            grip: grip_at(&frame, view, pointer),
+            grip: if leveling {
+                Grip::Level
+            } else {
+                grip_at(&frame, view, pointer)
+            },
             frame,
             pointer: photo_pixels(view, pointer),
         });
     }
     if !response.dragged() {
+        // A level line turns the frame once it is drawn.
+        if let Some(Drag {
+            grip: Grip::Level,
+            frame,
+            pointer: from,
+        }) = tool.drag
+            && let Some(to) = tool.level_end
+            && view
+                .to_screen(normalized(view, from))
+                .distance(view.to_screen(normalized(view, to)))
+                >= MIN_LEVEL_LINE
+        {
+            store(
+                &mut app.settings,
+                frame.with_angle(line_level(from, to)).constrained(),
+            );
+            tool.leveling = false;
+        }
         tool.drag = None;
+        tool.level_end = None;
+    }
+    if let Some(Drag {
+        grip: Grip::Level, ..
+    }) = tool.drag
+    {
+        if let Some(pointer) = response.interact_pointer_pos() {
+            tool.level_end = Some(photo_pixels(view, pointer));
+        }
+        ui.ctx().set_cursor_icon(CursorIcon::Crosshair);
+        return true;
     }
     let portrait = frame.size()[1] > frame.size()[0];
     let ratio = tool.aspect.ratio(photo, portrait);
@@ -409,10 +530,20 @@ pub fn interact(
         return true;
     }
     if let Some(pointer) = response.hover_pos() {
-        ui.ctx()
-            .set_cursor_icon(cursor(grip_at(&frame, view, pointer), false));
+        let grip = if leveling {
+            Grip::Level
+        } else {
+            grip_at(&frame, view, pointer)
+        };
+        ui.ctx().set_cursor_icon(cursor(grip, false));
     }
     false
+}
+
+/// A point in photo pixels, normalized to the photo.
+fn normalized(view: &PhotoFrame, pixels: [f64; 2]) -> [f64; 2] {
+    let photo = view.crop.photo_size();
+    [pixels[0] / photo[0], pixels[1] / photo[1]]
 }
 
 /// Dims the photo outside the frame and draws the frame, a rule-of-thirds
@@ -460,6 +591,29 @@ pub fn paint(app: &PhotonationApp, painter: &Painter, view: &PhotoFrame) {
         painter.line_segment([middle - half, middle + half], grip_stroke);
     }
 
+    if let (
+        Some(Drag {
+            grip: Grip::Level,
+            pointer: from,
+            ..
+        }),
+        Some(to),
+    ) = (dragging, app.view.crop_tool.level_end)
+    {
+        let line = [
+            view.to_screen(normalized(view, from)),
+            view.to_screen(normalized(view, to)),
+        ];
+        painter.line_segment(line, Stroke::new(3.0, Color32::from_black_alpha(120)));
+        painter.line_segment(line, Stroke::new(1.5, theme::KNOB));
+        painter.text(
+            line[1] + Vec2::new(10.0, -10.0),
+            Align2::LEFT_BOTTOM,
+            format!("{:+.1}°", line_level(from, to)),
+            theme::body(13.0),
+            theme::TEXT,
+        );
+    }
     if matches!(
         dragging,
         Some(Drag {
@@ -614,6 +768,37 @@ mod tests {
     }
 
     #[test]
+    fn level_lines_become_level_or_plumb() {
+        let close = |a: f64, b: f64| (a - b).abs() < 1e-9;
+        // Falling 5° to the right: the frame turns clockwise by 5°.
+        let fall = 5f64.to_radians().tan() * 1000.0;
+        assert!(close(line_level([0.0, 0.0], [1000.0, fall]), 5.0));
+        // Drawn either way, it is the same line.
+        assert!(close(line_level([1000.0, fall], [0.0, 0.0]), 5.0));
+        // Nearly upright: plumb it, whichever way it leans.
+        let lean = 3f64.to_radians().tan() * 1000.0;
+        assert!(close(line_level([0.0, 1000.0], [lean, 0.0]), 3.0));
+        assert!(close(line_level([0.0, 0.0], [lean, 1000.0]), -3.0));
+    }
+
+    #[test]
+    fn auto_uses_only_previews_of_the_whole_photo() {
+        let mut tool = CropTool::default();
+        tool.rendered(4, vec![0; 3], [1, 1]);
+        assert!(tool.whole_photo.is_none());
+        tool.requested(6);
+        tool.requested(7);
+        tool.rendered(5, vec![0; 3], [1, 1]);
+        assert!(tool.whole_photo.is_none());
+        tool.rendered(6, vec![0; 3], [1, 1]);
+        assert!(tool.whole_photo.is_some());
+        tool.aspect = Aspect::Free;
+        tool.reset();
+        assert!(tool.whole_photo.is_none() && tool.whole_photo_from.is_none());
+        assert_eq!(tool.aspect, Aspect::Free);
+    }
+
+    #[test]
     fn ratios_follow_the_frame_orientation() {
         assert_eq!(Aspect::Ratio(4, 5).ratio(PHOTO, false), Some(1.25));
         assert_eq!(Aspect::Ratio(4, 5).ratio(PHOTO, true), Some(0.8));
@@ -690,6 +875,7 @@ mod tests {
             image_rect: Rect::from_min_size(pos2(0.0, 0.0), egui::vec2(600.0, 400.0)),
             crop: CropFrame::full(PHOTO),
             space: photonation_develop::MaskSpace::new(PHOTO[0], PHOTO[1]),
+            lens: None,
         };
         let frame = CropFrame::from_center(PHOTO, [3000.0, 2000.0], [3000.0, 2000.0], 0.0);
         assert_eq!(

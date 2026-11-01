@@ -205,6 +205,19 @@ pub fn about(app: &mut PhotonationApp, ctx: &egui::Context) {
                 .size(12.0)
                 .color(theme::TEXT_SECONDARY),
             );
+            ui.add_space(4.0);
+            ui.label(
+                RichText::new(
+                    "Lens profiles: the Lensfun database by the Lensfun contributors, \
+                     used unchanged under CC BY-SA 3.0.",
+                )
+                .size(12.0)
+                .color(theme::TEXT_SECONDARY),
+            );
+            ui.hyperlink_to(
+                RichText::new("lensfun.github.io").size(12.0),
+                "https://lensfun.github.io",
+            );
             if let Some(gpu) = &app.gpu {
                 ui.add_space(4.0);
                 note(ui, &format!("Graphics: {gpu}"));

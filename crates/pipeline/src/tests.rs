@@ -833,3 +833,116 @@ mod removals {
         );
     }
 }
+
+mod lens_corrections {
+    use super::*;
+    use photonation_develop::LensCorrection;
+
+    /// The test pattern as if taken with a lens the database knows: an EF
+    /// 50mm f/1.8 STM, which has distortion, chromatic aberration and
+    /// vignetting calibrations, on an EOS 250D.
+    fn canon(w: usize, h: usize, orientation: Orientation) -> SensorImage {
+        let mut img = synthetic(w, h, orientation);
+        img.info.make = "Canon".into();
+        img.info.model = "Canon EOS 250D".into();
+        img.info.lens = Some("EF50mm f/1.8 STM".into());
+        img.info.focal_length = Some(50.0);
+        img.info.f_number = Some(1.8);
+        img
+    }
+
+    fn corrected(manual_distortion: f32) -> Settings {
+        Settings {
+            lens: LensCorrection {
+                profile: true,
+                chromatic_aberration: true,
+                manual_distortion,
+                manual_vignetting: 30.0,
+                ..LensCorrection::default()
+            },
+            ..Settings::default()
+        }
+    }
+
+    #[test]
+    fn the_profile_is_found_and_used() {
+        let img = canon(97, 71, Orientation::Normal);
+        let profile = lens_profile(&img.info).expect("in the database");
+        assert_eq!(profile.lens, "Canon EF 50mm f/1.8 STM");
+        assert!(profile.distortion.is_some() && profile.tca.is_some());
+        assert!(profile.vignetting.is_some());
+        let map = lens_map(&img, &corrected(0.0)).expect("moves");
+        assert!(map.tca().is_some());
+        // Off by default: photos render as they always did.
+        assert!(lens_map(&img, &Settings::default()).is_none());
+        assert_ne!(
+            render_with(&img, &corrected(0.0), None, 16),
+            render_with(&img, &Settings::default(), None, 16)
+        );
+    }
+
+    #[test]
+    fn band_size_does_not_change_output() {
+        for orientation in [
+            Orientation::Normal,
+            Orientation::Rotate90,
+            Orientation::FlipV,
+        ] {
+            let img = canon(97, 71, orientation);
+            let turned = Settings {
+                clarity: 30.0,
+                ..rotated(-7.0)
+            };
+            let turned = Settings {
+                lens: corrected(-60.0).lens,
+                ..turned
+            };
+            for s in [corrected(80.0), turned] {
+                for long_edge in [None, Some(40)] {
+                    let whole = render_with(&img, &s, long_edge, 10_000);
+                    for band_rows in [1, 5, 16] {
+                        assert_eq!(
+                            whole,
+                            render_with(&img, &s, long_edge, band_rows),
+                            "{orientation:?} long_edge {long_edge:?} band {band_rows}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn manual_vignetting_brightens_the_corners() {
+        let img = synthetic(120, 80, Orientation::Normal);
+        let brighter = Settings {
+            lens: LensCorrection {
+                manual_vignetting: 100.0,
+                ..LensCorrection::default()
+            },
+            ..Settings::default()
+        };
+        // Vignetting alone moves nothing: the output keeps its size.
+        assert!(lens_map(&img, &brighter).is_none());
+        let plain = render_with(&img, &Settings::default(), None, 16);
+        let corrected = render_with(&img, &brighter, None, 16);
+        let at = |image: &OutputImage, x: usize, y: usize| {
+            samples(image)[(y * image.width + x) * 3 + 1] as i32
+        };
+        let (w, h) = (plain.width, plain.height);
+        assert!((at(&corrected, w / 2, h / 2) - at(&plain, w / 2, h / 2)).abs() <= 1);
+        assert!(at(&corrected, w - 3, h - 3) > at(&plain, w - 3, h - 3) + 20);
+    }
+
+    #[test]
+    fn pickers_sample_where_the_corrected_photo_shows() {
+        let img = canon(204, 104, Orientation::Rotate90);
+        let s = corrected(50.0);
+        let map = lens_map(&img, &s).expect("moves");
+        let point = [0.2, 0.7];
+        assert_eq!(
+            pick_patch(&img, &s, point),
+            pick_patch(&img, &Settings::default(), map.to_shot(point))
+        );
+    }
+}

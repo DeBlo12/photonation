@@ -35,32 +35,45 @@
 - Highlight reconstruction (process 2): each channel keeps its own headroom
   and clipped channels are rebuilt from the others, on CPU and GPU
 - Every preview on the GPU: straightened crops and removal fills too
+- Straighten by drawing a level line, and Auto straighten
+- Noise reduction: luminance (with detail) and colour, à trous wavelet
+  shrinkage on CPU and GPU
+- Lens corrections from the bundled Lensfun database (distortion,
+  vignetting, chromatic aberration) with manual distortion and vignetting,
+  on CPU and GPU; Lightroom's lens corrections import
 
 ## Next
 
-1. **Lightroom import, continued**: masks (linear, radial; brush once masks
-   have one), and the edits listed as not imported once Photonation has them.
-2. **Straighten by drawing a line** along the horizon, and auto-straighten.
-3. **Local Highlights/Shadows** (edge-aware, as a new process), so they behave
-   like Lightroom's on high-contrast scenes. Highlight reconstruction could
-   then use the neighbourhood too, taking a clipped area's colour from its
-   edges instead of holding it to process 1's.
-4. **Noise reduction** (luminance and colour) and **lens corrections**
-   (distortion, vignetting, chromatic aberration).
-5. **More masks**: a brush, creating gradients by dragging on the photo, masks
+In this order:
+
+1. **More masks**: a brush, creating gradients by dragging on the photo, masks
    in compare mode, and later AI subject and sky masks. Skip masks whose
    bounds miss a band, and fold local saturation into the colour step's Oklab
    round trip, to speed up masked renders.
-6. **Better demosaicing**: RCD or AMaZE for Bayer, Markesteijn for X-Trans.
-7. **Profiles**: a look stage after the camera matrix (Standard, Neutral,
+2. **Better removals**: one-click people selection (segmentation), dust
+   spot and wire/fence detection, full-resolution tiled fills, a disk cache
+   for fills. See [RETOUCH.md](RETOUCH.md).
+
+## Priority
+
+After Next, in this order:
+
+1. **Profiles**: a look stage after the camera matrix (Standard, Neutral,
    Vivid, Monochrome as 3D lookup tables on CPU and GPU), selectable in
    presets; a proper black & white treatment with a per-colour mix and
    toning; presets with an Amount slider.
-8. **AVIF and JPEG XL export**; IPTC fields (title, caption, keywords) and
+2. **AVIF and JPEG XL export**; IPTC fields (title, caption, keywords) and
    the rating and label (`xmp:Rating`, `xmp:Label`) in export metadata.
-9. **Better removals**: one-click people selection (segmentation), dust
-   spot and wire/fence detection, full-resolution tiled fills, a disk cache
-   for fills. See [RETOUCH.md](RETOUCH.md).
+3. **Better demosaicing**: RCD or AMaZE for Bayer, Markesteijn for X-Trans.
+
+## Later
+
+1. **Lightroom import, continued**: masks (linear, radial; brush once masks
+   have one), and the edits listed as not imported once Photonation has them.
+2. **Local Highlights/Shadows** (edge-aware, as a new process), so they behave
+   like Lightroom's on high-contrast scenes. Highlight reconstruction could
+   then use the neighbourhood too, taking a clipped area's colour from its
+   edges instead of holding it to process 1's.
 
 ## Platform
 

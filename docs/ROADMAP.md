@@ -34,6 +34,7 @@
   imported, hover previews, applied to every selected photo
 - Highlight reconstruction (process 2): each channel keeps its own headroom
   and clipped channels are rebuilt from the others, on CPU and GPU
+- Every preview on the GPU: straightened crops and removal fills too
 
 ## Next
 
@@ -63,10 +64,9 @@
 
 ## Platform
 
-- **GPU path, continued**: straightened crops and removal fills on the
-  GPU, so every preview renders there; then draw
-  previews straight from the GPU texture instead of reading them back, and
-  reuse intermediate textures between renders.
+- **GPU path, continued**: draw previews straight from the GPU texture
+  instead of reading them back, and reuse intermediate textures between
+  renders; thumbnails and pickers on the GPU.
 - **Web app**: build the egui UI and engine for `wasm32` (WebGL/WebGPU, files
   through the browser's file APIs, OPFS for sidecars and caches). The core
   crates are already free of platform code; threads need a Web Worker pool.

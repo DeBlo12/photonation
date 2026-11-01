@@ -7,11 +7,12 @@
 //! stages, so both render with identical parameters; only the per-pixel
 //! maths is transcribed.
 //!
-//! Stages a plan cannot describe yet make [`render_plan`] return
-//! [`PlanError::Unsupported`]; callers render those on the CPU.
+//! Plans describe every stage of the graph, so [`PlanError::Unsupported`]
+//! is reserved for stages added to the graph before their executors.
 
 use crate::band::Source;
 use crate::masks::{LocalAmounts, MaskWeight};
+use crate::retouch::{RemovalWeight, RetouchPatch};
 use crate::{
     Demosaic, Framing, RemovalFills, RenderOptions, camera::CameraModel, develop::Develop,
     encode::Encode, local_contrast::LocalContrast, masks, resize::Resize, retouch, scaled_size,
@@ -19,6 +20,7 @@ use crate::{
 };
 use photonation_develop::Settings;
 use photonation_image::{Orientation, Rect, SensorImage};
+use std::sync::Arc;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct RenderPlan {
@@ -37,10 +39,15 @@ pub struct RenderPlan {
     pub black: [f32; 3],
     pub gain: [f32; 3],
     pub clip: [f32; 3],
+    /// Removal fills blended in before developing; `None` without any.
+    pub retouch: Option<RetouchPlan>,
     pub develop: DevelopPlan,
     /// Texture and Clarity, at the source's size; `None` when both are 0.
     pub local_contrast: Option<LocalContrastPlan>,
-    /// `None` when the source already has the output size.
+    /// A turned crop frame resampled upright; `None` without an angle.
+    pub straighten: Option<StraightenPlan>,
+    /// `None` when the source (or the straightened frame) already has the
+    /// output size.
     pub resize: Option<ResizePlan>,
     /// The output transfer curve, sampled at `i / (len − 1)`.
     pub encode: Vec<f32>,
@@ -192,6 +199,45 @@ pub struct LocalContrastPlan {
     pub luma: [f32; 3],
 }
 
+/// Removal fills (see `retouch.rs`): for each removal in order, its fill
+/// blended in by the brush weight.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RetouchPlan {
+    /// Metric mask point of source pixel (x, y):
+    /// `origin + x · step_x + y · step_y`.
+    pub origin: [f32; 2],
+    pub step_x: [f32; 2],
+    pub step_y: [f32; 2],
+    /// Sensor position of source pixel (x, y):
+    /// `sensor_origin + (x + 0.5, y + 0.5) · sensor_step`.
+    pub sensor_origin: [f32; 2],
+    pub sensor_step: [f32; 2],
+    /// A fill's sample becomes `min(sample × wb_multipliers, clip)`, as the
+    /// source normalizes raw samples.
+    pub wb_multipliers: [f32; 3],
+    pub clip: [f32; 3],
+    pub removals: Vec<RemovalPlan>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct RemovalPlan {
+    pub weight: RemovalWeight,
+    pub patch: Arc<RetouchPatch>,
+}
+
+/// Catmull–Rom resampling along a turned frame (see `straighten.rs`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct StraightenPlan {
+    /// Output size, stored orientation.
+    pub size: (usize, usize),
+    /// Input position of output position (0, 0) (pixel `i`'s centre at
+    /// `i + 0.5`), and the input distance one output pixel covers along x
+    /// and along y.
+    pub origin: [f32; 2],
+    pub step_x: [f32; 2],
+    pub step_y: [f32; 2],
+}
+
 /// Separable Lanczos-3 weights (see `resize.rs`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct ResizePlan {
@@ -239,9 +285,6 @@ pub fn render_plan(
     if region.w < 2 || region.h < 2 || !sensor.is_valid() {
         return Err(PlanError::Empty);
     }
-    if matches!(framing, Framing::Rotated { .. }) {
-        return Err(PlanError::Unsupported("straightened crops"));
-    }
     let target = scaled_size(framing.size(), opts.long_edge);
     let demosaic = crate::demosaic_for(sensor, &framing, target);
     let camera = CameraModel::new(sensor, &settings.white_balance);
@@ -254,9 +297,15 @@ pub fn render_plan(
     );
     let (source_region, source_size) = (source.region(), source.size());
     let (black, gain, clip) = source.levels();
-    if retouch::applies(&settings.removals, fills) {
-        return Err(PlanError::Unsupported("removals"));
-    }
+    let retouch = retouch::retouch_plan(
+        sensor,
+        &settings,
+        fills,
+        source_region,
+        source_size,
+        camera.wb_multipliers,
+        clip,
+    );
     let local = masks::LocalAdjust::new(
         &settings.masks,
         &settings.mask_groups,
@@ -272,6 +321,13 @@ pub fn render_plan(
     .with_highlight_reconstruction(&settings, clip)
     .with_local_adjustments(local)
     .with_point_color_overlay(&settings, opts.point_color_overlay);
+    let straighten = match &framing {
+        Framing::Straight(_) => None,
+        Framing::Rotated { frame, size, .. } => {
+            Some(crate::straighten_stage(sensor, frame, *size, source_region, source_size).plan())
+        }
+    };
+    let developed_size = straighten.map_or(source_size, |straighten| straighten.size);
     Ok(RenderPlan {
         region: source_region,
         demosaic,
@@ -281,11 +337,13 @@ pub fn render_plan(
         black,
         gain,
         clip,
+        retouch,
         develop: develop.plan(),
         local_contrast: LocalContrast::new(settings.clarity, settings.texture, source_size)
             .as_ref()
             .map(LocalContrast::plan),
-        resize: (source_size != target).then(|| Resize::new(source_size, target).plan()),
+        straighten,
+        resize: (developed_size != target).then(|| Resize::new(developed_size, target).plan()),
         encode: Encode::new(opts.color_space).table().to_vec(),
         sharpen: (opts.sharpen && settings.sharpening.amount > 0.0)
             .then(|| Sharpen::new(settings.sharpening.amount, settings.sharpening.radius).plan()),

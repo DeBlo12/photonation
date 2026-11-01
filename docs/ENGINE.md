@@ -58,8 +58,9 @@ loop:
 
 - **GPU previews** (`preview.rs`, feature `gpu`, on in the desktop app):
   `RenderService::new` gives the preview worker a `PreviewRenderer` that
-  renders on the GPU (docs/PIPELINE.md §8) and on the CPU whatever the GPU
-  path doesn't cover yet (straightened crops, removals). A GPU error moves all later previews to the CPU.
+  renders on the GPU (docs/PIPELINE.md §8), straightened crops and removal
+  fills included, and on the CPU only what the GPU can't hold (images or
+  fills larger than its limits). A GPU error moves all later previews to the CPU.
   `PHOTONATION_GPU_RENDER=off` keeps previews on the CPU. Services made with
   `on_cpu`, `with_decoder` or `with_parts` (tests) render on the CPU. Thumbnails,
   pickers and exports always use the CPU.

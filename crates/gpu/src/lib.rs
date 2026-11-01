@@ -5,9 +5,11 @@
 //!
 //! ```text
 //! mosaic (u16 texture, uploaded once per photo)
-//!   ─▶ develop.wgsl: normalize + WB + demosaic + develop (with masks) + output gamut
+//!   ─▶ develop.wgsl: normalize + WB + demosaic + removal fills
+//!                    + develop (with masks) + output gamut
 //!   ─▶ local_contrast.wgsl: √luma, box blurs, detail added back
 //!                                                  (Texture or Clarity ≠ 0)
+//!   ─▶ straighten.wgsl: Catmull–Rom along the frame (crop angle ≠ 0)
 //!   ─▶ resize.wgsl: Lanczos-3 rows, columns        (when the size changes)
 //!   ─▶ finish.wgsl: encode ─▶ sharpen rows, columns (when sharpening)
 //!                  ─▶ pack into RGB8, display orientation ─▶ read back
@@ -16,23 +18,25 @@
 //! Every parameter and table comes from [`photonation_pipeline::render_plan`],
 //! so the GPU renders with exactly the CPU's settings; the shaders transcribe
 //! the per-pixel maths. The CPU pipeline is the reference: tests compare
-//! the two. Renders a plan can't describe yet (straightened crops,
-//! removals) and 16-bit output return
-//! [`GpuError::Unsupported`]; callers render those on the CPU.
+//! the two. 16-bit output, and images or fills larger than the device
+//! holds, return [`GpuError::Unsupported`]; callers render those on the CPU.
 
 mod params;
 
 use params::Words;
 use photonation_develop::Settings;
 use photonation_image::{BitDepth, OutputImage, Pixels, SensorImage, SensorLayout};
-use photonation_pipeline::plan::LocalContrastPlan;
-use photonation_pipeline::{PlanError, RemovalFills, RenderOptions, RenderPlan, render_plan};
+use photonation_pipeline::plan::{LocalContrastPlan, RetouchPlan};
+use photonation_pipeline::{
+    PlanError, RemovalFills, RenderOptions, RenderPlan, RetouchPatch, render_plan,
+};
 use std::sync::{Arc, Weak};
 
 const DEVELOP_SHADER: &str = include_str!("develop.wgsl");
 const RESIZE_SHADER: &str = include_str!("resize.wgsl");
 const FINISH_SHADER: &str = include_str!("finish.wgsl");
 const LOCAL_CONTRAST_SHADER: &str = include_str!("local_contrast.wgsl");
+const STRAIGHTEN_SHADER: &str = include_str!("straighten.wgsl");
 
 /// Side of the 2D passes' square workgroups.
 const TILE: u32 = 16;
@@ -78,6 +82,7 @@ struct Pipelines {
     box_rows: wgpu::ComputePipeline,
     box_columns: wgpu::ComputePipeline,
     combine: wgpu::ComputePipeline,
+    straighten: wgpu::ComputePipeline,
 }
 
 impl Pipelines {
@@ -92,6 +97,7 @@ impl Pipelines {
         let resize = module("resize", RESIZE_SHADER);
         let finish = module("finish", FINISH_SHADER);
         let local_contrast = module("local contrast", LOCAL_CONTRAST_SHADER);
+        let straighten = module("straighten", STRAIGHTEN_SHADER);
         let pipeline = |module: &wgpu::ShaderModule, entry_point| {
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some(entry_point),
@@ -114,6 +120,7 @@ impl Pipelines {
             box_rows: pipeline(&local_contrast, "box_rows"),
             box_columns: pipeline(&local_contrast, "box_columns"),
             combine: pipeline(&local_contrast, "combine"),
+            straighten: pipeline(&straighten, "main"),
         }
     }
 }
@@ -126,14 +133,23 @@ struct UploadedSensor {
     view: wgpu::TextureView,
 }
 
-/// Renders on one GPU device. Keeps the last photo's mosaic uploaded, so
-/// re-rendering it with new settings uploads only parameters.
+/// The removal fills of the last render on the GPU.
+struct UploadedFills {
+    /// Identify the fills, in order (see [`UploadedSensor::sensor`]).
+    patches: Vec<Weak<RetouchPatch>>,
+    buffer: wgpu::Buffer,
+}
+
+/// Renders on one GPU device. Keeps the last photo's mosaic and removal
+/// fills uploaded, so re-rendering it with new settings uploads only
+/// parameters.
 pub struct GpuRenderer {
     device: wgpu::Device,
     queue: wgpu::Queue,
     adapter: String,
     pipelines: Pipelines,
     uploaded: Option<UploadedSensor>,
+    fills: Option<UploadedFills>,
 }
 
 impl GpuRenderer {
@@ -172,6 +188,7 @@ impl GpuRenderer {
             adapter: format!("{} ({:?})", info.name, info.backend),
             pipelines,
             uploaded: None,
+            fills: None,
         })
     }
 
@@ -195,14 +212,26 @@ impl GpuRenderer {
         if !params::pattern_fits(&sensor.layout) {
             return Err(GpuError::Unsupported("colour filter patterns this large"));
         }
-        let max_side = self.device.limits().max_texture_dimension_2d as usize;
+        let limits = self.device.limits();
+        let max_side = limits.max_texture_dimension_2d as usize;
+        let straightened = plan.straighten.map(|straighten| straighten.size);
         let largest = [plan.source_size, plan.target, (sensor.width, sensor.height)]
-            .iter()
-            .map(|&(width, height)| width.max(height))
+            .into_iter()
+            .chain(straightened)
+            .map(|(width, height)| width.max(height))
             .max()
             .unwrap_or(0);
         if largest > max_side {
             return Err(GpuError::Unsupported("images this large"));
+        }
+        let fill_bytes: usize = plan
+            .retouch
+            .iter()
+            .flat_map(|retouch| &retouch.removals)
+            .map(|removal| removal.patch.rgb.len() * 4)
+            .sum();
+        if fill_bytes as u64 > limits.max_storage_buffer_binding_size {
+            return Err(GpuError::Unsupported("removal fills this large"));
         }
         if let Some(contrast) = &plan.local_contrast
             && contrast.clarity_radius.max(contrast.texture_radius) > MAX_BOX_RADIUS
@@ -215,11 +244,13 @@ impl GpuRenderer {
         let out_of_memory = self.device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
         let validation = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
         let mosaic = self.mosaic(sensor);
-        let readback = self.run(&plan, &sensor.layout, &mosaic);
+        let fills = self.fills(plan.retouch.as_ref());
+        let readback = self.run(&plan, &sensor.layout, &mosaic, fills);
         let errors = [validation.pop(), out_of_memory.pop()].map(pollster::block_on);
         if let Some(error) = errors.into_iter().flatten().next() {
             // A failed upload must not be reused.
             self.uploaded = None;
+            self.fills = None;
             return Err(GpuError::Device(error.to_string()));
         }
         let (width, height) = plan.orientation.display_size(plan.target.0, plan.target.1);
@@ -292,6 +323,38 @@ impl GpuRenderer {
         view
     }
 
+    /// The buffer holding `retouch`'s fills, uploaded unless they are the
+    /// cached ones; a placeholder without fills.
+    fn fills(&mut self, retouch: Option<&RetouchPlan>) -> Bind {
+        let Some(retouch) = retouch else {
+            return self.storage("no fills", &Words::default());
+        };
+        let patches: Vec<Weak<RetouchPatch>> = retouch
+            .removals
+            .iter()
+            .map(|removal| Arc::downgrade(&removal.patch))
+            .collect();
+        if let Some(uploaded) = &self.fills
+            && uploaded.patches.len() == patches.len()
+            && uploaded
+                .patches
+                .iter()
+                .zip(&patches)
+                .all(|(cached, patch)| Weak::ptr_eq(cached, patch))
+        {
+            return Bind::Buffer(uploaded.buffer.clone());
+        }
+        self.fills = None; // free the previous fills first
+        let Bind::Buffer(buffer) = self.storage("fills", &params::patches(retouch)) else {
+            unreachable!("storage is a buffer")
+        };
+        self.fills = Some(UploadedFills {
+            patches,
+            buffer: buffer.clone(),
+        });
+        Bind::Buffer(buffer)
+    }
+
     /// Records and submits every pass of `plan`; returns the buffer the
     /// packed RGB8 output lands in.
     fn run(
@@ -299,6 +362,7 @@ impl GpuRenderer {
         plan: &RenderPlan,
         layout: &SensorLayout,
         mosaic: &wgpu::TextureView,
+        fills: Bind,
     ) -> wgpu::Buffer {
         let device = &self.device;
         let pipelines = &self.pipelines;
@@ -309,6 +373,7 @@ impl GpuRenderer {
         let developed = self.image("developed", plan.source_size, RGBA);
         let tone_tables: Vec<f32> = plan.develop.tone.tables.concat();
         let (masks, shapes) = params::masks(&plan.develop);
+        let (retouch, removals) = params::retouch(plan.retouch.as_ref());
         let develop_group = self.bind_group(
             &pipelines.develop,
             &[
@@ -323,6 +388,9 @@ impl GpuRenderer {
                 (5, view(&developed)),
                 (6, self.storage("masks", &masks)),
                 (7, self.storage("mask shapes", &shapes)),
+                (8, self.uniform("retouch", &retouch)),
+                (9, self.storage("removals", &removals)),
+                (10, fills),
             ],
         );
         dispatch(
@@ -338,10 +406,32 @@ impl GpuRenderer {
             }
         };
 
+        let (developed, developed_size) = match &plan.straighten {
+            None => (developed, plan.source_size),
+            Some(straighten) => {
+                let straightened = self.image("straightened", straighten.size, RGBA);
+                let group = self.bind_group(
+                    &pipelines.straighten,
+                    &[
+                        (0, self.uniform("frame", &params::straighten(straighten))),
+                        (1, view(&developed)),
+                        (2, view(&straightened)),
+                    ],
+                );
+                dispatch(
+                    &mut encoder,
+                    &pipelines.straighten,
+                    &group,
+                    tiles(straighten.size),
+                );
+                (straightened, straighten.size)
+            }
+        };
+
         let linear = match &plan.resize {
             None => developed,
             Some(resize) => {
-                let rows_size = (plan.target.0, plan.source_size.1);
+                let rows_size = (plan.target.0, developed_size.1);
                 let rows = self.image("resized rows", rows_size, RGBA);
                 let resized = self.image("resized", plan.target, RGBA);
                 for (pipeline, axis, input, output, size) in [

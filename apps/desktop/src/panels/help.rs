@@ -1488,8 +1488,9 @@ fn content(page: Page) -> Content {
                     "draws the interface, the previews and the mask overlay: Automatic \
                      (a dedicated graphics card first), integrated graphics first, software \
                      rendering, or one adapter by name. The one in use is shown; a change \
-                     applies when Photonation starts again. Developing and exporting run on \
-                     the CPU, on all its cores.",
+                     applies when Photonation starts again. Previews develop on the fastest \
+                     graphics card when there is one; exports run on the CPU, on all its \
+                     cores.",
                 ),
                 text(
                     "The PHOTONATION_GPU environment variable (integrated or software), if \

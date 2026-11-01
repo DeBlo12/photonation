@@ -5,6 +5,7 @@
 //! (bicubic, Catmull–Rom), so the frame's content comes out upright.
 
 use crate::band::{Band, Stage, clamp_index};
+use crate::plan::StraightenPlan;
 use std::ops::Range;
 
 /// Maps output pixels to input positions with an affine transform.
@@ -32,6 +33,16 @@ impl Straighten {
             origin,
             step_x: along(to_input([1.0, 0.0])),
             step_y: along(to_input([0.0, 1.0])),
+        }
+    }
+
+    pub fn plan(&self) -> StraightenPlan {
+        let narrow = |v: [f64; 2]| v.map(|v| v as f32);
+        StraightenPlan {
+            size: self.out,
+            origin: narrow(self.origin),
+            step_x: narrow(self.step_x),
+            step_y: narrow(self.step_y),
         }
     }
 

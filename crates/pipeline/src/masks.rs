@@ -162,9 +162,9 @@ impl LocalAmounts {
 /// origin and one step per pixel in each direction.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PixelToMask {
-    origin: [f32; 2],
-    step_x: [f32; 2],
-    step_y: [f32; 2],
+    pub(crate) origin: [f32; 2],
+    pub(crate) step_x: [f32; 2],
+    pub(crate) step_y: [f32; 2],
 }
 
 impl PixelToMask {

@@ -847,10 +847,18 @@ fn content(page: Page) -> Content {
                      zoomed in). The newest change always wins, so dragging a slider stays \
                      smooth.",
                 ),
+                term(
+                    "Highlights",
+                    "keep about a stop more detail than the first colour channel to clip: \
+                     where one or two channels clipped, the others rebuild the brightness, \
+                     so clouds and bright walls hold their gradients when you pull \
+                     Highlights or Whites down. Areas clipped in every channel stay white.",
+                ),
                 tip(
                     "Each sidecar records the rendering process it was made with. A change \
                      to how settings render ships as a new process, so earlier edits keep \
-                     their look.",
+                     their look. Photos edited with process 1 show an Update to Process 2 \
+                     button above the presets.",
                 ),
             ],
             see_also: &[

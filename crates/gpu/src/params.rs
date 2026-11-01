@@ -68,6 +68,7 @@ pub fn sensor(plan: &RenderPlan, layout: &SensorLayout) -> Words {
     words.uints([mode, pattern_size.0, pattern_size.1, 0]);
     words.vec3(plan.black);
     words.vec3(plan.gain);
+    words.vec3(plan.clip);
     let mut cfa = [0u32; 36];
     cfa[..colors.len().min(36)].copy_from_slice(&colors[..colors.len().min(36)]);
     for chunk in cfa.chunks_exact(4) {
@@ -104,6 +105,13 @@ fn selection(words: &mut Words, selection: &SelectionPlan) {
 /// The develop shader's `Develop` uniform.
 pub fn develop(plan: &DevelopPlan) -> Words {
     let mut words = Words::default();
+    match &plan.reconstruction {
+        Some(reconstruction) => {
+            let [r, g, b] = reconstruction.clip;
+            words.floats([r, g, b, reconstruction.soft_start]);
+        }
+        None => words.floats([0.0; 4]),
+    }
     words.matrix(&plan.camera_to_working);
     words.matrix(&plan.working_to_output);
     words.vec3(plan.working_luminance);

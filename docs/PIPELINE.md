@@ -52,10 +52,12 @@ needed.
 
 ## 3. Source: normalize, white balance, demosaic (`source.rs`)
 
-For each sample: `(raw − black[channel]) × multiplier[channel] / (white − black)`,
-clipped at 1.0. The multipliers are normalized so the smallest is 1, which makes
-1.0 the common clip point of all channels, so blown highlights stay neutral
-instead of turning magenta.
+For each sample: `(raw − black[channel]) × multiplier[channel] / (white − black)`.
+The multipliers are normalized so the smallest is 1. Process V1 clips every
+channel at 1.0, the common clip point, so blown highlights stay neutral
+instead of turning magenta, but whatever red and blue recorded above green's
+clip is lost. From process V2 each channel is clipped at its own level, its
+multiplier, and the develop stage reconstructs the highlights (§3c).
 
 Mosaic-based methods first build a **padded mosaic** for the band: normalized
 samples plus a mirrored halo, together with each padded sample's true colour.
@@ -71,6 +73,36 @@ the removal's brush weight. Because this happens before the develop stage,
 every adjustment applies to the fill as to the rest of the photo. Computing
 fills is non-local and happens outside the render; see
 [RETOUCH.md](RETOUCH.md). `render` is `render_with_fills` without fills.
+
+## 3c. Highlight reconstruction (`highlights.rs`, process V2)
+
+The first develop step, per pixel, in white-balanced camera RGB, where each
+channel `c` clips at its multiplier `clip[c]`:
+
+1. **How clipped** each channel is: `smoothstep(0.9 · clip, clip, value)`. Below
+   90 % of its clip a channel is trusted; the soft zone keeps the result
+   continuous and absorbs demosaicing next to clipped samples. A pixel
+   with no channel in it is left as it is: colours that exceed 1 without
+   clipping keep the colour V1 clipped away.
+2. **Raise** each clipped channel (by how clipped it is) to the larger of
+   - the trusted channels' mean, weighted by trust (with every channel
+     clipped, the brightest value), and
+   - the highest value among the clipped channels: they are lower bounds
+     that can't be told apart, so green clipped at 1 next to blue clipped
+     at 1.5 must not read as less green than blue (that turns skies pink).
+
+   A neutral gradient comes out exact up to the highest clip, about one
+   stop above V1's.
+3. **Hold the colour.** The raised pixel's colour is a guess, and a sky
+   that clips one channel after another turns the guesses into bands. So
+   its distance from its grey (the channel mean) is scaled down, by how
+   clipped its most clipped channel is, to at most the distance V1's
+   common clip at 1 leaves. Brightness and hue come from the
+   reconstruction, saturation no higher than V1's.
+
+V2 renders a photo with no channel above 90 % of its clip exactly as V1
+does. Removal fills (§3b) are clipped the same way as the source, so a
+fill in a blown area is reconstructed with it.
 
 ## 4. Colour model (`camera.rs`)
 
@@ -100,6 +132,7 @@ masks existed.
 
 Each pixel, in this order:
 
+0. **Highlight reconstruction** (process V2, §3c).
 1. **Camera → working** matrix, with exposure folded in:
    `2^(exposure + BASELINE_EXPOSURE + DNG BaselineExposure)`.
    *Local* exposure, temperature and tint then scale the channels (warmer:
@@ -211,7 +244,7 @@ transcribe only the per-pixel maths.
 
 | Pass | Shader | Present when |
 |---|---|---|
-| Source + develop (with masks) + output gamut | `develop.wgsl` | always |
+| Source + highlight reconstruction + develop (with masks) + output gamut | `develop.wgsl` | always |
 | Texture and Clarity: √luma, box passes, combine | `local_contrast.wgsl` | Texture or Clarity ≠ 0 |
 | Resize, rows then columns | `resize.wgsl` | output smaller than source |
 | Encode | `finish.wgsl: encode` | always |
@@ -239,7 +272,7 @@ output. `render_plan` (or the renderer) returns
 
 **Validation.** The CPU pipeline is the reference. The crate's tests render
 the same synthetic photos on both paths (Bayer at full size and half size,
-X-Trans, linear DNG, every orientation, crops, custom white balance, every
+X-Trans, linear DNG, clipped highlights under processes 1 and 2, every orientation, crops, custom white balance, every
 global adjustment, masks of every shape, combination and local adjustment,
 groups and piled-up masks, Texture and Clarity in both directions, other
 output spaces, the point colour overlay)

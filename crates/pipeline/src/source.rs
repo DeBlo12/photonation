@@ -54,31 +54,35 @@ pub struct SensorSource<'a> {
     levels: [ChannelLevels; 3],
 }
 
-/// Maps a raw sample of one colour channel to a white-balanced value with 1.0 = clip.
+/// Maps a raw sample of one colour channel to a white-balanced value.
 #[derive(Clone, Copy)]
 struct ChannelLevels {
     black: f32,
     /// White-balance multiplier ÷ (white − black).
     gain: f32,
+    /// Where values stop: 1 for every channel (process V1: blown
+    /// highlights stay neutral), or the channel's own clip, its multiplier,
+    /// for highlight reconstruction to work from (see [`crate::highlights`]).
+    clip: f32,
 }
 
 impl ChannelLevels {
-    /// Clipped at 1.0 so every channel saturates at the same value (no
-    /// coloured highlights).
     #[inline(always)]
     fn normalize(self, raw: u16) -> f32 {
-        ((raw as f32 - self.black) * self.gain).min(1.0)
+        ((raw as f32 - self.black) * self.gain).min(self.clip)
     }
 }
 
 impl<'a> SensorSource<'a> {
     /// `wb_multipliers` are normalized so the smallest is 1, which makes 1.0
-    /// the common clip point of all channels.
+    /// the common clip point of all channels. With `own_clips` each channel
+    /// instead runs up to its own clip, its multiplier.
     pub fn new(
         sensor: &'a SensorImage,
         region: Rect,
         wb_multipliers: [f32; 3],
         mode: Demosaic,
+        own_clips: bool,
     ) -> SensorSource<'a> {
         let region = match mode {
             Demosaic::HalfSize => align_to_quads(region),
@@ -89,6 +93,11 @@ impl<'a> SensorSource<'a> {
             ChannelLevels {
                 black,
                 gain: wb_multipliers[channel] / (sensor.white - black).max(1.0),
+                clip: if own_clips {
+                    wb_multipliers[channel]
+                } else {
+                    1.0
+                },
             }
         });
         SensorSource {
@@ -105,11 +114,12 @@ impl<'a> SensorSource<'a> {
         self.region
     }
 
-    /// Per channel: black level and gain (see [`crate::plan::RenderPlan`]).
-    pub fn levels(&self) -> ([f32; 3], [f32; 3]) {
+    /// Per channel: black level, gain and clip (see [`crate::plan::RenderPlan`]).
+    pub fn levels(&self) -> ([f32; 3], [f32; 3], [f32; 3]) {
         (
             self.levels.map(|level| level.black),
             self.levels.map(|level| level.gain),
+            self.levels.map(|level| level.clip),
         )
     }
 

@@ -32,31 +32,34 @@
 - Presets and copy/paste: settings parts copied on their own, presets that
   apply only their parts, ten built-in looks, Lightroom `.xmp` presets
   imported, hover previews, applied to every selected photo
+- Highlight reconstruction (process 2): each channel keeps its own headroom
+  and clipped channels are rebuilt from the others, on CPU and GPU
 
 ## Next
 
 1. **Lightroom import, continued**: masks (linear, radial; brush once masks
    have one), and the edits listed as not imported once Photonation has them.
 2. **Straighten by drawing a line** along the horizon, and auto-straighten.
-3. **Highlight reconstruction** (recover detail where only some channels clip).
-4. **Local Highlights/Shadows** (edge-aware, as process V2), so they behave like
-   Lightroom's on high-contrast scenes.
-5. **Noise reduction** (luminance and colour) and **lens corrections**
+3. **Local Highlights/Shadows** (edge-aware, as a new process), so they behave
+   like Lightroom's on high-contrast scenes. Highlight reconstruction could
+   then use the neighbourhood too, taking a clipped area's colour from its
+   edges instead of holding it to process 1's.
+4. **Noise reduction** (luminance and colour) and **lens corrections**
    (distortion, vignetting, chromatic aberration).
-6. **More masks**: a brush, creating gradients by dragging on the photo, masks
+5. **More masks**: a brush, creating gradients by dragging on the photo, masks
    in compare mode, and later AI subject and sky masks. Skip masks whose
    bounds miss a band, and fold local saturation into the colour step's Oklab
    round trip, to speed up masked renders.
-7. **Better demosaicing**: RCD or AMaZE for Bayer, Markesteijn for X-Trans.
-8. **Profiles**: a look stage after the camera matrix (Standard, Neutral,
+6. **Better demosaicing**: RCD or AMaZE for Bayer, Markesteijn for X-Trans.
+7. **Profiles**: a look stage after the camera matrix (Standard, Neutral,
    Vivid, Monochrome as 3D lookup tables on CPU and GPU), selectable in
    presets; a proper black & white treatment with a per-colour mix and
    toning; presets with an Amount slider.
-9. **AVIF and JPEG XL export**; IPTC fields (title, caption, keywords) and
+8. **AVIF and JPEG XL export**; IPTC fields (title, caption, keywords) and
    the rating and label (`xmp:Rating`, `xmp:Label`) in export metadata.
-10. **Better removals**: one-click people selection (segmentation), dust
-    spot and wire/fence detection, full-resolution tiled fills, a disk cache
-    for fills. See [RETOUCH.md](RETOUCH.md).
+9. **Better removals**: one-click people selection (segmentation), dust
+   spot and wire/fence detection, full-resolution tiled fills, a disk cache
+   for fills. See [RETOUCH.md](RETOUCH.md).
 
 ## Platform
 

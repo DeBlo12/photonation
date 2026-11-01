@@ -57,6 +57,86 @@ fn band_size_does_not_change_output() {
     }
 }
 
+mod highlights {
+    use super::*;
+    use photonation_develop::ProcessVersion;
+
+    fn process(process: ProcessVersion) -> Settings {
+        Settings {
+            process,
+            highlights: -100.0,
+            ..Settings::default()
+        }
+    }
+
+    /// Mean of each channel over the middle rows of output column `x`.
+    fn column(image: &OutputImage, x: usize) -> [f64; 3] {
+        let pixels = samples(image);
+        let rows = image.height / 3..image.height * 2 / 3;
+        let mut sum = [0.0; 3];
+        for y in rows.clone() {
+            for c in 0..3 {
+                sum[c] += pixels[(y * image.width + x) * 3 + c] as f64;
+            }
+        }
+        sum.map(|v| v / rows.len() as f64)
+    }
+
+    #[test]
+    fn photos_without_bright_highlights_render_as_in_v1() {
+        // The left 30 % of the pattern stays below every channel's clip.
+        let img = SensorImage::highlight_pattern(204, 64);
+        let left = |process| Settings {
+            crop: Some(NormRect {
+                left: 0.0,
+                top: 0.0,
+                right: 0.3,
+                bottom: 1.0,
+            }),
+            ..Settings {
+                process,
+                ..Settings::default()
+            }
+        };
+        let v1 = render_with(&img, &left(ProcessVersion::V1), None, 16);
+        let v2 = render_with(&img, &left(ProcessVersion::V2), None, 16);
+        assert_eq!(v1, v2);
+    }
+
+    #[test]
+    fn v2_keeps_the_gradient_v1_flattens() {
+        let img = SensorImage::highlight_pattern(204, 64);
+        let v1 = render_with(&img, &process(ProcessVersion::V1), None, 16);
+        let v2 = render_with(&img, &process(ProcessVersion::V2), None, 16);
+        // Between where the middle rows' green clips and where their red
+        // does, V1 is flat and V2 keeps brightening.
+        let brightness = |image: &OutputImage, x: usize| column(image, x).iter().sum::<f64>() / 3.0;
+        let (start, end) = (110, 160);
+        let v1_rise = brightness(&v1, end) - brightness(&v1, start);
+        let v2_rise = brightness(&v2, end) - brightness(&v2, start);
+        assert!(v1_rise.abs() < 2.0, "V1 rises by {v1_rise}");
+        assert!(v2_rise > 10.0, "V2 rises by {v2_rise}");
+        // And stays neutral instead of turning magenta.
+        for x in (start..=end).step_by(10) {
+            let [r, g, b] = column(&v2, x);
+            let spread = r.max(g).max(b) - r.min(g).min(b);
+            assert!(spread < 6.0, "column {x}: {r} {g} {b}");
+        }
+    }
+
+    #[test]
+    fn reconstruction_keeps_band_size_invariance() {
+        let img = SensorImage::highlight_pattern(97, 71);
+        let s = process(ProcessVersion::V2);
+        for long_edge in [None, Some(40)] {
+            let whole = render_with(&img, &s, long_edge, 10_000);
+            for band_rows in [1, 7] {
+                assert_eq!(whole, render_with(&img, &s, long_edge, band_rows));
+            }
+        }
+    }
+}
+
 #[test]
 fn orientation_rotates_output() {
     let normal = render_with(

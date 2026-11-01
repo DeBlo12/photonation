@@ -8,6 +8,16 @@ changes to CI alone are not released.
 
 ## [Unreleased]
 
+### Added
+
+- Highlight reconstruction (process 2): where the sensor clipped one or two
+  colour channels, the others rebuild the detail, about a stop more of it.
+  Clouds, bright skies and white walls keep their gradients when
+  Highlights or Whites pull them down, bright colours that process 1
+  clipped keep their colour, and blown areas stay neutral. New photos use
+  it; photos edited before keep their look and offer **Update to Process
+  2** in the inspector. Previews render it on the GPU as well.
+
 ## [0.16.0] - 2026-11-01
 
 ### Added

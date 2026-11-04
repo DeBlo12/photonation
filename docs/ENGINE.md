@@ -30,7 +30,9 @@ first, then quick passes, then renders:
 
 The queue keeps the newest settings per photo, so `refresh_thumbnail`
 (after a save) overtakes a render still queued with older settings, and a
-finished render whose settings are no longer the newest is not sent.
+finished render whose settings are no longer the newest is not sent. A quick
+pass that ends while a render of the newest settings is running queues no
+second one.
 `cancel_thumbnails` drops everything queued when another folder opens.
 `request_survey_image` renders one photo at the survey view's size
 (`SurveyImage`): the camera's embedded preview for an unedited photo,

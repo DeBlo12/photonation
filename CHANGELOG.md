@@ -51,6 +51,8 @@ changes to CI alone are not released.
 - In narrow windows the toolbar's photo details no longer run under the
   buttons on the right; the file name and camera summary are shortened
   instead.
+- Saving an edit while a photo's thumbnail was loading no longer decodes and
+  renders that thumbnail twice.
 
 ## [0.17.1] - 2026-11-01
 

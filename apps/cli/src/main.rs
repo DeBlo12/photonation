@@ -15,7 +15,16 @@ use std::time::Instant;
 #[command(
     name = "photonation",
     version,
-    about = "Non-destructive raw photo developer"
+    about = "Non-destructive raw photo developer",
+    long_version = concat!(
+        env!("CARGO_PKG_VERSION"),
+        "\nCopyright (C) 2026 The Photonation contributors\n",
+        "License GPLv3+: GNU GPL version 3 or later <https://gnu.org/licenses/gpl.html>\n",
+        "This is free software: you are free to change and redistribute it.\n",
+        "There is NO WARRANTY, to the extent permitted by law.\n",
+        "Source: ",
+        env!("CARGO_PKG_REPOSITORY")
+    )
 )]
 struct Cli {
     #[command(subcommand)]

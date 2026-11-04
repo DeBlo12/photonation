@@ -39,6 +39,14 @@ changes to CI alone are not released.
   buttons on the right; the file name and camera summary are shortened
   instead.
 
+### Changed
+
+- The About window shows the copyright, the GPL's no-warranty notice and
+  links to the licence, this version's source code and the third-party
+  licences; `photonation --version` prints the same notice.
+- The Windows installer ships `THIRD-PARTY-LICENSES.txt`, the licence texts
+  of every compiled-in crate, generated with cargo-about.
+
 ## [0.17.1] - 2026-11-01
 
 ### Changed

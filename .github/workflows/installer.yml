@@ -1,0 +1,43 @@
+name: macOS installer
+
+# Builds and checks the disk image on clean machines, where nothing from a
+# developer's setup can hide a problem. Not for every pull request: a release
+# build takes minutes.
+on:
+  pull_request:
+    paths:
+      - "packaging/macos/**"
+      - ".github/workflows/installer.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  installer:
+    name: Build and check (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-26]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install toolchain (rust-toolchain.toml)
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: Install cargo-about
+        run: cargo install cargo-about --locked --features cli --version 0.9.3
+      - name: Build the disk image
+        run: packaging/macos/build-installer.sh
+      - name: Check the disk image
+        run: packaging/macos/check-installer.sh target/installer/photonation-*.dmg

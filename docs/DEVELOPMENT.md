@@ -37,6 +37,8 @@ it, and puts it in a compressed disk image beside a link to `/Applications`, so
 installing is a drag and uninstalling is moving the app to the Bin. Preferences
 and models stay in `~/Library/Application Support/Photonation`.
 
+- **No local paths.** The script remaps this machine's paths out of the binaries'
+  panic messages, and stops if the home folder still appears in them.
 - **Layout.** Finder lays out the image's window through AppleScript. The first
   run may ask for permission to control Finder; if that fails, as on a machine
   with no Finder session, the script warns and the image uses Finder's default
@@ -48,6 +50,14 @@ and models stay in `~/Library/Application Support/Photonation`.
   `sudo ln -s /Applications/Photonation.app/Contents/MacOS/photonation /usr/local/bin/photonation`.
 - **Opening photos.** The app declares no file types, so Finder doesn't offer it
   for raw files; open a folder from the app.
+- **Checksum.** The `.sha256` file beside the image is for people to verify their
+  download.
+
+`packaging/macos/check-installer.sh <image.dmg> [folder-of-raw-photos]` checks a
+built image the way someone receiving it would use it: it mounts it, copies the
+app out, inspects what ships, runs the CLI, and starts the editor with an empty
+home folder. The `macOS installer` workflow does the same on clean machines when
+the packaging changes.
 
 ### Signing and notarization
 
@@ -55,6 +65,8 @@ By default the app is signed ad hoc. That runs on the Mac that built it, but
 Gatekeeper rejects a downloaded copy: people have to try to open it, then choose
 **Open Anyway** in System Settings ▸ Privacy & Security. Removing the quarantine
 flag also works: `xattr -dr com.apple.quarantine /Applications/Photonation.app`.
+The image includes these steps as `Read Me First.txt`
+(`packaging/macos/first-launch.txt`), left out once it is notarized.
 
 A release that opens without this needs a Developer ID Application certificate
 from the paid Apple Developer Program (an Apple Development certificate is not
@@ -105,6 +117,8 @@ release:
 2. Tag the merge commit and push the tag before publishing any binary:
    `git tag -a v0.18.0 -m "Photonation 0.18.0"` and `git push origin v0.18.0`.
 3. Build the installers from that tag and attach them to the GitHub release.
+   Tags can't be moved or deleted, so get the merge right first. The macOS script
+   warns when a build isn't that tag, or has uncommitted changes.
 
 ## App icon
 

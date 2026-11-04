@@ -33,12 +33,6 @@ changes to CI alone are not released.
   verticals itself and levels the photo by them (up to 20°), and leaves it
   alone when the photo has no clear straight lines.
 
-### Fixed
-
-- In narrow windows the toolbar's photo details no longer run under the
-  buttons on the right; the file name and camera summary are shortened
-  instead.
-
 ### Changed
 
 - The About window shows the copyright, the GPL's no-warranty notice and
@@ -46,6 +40,12 @@ changes to CI alone are not released.
   licences; `photonation --version` prints the same notice.
 - The Windows installer ships `THIRD-PARTY-LICENSES.txt`, the licence texts
   of every compiled-in crate, generated with cargo-about.
+
+### Fixed
+
+- In narrow windows the toolbar's photo details no longer run under the
+  buttons on the right; the file name and camera summary are shortened
+  instead.
 
 ## [0.17.1] - 2026-11-01
 

@@ -51,6 +51,15 @@ cargo run --release -p photonation-cli -- export ~/Pictures/Raw -o ~/Pictures/Ex
 
 Batch-exports every raw in a folder, applying each photo's sidecar edits.
 
+### macOS
+
+Build a disk image (`photonation-<version>-macos-<architecture>.dmg`) with
+`packaging/macos/build-installer.sh`; see
+[DEVELOPMENT.md](docs/DEVELOPMENT.md#macos-installer). Open it and drag
+Photonation to Applications. Until releases are notarized, macOS blocks the
+first launch of a downloaded copy: try to open the app, then choose
+**Open Anyway** in System Settings ▸ Privacy & Security.
+
 ### Windows
 
 Build an installer (`photonation-<version>-windows-x64-setup.exe`) for

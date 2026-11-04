@@ -21,43 +21,8 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
         )
         .show(ui, |ui| {
             ui.horizontal_centered(|ui| {
-                if icon_button(
-                    ui,
-                    Icon::Library,
-                    Some("Open"),
-                    false,
-                    &format!(
-                        "Open a folder ({})\nShows its raw photos in the filmstrip. Edits are \
-                         saved beside each photo; the raw file is never changed.",
-                        theme::SHORTCUT_OPEN
-                    ),
-                )
-                .clicked()
-                {
-                    app.pick_folder();
-                }
-                library_buttons(app, ui);
-                ui.add_space(12.0);
-                if let Some(index) = app.current {
-                    ui.label(
-                        RichText::new(&app.photos[index].name)
-                            .size(13.5)
-                            .color(theme::TEXT),
-                    );
-                    ui.add_space(6.0);
-                    if let Some(change) = rating_control(ui, app.photos[index].library) {
-                        app.change_library(change);
-                    }
-                    ui.add_space(6.0);
-                    if let Some(info) = &app.info {
-                        ui.label(
-                            RichText::new(camera_summary(info))
-                                .size(12.0)
-                                .color(theme::TEXT_SECONDARY),
-                        );
-                    }
-                }
-
+                // The right-hand controls go first so the photo details on the left get
+                // only the space they leave, and truncate instead of running under them.
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     let has_photo = app.current.is_some();
                     let export = ui.add_enabled(
@@ -179,9 +144,60 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
                         );
                         ui.add(egui::Spinner::new().size(14.0));
                     }
+                    ui.add_space(12.0);
+                    ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                        photo_details(app, ui);
+                    });
                 });
             });
         });
+}
+
+/// Open, the grid, and the current photo's name, rating and camera settings.
+fn photo_details(app: &mut PhotonationApp, ui: &mut egui::Ui) {
+    if icon_button(
+        ui,
+        Icon::Library,
+        Some("Open"),
+        false,
+        &format!(
+            "Open a folder ({})\nShows its raw photos in the filmstrip. Edits are \
+             saved beside each photo; the raw file is never changed.",
+            theme::SHORTCUT_OPEN
+        ),
+    )
+    .clicked()
+    {
+        app.pick_folder();
+    }
+    library_buttons(app, ui);
+    ui.add_space(12.0);
+    let Some(index) = app.current else {
+        return;
+    };
+    ui.add(
+        egui::Label::new(
+            RichText::new(&app.photos[index].name)
+                .size(13.5)
+                .color(theme::TEXT),
+        )
+        .truncate(),
+    );
+    ui.add_space(6.0);
+    if let Some(change) = rating_control(ui, app.photos[index].library) {
+        app.change_library(change);
+    }
+    ui.add_space(6.0);
+    if let Some(info) = &app.info {
+        ui.add(
+            egui::Label::new(
+                RichText::new(camera_summary(info))
+                    .size(12.0)
+                    .color(theme::TEXT_SECONDARY),
+            )
+            .truncate(),
+        );
+    }
 }
 
 /// The grid and, while a filter hides photos, a reminder of it.

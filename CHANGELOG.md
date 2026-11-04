@@ -41,6 +41,12 @@ changes to CI alone are not released.
 - The Windows installer ships `THIRD-PARTY-LICENSES.txt`, the licence texts
   of every compiled-in crate, generated with cargo-about.
 
+### Fixed
+
+- In narrow windows the toolbar's photo details no longer run under the
+  buttons on the right; the file name and camera summary are shortened
+  instead.
+
 ## [0.17.1] - 2026-11-01
 
 ### Changed

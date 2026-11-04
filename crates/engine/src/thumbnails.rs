@@ -55,6 +55,9 @@ struct Pending {
     render: VecDeque<PathBuf>,
     /// The newest settings asked for each photo with work queued or running.
     settings: HashMap<PathBuf, Settings>,
+    /// The settings of the render most recently started for each photo,
+    /// until it ends.
+    rendering: HashMap<PathBuf, Settings>,
     closed: bool,
 }
 
@@ -102,6 +105,7 @@ impl ThumbnailQueue {
             pending.quick.clear();
             pending.render.clear();
             pending.settings.clear();
+            pending.rendering.clear();
         });
     }
 
@@ -110,10 +114,13 @@ impl ThumbnailQueue {
         self.with_pending(|pending| pending.closed = true);
     }
 
-    /// Queue a render for a photo whose quick pass found no cached one.
+    /// Queue a render for a photo whose quick pass found no cached one,
+    /// unless one is queued or already running with the newest settings.
     fn queue_render(&self, path: &Path) {
         self.with_pending(|pending| {
-            if pending.settings.contains_key(path) && !pending.render.iter().any(|p| p == path) {
+            let newest = pending.settings.get(path);
+            let running = newest.is_some() && pending.rendering.get(path) == newest;
+            if newest.is_some() && !running && !pending.render.iter().any(|p| p == path) {
                 pending.render.push_back(path.into());
             }
         });
@@ -137,6 +144,9 @@ impl ThumbnailQueue {
                 .any(|p| p == path);
             if !queued && pending.settings.get(path) == Some(settings) {
                 pending.settings.remove(path);
+            }
+            if pending.rendering.get(path) == Some(settings) {
+                pending.rendering.remove(path);
             }
         });
     }
@@ -162,6 +172,7 @@ impl ThumbnailQueue {
             }
             while let Some(path) = pending.render.pop_front() {
                 if let Some(settings) = pending.settings.get(&path).cloned() {
+                    pending.rendering.insert(path.clone(), settings.clone());
                     return Some(ThumbnailJob::Render { path, settings });
                 }
             }
@@ -466,6 +477,50 @@ mod tests {
         queue.finished(Path::new("a"), &edited(1.0));
         queue.close();
         assert_eq!(queue.next(), None, "nothing left but the close");
+    }
+
+    #[test]
+    fn a_quick_pass_ending_during_the_newest_render_queues_no_other() {
+        let queue = ThumbnailQueue::default();
+        queue.request("a".into(), Settings::default());
+        let Some(ThumbnailJob::Quick { path, .. }) = queue.next() else {
+            panic!("quick pass first");
+        };
+        queue.refresh("a".into(), edited(1.0));
+        assert_eq!(
+            queue.next(),
+            Some(ThumbnailJob::Render {
+                path: path.clone(),
+                settings: edited(1.0)
+            })
+        );
+        queue.queue_render(&path);
+        queue.finished(&path, &edited(1.0));
+        assert!(
+            !queue.is_latest(&path, &edited(1.0)),
+            "nothing is left to do for the photo"
+        );
+    }
+
+    #[test]
+    fn a_quick_pass_ending_during_an_older_render_queues_the_newest() {
+        let queue = ThumbnailQueue::default();
+        queue.request("a".into(), Settings::default());
+        let Some(ThumbnailJob::Quick { path, .. }) = queue.next() else {
+            panic!("quick pass first");
+        };
+        queue.queue_render(&path);
+        assert!(matches!(queue.next(), Some(ThumbnailJob::Render { .. })));
+        queue.request("a".into(), edited(1.0));
+        assert!(matches!(queue.next(), Some(ThumbnailJob::Quick { .. })));
+        queue.queue_render(&path);
+        assert_eq!(
+            queue.next(),
+            Some(ThumbnailJob::Render {
+                path,
+                settings: edited(1.0)
+            })
+        );
     }
 
     #[test]

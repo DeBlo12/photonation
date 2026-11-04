@@ -366,7 +366,18 @@ fn embedded_previews_show_until_the_render_arrives() {
 
 #[test]
 fn a_refresh_overtakes_an_older_render() {
-    let h = harness(FakeDecoder::default());
+    // Hold both workers in slow renders, so the photo's request and refresh
+    // are both queued before either can start.
+    let (started, release) = (Arc::new(Barrier::new(3)), Arc::new(Barrier::new(3)));
+    let h = harness(FakeDecoder {
+        slow_gate: Some((started.clone(), release.clone())),
+        ..FakeDecoder::default()
+    });
+    for name in ["slow1.cr3", "slow2.cr3"] {
+        h.service
+            .request_thumbnail(name.into(), Settings::default());
+    }
+    started.wait();
     let edited = Settings {
         exposure: 1.0,
         ..Settings::default()
@@ -374,18 +385,20 @@ fn a_refresh_overtakes_an_older_render() {
     h.service
         .request_thumbnail("a.cr3".into(), Settings::default());
     h.service.refresh_thumbnail("a.cr3".into(), edited);
-    let events = h.events_until(|e| matches!(e, Event::Thumbnail { .. }));
-    assert!(matches!(
-        events.last(),
-        Some(Event::Thumbnail { rendered: true, .. })
-    ));
-    // Only the newest settings render; nothing else is coming.
-    assert!(
-        h.service
-            .events
-            .recv_timeout(Duration::from_millis(300))
-            .is_err()
-    );
+    release.wait();
+
+    let mut thumbnails = 0;
+    while thumbnails < 3 {
+        if let Event::Thumbnail { rendered, .. } = h.next_event() {
+            assert!(rendered);
+            thumbnails += 1;
+        }
+    }
+    // Only the newest settings render; no other thumbnail is coming.
+    while let Ok(event) = h.service.events.recv_timeout(Duration::from_millis(300)) {
+        assert!(!matches!(event, Event::Thumbnail { .. }));
+    }
+    assert_eq!(h.decoder.decodes(Path::new("a.cr3")), 1);
 }
 
 #[test]

@@ -36,7 +36,7 @@ it, and the inspector's outline pulses amber (`ViewState::tool_warning`).
 
 | File | Region |
 |---|---|
-| `panels/toolbar.rs` | Open, the grid button and filter chip, photo name, its stars, flag and label, exposure info, undo/redo, compare, zoom, export |
+| `panels/toolbar.rs` | Open, the grid button and filter chip, photo name, its stars, flag and label, exposure info, undo/redo, compare, zoom, export. As the window narrows the exposure info goes, then the name shortens, then the labels go (they stay in the Library menu); nothing reaches the controls on the right |
 | `panels/menu_bar.rs` | File, Edit, Library, View and Help menus; each item does what its button or shortcut does |
 | `panels/settings.rs` | Settings window (graphics processor, export folder, export defaults) and About |
 | `panels/help.rs` | The Help window (? button, Help ▸ Photonation Help, F1): one page per feature, written from the pipeline, the panels and these documents |

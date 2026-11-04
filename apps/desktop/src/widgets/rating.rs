@@ -14,6 +14,12 @@ use eframe::egui::{
 use photonation_develop::{ColorLabel, Flag, LibraryInfo, MAX_RATING};
 use std::f32::consts::{FRAC_PI_2, TAU};
 
+/// The rating control's parts, in points.
+const STAR_WIDTH: f32 = 15.0;
+const FLAG_WIDTH: f32 = 22.0;
+const LABEL_WIDTH: f32 = 14.0;
+const GROUP_GAP: f32 = 6.0;
+
 pub fn label_color(label: ColorLabel) -> Color32 {
     match label {
         ColorLabel::Red => theme::LABEL_RED,
@@ -132,11 +138,23 @@ pub fn paint_badges(painter: &Painter, image: Rect, info: LibraryInfo, scale: f3
     }
 }
 
-/// The current photo's stars, pick and reject buttons and labels, as in
-/// the toolbar. Returns the change the user made, if any.
-pub fn rating_control(ui: &mut Ui, info: LibraryInfo) -> Option<LibraryChange> {
+/// The width `rating_control` takes up.
+pub fn rating_control_width(ui: &Ui, with_labels: bool) -> f32 {
+    let spacing = ui.spacing().item_spacing.x;
+    let stars_and_flags = STAR_WIDTH * 5.0 + GROUP_GAP + FLAG_WIDTH * 2.0 + spacing * 2.0;
+    if !with_labels {
+        return stars_and_flags;
+    }
+    let labels = ColorLabel::ALL.len() as f32;
+    stars_and_flags + spacing + GROUP_GAP + LABEL_WIDTH * labels + spacing * (labels - 1.0)
+}
+
+/// The current photo's stars, pick and reject buttons and, if there is room
+/// for them, labels, as in the toolbar. Returns the change the user made, if
+/// any.
+pub fn rating_control(ui: &mut Ui, info: LibraryInfo, with_labels: bool) -> Option<LibraryChange> {
     let mut change = None;
-    let star = 15.0;
+    let star = STAR_WIDTH;
     let (rect, response) = ui.allocate_exact_size(vec2(star * 5.0, 24.0), Sense::click());
     let hovered = response
         .hover_pos()
@@ -165,7 +183,7 @@ pub fn rating_control(ui: &mut Ui, info: LibraryInfo) -> Option<LibraryChange> {
             stars
         }));
     }
-    ui.add_space(6.0);
+    ui.add_space(GROUP_GAP);
     for (flag, icon, color, tip) in [
         (
             Flag::Pick,
@@ -182,7 +200,7 @@ pub fn rating_control(ui: &mut Ui, info: LibraryInfo) -> Option<LibraryChange> {
         ),
     ] {
         let on = info.flag == flag;
-        let (rect, response) = ui.allocate_exact_size(vec2(22.0, 24.0), Sense::click());
+        let (rect, response) = ui.allocate_exact_size(vec2(FLAG_WIDTH, 24.0), Sense::click());
         if on {
             ui.painter()
                 .rect_filled(rect.shrink(1.0), theme::CONTROL_RADIUS, theme::CONTROL);
@@ -199,9 +217,12 @@ pub fn rating_control(ui: &mut Ui, info: LibraryInfo) -> Option<LibraryChange> {
             change = Some(LibraryChange::Flag(if on { Flag::None } else { flag }));
         }
     }
-    ui.add_space(6.0);
+    if !with_labels {
+        return change;
+    }
+    ui.add_space(GROUP_GAP);
     for label in ColorLabel::ALL {
-        let (rect, response) = ui.allocate_exact_size(vec2(14.0, 24.0), Sense::click());
+        let (rect, response) = ui.allocate_exact_size(vec2(LABEL_WIDTH, 24.0), Sense::click());
         let on = info.label == Some(label);
         let radius = if on || response.hovered() { 5.0 } else { 3.5 };
         let color = label_color(label);

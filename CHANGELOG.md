@@ -33,6 +33,11 @@ changes to CI alone are not released.
   verticals itself and levels the photo by them (up to 20°), and leaves it
   alone when the photo has no clear straight lines.
 
+- A macOS installer: `packaging/macos/build-installer.sh` builds
+  `Photonation.app`, with the `photonation` CLI inside, and a disk image to drag
+  it to Applications from. It ships the same licence texts as the Windows
+  installer, and can sign and notarize with a Developer ID.
+
 ### Changed
 
 - The About window shows the copyright, the GPL's no-warranty notice and
@@ -46,6 +51,8 @@ changes to CI alone are not released.
 - In narrow windows the toolbar's photo details no longer run under the
   buttons on the right; the file name and camera summary are shortened
   instead.
+- Saving an edit while a photo's thumbnail was loading no longer decodes and
+  renders that thumbnail twice.
 
 ## [0.17.1] - 2026-11-01
 

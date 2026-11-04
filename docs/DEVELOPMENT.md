@@ -17,6 +17,59 @@ cargo run --release -p photonation-desktop -- ~/Pictures/Raw
 Dependencies and the per-pixel crates build optimized even in dev profiles
 (`Cargo.toml`), so debug builds are usable for image work.
 
+## macOS installer
+
+On a Mac, with Rust, the Xcode command line tools and cargo-about
+(`cargo install cargo-about --locked --features cli`):
+
+```bash
+packaging/macos/build-installer.sh
+```
+
+It builds the release binaries and writes
+`target/installer/photonation-<version>-macos-<architecture>.dmg`, for the
+architecture of the Mac it runs on: an Apple Silicon Mac makes an `arm64` image
+that doesn't run on Intel Macs. `--skip-build` packages the binaries already in
+`target/release`.
+
+The script assembles `Photonation.app` from `packaging/macos/Info.plist`, signs
+it, and puts it in a compressed disk image beside a link to `/Applications`, so
+installing is a drag and uninstalling is moving the app to the Bin. Preferences
+and models stay in `~/Library/Application Support/Photonation`.
+
+- **Layout.** Finder lays out the image's window through AppleScript. The first
+  run may ask for permission to control Finder; if that fails, as on a machine
+  with no Finder session, the script warns and the image uses Finder's default
+  layout.
+- **Licences.** `Contents/Resources` holds `LICENSE`, `NOTICE`, `README.md` and
+  `THIRD-PARTY-LICENSES.txt`; its `licenses` folder holds the font and Lensfun
+  licences.
+- **Command-line tool.** The bundle includes the CLI. To put it on `PATH`:
+  `sudo ln -s /Applications/Photonation.app/Contents/MacOS/photonation /usr/local/bin/photonation`.
+- **Opening photos.** The app declares no file types, so Finder doesn't offer it
+  for raw files; open a folder from the app.
+
+### Signing and notarization
+
+By default the app is signed ad hoc. That runs on the Mac that built it, but
+Gatekeeper rejects a downloaded copy: people have to try to open it, then choose
+**Open Anyway** in System Settings ▸ Privacy & Security. Removing the quarantine
+flag also works: `xattr -dr com.apple.quarantine /Applications/Photonation.app`.
+
+A release that opens without this needs a Developer ID Application certificate
+from the paid Apple Developer Program (an Apple Development certificate is not
+enough). Store the notary credentials once with
+`xcrun notarytool store-credentials`, then:
+
+```bash
+PHOTONATION_SIGN_IDENTITY="Developer ID Application: <name> (<team>)" \
+PHOTONATION_NOTARY_PROFILE=<profile> \
+    packaging/macos/build-installer.sh
+```
+
+The script signs the app and the image, submits the image for notarization and
+staples the ticket to it.
+
 ## Windows installer
 
 On Windows (x64), with Rust, the Visual Studio C++ build tools,
@@ -51,7 +104,7 @@ release:
    under the new version; merge to `main`.
 2. Tag the merge commit and push the tag before publishing any binary:
    `git tag -a v0.18.0 -m "Photonation 0.18.0"` and `git push origin v0.18.0`.
-3. Build the installer from that tag and attach it to the GitHub release.
+3. Build the installers from that tag and attach them to the GitHub release.
 
 ## App icon
 

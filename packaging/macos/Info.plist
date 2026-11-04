@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  SPDX-License-Identifier: GPL-3.0-or-later
+  Copyright (C) 2026 The Photonation contributors
+
+  The app bundle's Info.plist. packaging/macos/build-installer.sh fills in
+  @VERSION@ and @MINIMUM_MACOS@. CFBundleIdentifier identifies the app to macOS
+  for permissions and updates. Never change it.
+-->
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleDisplayName</key>
+    <string>Photonation</string>
+    <key>CFBundleExecutable</key>
+    <string>photonation-desktop</string>
+    <key>CFBundleIconFile</key>
+    <string>photonation</string>
+    <key>CFBundleIdentifier</key>
+    <string>io.github.deblo12.photonation</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>Photonation</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>@VERSION@</string>
+    <key>CFBundleVersion</key>
+    <string>@VERSION@</string>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.photography</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>@MINIMUM_MACOS@</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright (C) 2026 The Photonation contributors. Licensed under the GNU GPL, version 3 or later.</string>
+    <!-- Shown when macOS asks whether the app may read a protected folder. -->
+    <key>NSDesktopFolderUsageDescription</key>
+    <string>Photonation opens the raw photos you choose and saves your edits beside them.</string>
+    <key>NSDocumentsFolderUsageDescription</key>
+    <string>Photonation opens the raw photos you choose and saves your edits beside them.</string>
+    <key>NSDownloadsFolderUsageDescription</key>
+    <string>Photonation opens the raw photos you choose and saves your edits beside them.</string>
+    <key>NSNetworkVolumesUsageDescription</key>
+    <string>Photonation opens the raw photos you choose and saves your edits beside them.</string>
+    <key>NSRemovableVolumesUsageDescription</key>
+    <string>Photonation opens the raw photos you choose and saves your edits beside them.</string>
+</dict>
+</plist>

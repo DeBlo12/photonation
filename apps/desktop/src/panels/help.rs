@@ -26,6 +26,12 @@ const TEXT_WIDTH: f32 = 640.0;
 const SCROLL_BAR_ROOM: f32 = 14.0;
 const KEYS_WIDTH: f32 = 190.0;
 
+/// Where the Settings item is.
+const SETTINGS_MENU_ITEM: &str = if cfg!(target_os = "macos") {
+    "Photonation › Settings…"
+} else {
+    "File › Settings…"
+};
 /// Where Photonation keeps its preferences and models.
 const DATA_FOLDER: &str = if cfg!(target_os = "macos") {
     "~/Library/Application Support/Photonation"
@@ -1578,7 +1584,7 @@ fn content(page: Page) -> Content {
         },
         Page::Settings => Content {
             lede: format!(
-                "Settings (File › Settings…, {}) holds the choices that apply to every \
+                "Settings ({SETTINGS_MENU_ITEM}, {}) holds the choices that apply to every \
                  photo. They are saved when you close the window, in preferences.json in \
                  {DATA_FOLDER}.",
                 theme::SHORTCUT_SETTINGS

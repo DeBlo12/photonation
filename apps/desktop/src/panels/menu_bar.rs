@@ -1,19 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 The Photonation contributors
 
-//! The menu bar above the toolbar: File, Edit, View, Library and Help.
-//! Every item does what its toolbar button or shortcut does; the menus
-//! make them discoverable and list the shortcuts.
+//! The row above the toolbar. On macOS it is only room for the window buttons,
+//! as the menus are in the system's menu bar (`native_menu`); elsewhere it holds
+//! the menus (`menus`).
 
-use crate::app::{PhotonationApp, Zoom};
-use crate::library::{EditedFilter, FlagFilter, LibraryChange, SortOrder};
-use crate::panels::help;
-use crate::panels::library_bar::BIN_NAME;
-use crate::panels::presets;
+use crate::app::PhotonationApp;
+use crate::menus::{self, Action, Entry, Item};
 use crate::theme;
-use crate::widgets::rating::label_key;
 use eframe::egui::{self, Button, Ui};
-use photonation_develop::{ColorLabel, Flag, MAX_RATING, Settings};
 
 pub fn show(app: &mut PhotonationApp, ui: &mut Ui) {
     egui::Panel::top("menu-bar")
@@ -25,284 +20,139 @@ pub fn show(app: &mut PhotonationApp, ui: &mut Ui) {
                 .inner_margin(egui::Margin::symmetric(8, 2)),
         )
         .show(ui, |ui| {
-            egui::MenuBar::new().ui(ui, |ui| {
-                // On macOS the window buttons sit in this row.
-                ui.add_space(theme::TRAFFIC_LIGHT_INSET);
-                ui.menu_button("File", |ui| file(app, ui));
-                ui.menu_button("Edit", |ui| edit(app, ui));
-                ui.menu_button("View", |ui| view(app, ui));
-                ui.menu_button("Library", |ui| library(app, ui));
-                ui.menu_button("Help", |ui| help(app, ui));
+            if !cfg!(target_os = "macos") {
+                draw(app, ui);
+            }
+        });
+}
+
+fn draw(app: &mut PhotonationApp, ui: &mut Ui) {
+    let menus = menus::menus(app, false);
+    let mut chosen = None;
+    egui::MenuBar::new().ui(ui, |ui| {
+        for menu in &menus {
+            ui.menu_button(menu.title, |ui| {
+                draw_entries(app, ui, &menu.entries, &mut chosen);
             });
-        });
-}
-
-/// A menu item with its shortcut; true when chosen.
-fn item(ui: &mut Ui, label: &str, shortcut: &str, enabled: bool) -> bool {
-    ui.add_enabled(enabled, Button::new(label).shortcut_text(shortcut))
-        .clicked()
-}
-
-/// A menu item that shows whether its mode is on.
-fn toggle_item(ui: &mut Ui, label: &str, shortcut: &str, on: bool, enabled: bool) -> bool {
-    ui.add_enabled(
-        enabled,
-        Button::selectable(on, label).shortcut_text(shortcut),
-    )
-    .clicked()
-}
-
-fn file(app: &mut PhotonationApp, ui: &mut Ui) {
-    let has_photo = app.current.is_some();
-    if item(ui, "Open Folder…", theme::SHORTCUT_OPEN, true) {
-        app.pick_folder();
-    }
-    ui.separator();
-    if item(ui, "Export…", theme::SHORTCUT_EXPORT, has_photo) {
-        app.view.export_all = false;
-        app.view.show_export = true;
-    }
-    let (batch, kind) = app.export_batch();
-    if item(ui, kind.menu_label(), "", batch.len() > 1) {
-        app.view.export_all = true;
-        app.view.show_export = true;
-    }
-    ui.separator();
-    if item(ui, "Settings…", theme::SHORTCUT_SETTINGS, true) {
-        app.view.show_settings = true;
-    }
-    ui.separator();
-    if item(ui, "Quit", theme::SHORTCUT_QUIT, true) {
-        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+    });
+    if let Some(action) = chosen {
+        let ctx = ui.ctx().clone();
+        app.perform(&action, &ctx);
     }
 }
 
-fn edit(app: &mut PhotonationApp, ui: &mut Ui) {
-    if item(ui, "Undo", theme::SHORTCUT_UNDO, app.history.can_undo()) {
-        app.undo();
+fn draw_entries(
+    app: &mut PhotonationApp,
+    ui: &mut Ui,
+    entries: &[Entry],
+    chosen: &mut Option<Action>,
+) {
+    for entry in entries {
+        match entry {
+            Entry::Item(item) => {
+                let response = item_button(ui, item);
+                if let Action::ApplyPreset { group, name } = &item.action
+                    && response.hovered()
+                    && let Some(preset) = crate::panels::presets::find(app, group, name)
+                {
+                    app.preview_preset(&preset);
+                }
+                if response.clicked() {
+                    *chosen = Some(item.action.clone());
+                    if matches!(item.action, Action::ApplyPreset { .. }) {
+                        ui.close();
+                    }
+                }
+            }
+            Entry::Separator => {
+                ui.separator();
+            }
+            Entry::Submenu {
+                title,
+                enabled,
+                entries,
+            } => {
+                ui.add_enabled_ui(*enabled, |ui| {
+                    ui.menu_button(title, |ui| draw_entries(app, ui, entries, chosen));
+                });
+            }
+            // macOS's own items, in its menu bar only.
+            Entry::System(_) => {}
+        }
     }
-    if item(ui, "Redo", theme::SHORTCUT_REDO, app.history.can_redo()) {
-        app.redo();
-    }
-    ui.separator();
-    let has_photo = app.current.is_some();
-    if item(
-        ui,
-        "Copy Settings…",
-        theme::SHORTCUT_COPY_SETTINGS,
-        has_photo,
-    ) {
-        app.view.presets.show_copy = true;
-    }
-    let targets = app.rating_targets().len();
-    let paste = if targets > 1 {
-        format!("Paste Settings to {targets} Photos")
-    } else {
-        "Paste Settings".into()
+}
+
+/// A menu item with its shortcut, showing whether its mode is on if it has one.
+fn item_button(ui: &mut Ui, item: &Item) -> egui::Response {
+    let button = match item.checked {
+        Some(on) => Button::selectable(on, &item.label),
+        None => Button::new(&item.label),
     };
-    let can_paste = has_photo && app.view.presets.copied.is_some();
-    if item(ui, &paste, theme::SHORTCUT_PASTE_SETTINGS, can_paste) {
-        app.paste_settings();
-    }
-    ui.separator();
-    ui.add_enabled_ui(has_photo, |ui| {
-        ui.menu_button("Apply Preset", |ui| presets::apply_menu(app, ui));
-    });
-    if item(ui, "New Preset…", "", has_photo) {
-        app.open_new_preset();
-    }
-    if item(ui, "Import Presets…", "", true) {
-        app.import_presets();
-    }
-    ui.separator();
-    if item(ui, "Reset All Adjustments", "", has_photo) {
-        app.settings = Settings::default();
-    }
+    ui.add_enabled(item.enabled, button.shortcut_text(item.shortcut))
 }
 
-fn view(app: &mut PhotonationApp, ui: &mut Ui) {
-    let has_photo = app.current.is_some();
-    if item(ui, "Fit to Window", theme::SHORTCUT_FIT, has_photo) {
-        app.view.zoom = Zoom::Fit;
-        app.view.pan = egui::Vec2::ZERO;
-    }
-    if item(ui, "Actual Pixels", "", has_photo) {
-        app.view.zoom = Zoom::Scale(1.0);
-        app.view.pan = egui::Vec2::ZERO;
-    }
-    let compare = app.view.compare;
-    if toggle_item(ui, "Compare with Original", "\\", compare, has_photo) {
-        app.view.compare = !compare;
-    }
-    ui.separator();
-    if toggle_item(ui, "Masks", "M", app.view.show_masks, has_photo) {
-        app.view.toggle_masks();
-    }
-    if toggle_item(ui, "Crop and Straighten", "R", app.view.cropping, has_photo) {
-        app.view.toggle_cropping();
-    }
-    if toggle_item(ui, "Remove Objects", "Q", app.view.show_removals, has_photo) {
-        app.view.toggle_removals();
-    }
-    ui.separator();
-    let shown = &app.view.library.shown;
-    let position = app
-        .current
-        .and_then(|current| shown.iter().position(|&i| i == current));
-    let last = shown.len().saturating_sub(1);
-    if item(ui, "Previous Photo", "←", position.is_some_and(|p| p > 0)) {
-        app.step(-1);
-    }
-    if item(ui, "Next Photo", "→", position.is_some_and(|p| p < last)) {
-        app.step(1);
-    }
-}
+/// Drawn headless, as on Windows and Linux.
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use eframe::egui::{Event, PointerButton, RawInput, Rect, pos2};
 
-fn library(app: &mut PhotonationApp, ui: &mut Ui) {
-    let has_photo = app.current.is_some();
-    let (grid, survey) = (app.view.library.grid, app.view.library.survey);
-    if toggle_item(ui, "Grid", "G", grid && !survey, has_photo) {
-        app.toggle_grid();
+    fn entry(label: &str, action: Action, enabled: bool) -> Entry {
+        Entry::Item(Item {
+            label: label.into(),
+            shortcut: "",
+            action,
+            enabled,
+            checked: None,
+        })
     }
-    if toggle_item(ui, "Survey", "N", survey, has_photo) {
-        app.toggle_survey();
-    }
-    ui.separator();
-    let info = app
-        .current
-        .map(|index| app.photos[index].library)
-        .unwrap_or_default();
-    let mut change = None;
-    ui.add_enabled_ui(has_photo, |ui| {
-        ui.menu_button("Rating", |ui| {
-            for stars in 0..=MAX_RATING {
-                let label = match stars {
-                    0 => "No Rating".to_string(),
-                    1 => "1 Star".to_string(),
-                    n => format!("{n} Stars"),
-                };
-                if toggle_item(ui, &label, &stars.to_string(), info.rating == stars, true) {
-                    change = Some(LibraryChange::Rating(stars));
-                }
-            }
-            ui.separator();
-            if item(ui, "Increase Rating", "]", info.rating < MAX_RATING) {
-                change = Some(LibraryChange::RatingStep(1));
-            }
-            if item(ui, "Decrease Rating", "[", info.rating > 0) {
-                change = Some(LibraryChange::RatingStep(-1));
-            }
-        });
-        ui.menu_button("Label", |ui| {
-            for label in ColorLabel::ALL {
-                let on = info.label == Some(label);
-                if toggle_item(ui, label.name(), label_key(label).unwrap_or(""), on, true) {
-                    change = Some(LibraryChange::ToggleLabel(label));
-                }
-            }
-            ui.separator();
-            if item(ui, "No Label", "", info.label.is_some()) {
-                change = Some(LibraryChange::ClearLabel);
-            }
-        });
-    });
-    for (label, shortcut, flag) in [
-        ("Pick", "P", Flag::Pick),
-        ("Reject", "X", Flag::Reject),
-        ("Unflag", "U", Flag::None),
-    ] {
-        let on = flag != Flag::None && info.flag == flag;
-        if toggle_item(ui, label, shortcut, on, has_photo) {
-            change = Some(LibraryChange::Flag(flag));
-        }
-    }
-    if let Some(change) = change {
-        app.change_library(change);
-    }
-    let advance = app.view.library.auto_advance;
-    if toggle_item(ui, "Auto-Advance", "", advance, true) {
-        app.view.library.auto_advance = !advance;
-        app.preferences.library.auto_advance = !advance;
-        app.preferences.save();
-    }
-    ui.separator();
-    ui.menu_button("Filter", |ui| filter_menu(app, ui));
-    ui.menu_button("Sort By", |ui| {
-        for order in SortOrder::ALL {
-            if toggle_item(ui, order.label(), "", app.view.library.sort == order, true) {
-                app.view.library.sort = order;
-                app.preferences.library.sort = order;
-                app.preferences.save();
-            }
-        }
-    });
-    ui.separator();
-    if item(ui, "Select All", theme::SHORTCUT_SELECT_ALL, has_photo) {
-        app.select_all();
-    }
-    if item(
-        ui,
-        "Select None",
-        "",
-        !app.view.library.selection.is_empty(),
-    ) {
-        app.view.library.selection.clear();
-        app.view.library.survey = false;
-    }
-    ui.separator();
-    let rejected = app.rejected_photos().len();
-    let trash_label = format!("Move Rejected Photos to {BIN_NAME}…");
-    if item(ui, &trash_label, "", rejected > 0) {
-        app.view.library.confirm_trash = true;
-    }
-}
 
-fn filter_menu(app: &mut PhotonationApp, ui: &mut Ui) {
-    let filter = &mut app.view.library.filter;
-    for stars in 0..=MAX_RATING {
-        let label = match stars {
-            0 => "Any Rating".to_string(),
-            5 => "5 Stars".to_string(),
-            n => format!("{n} Stars or More"),
+    /// Clicks down a drawn list and returns what the clicks chose.
+    fn chosen_by_clicking_down(entries: &[Entry]) -> Vec<Action> {
+        let ctx = egui::Context::default();
+        let mut app = PhotonationApp::empty(&ctx);
+        let (mut chosen, mut time) = (Vec::new(), 0.0);
+        let mut frame = |events: Vec<Event>| {
+            const DT: f32 = 1.0 / 60.0;
+            time += f64::from(DT);
+            let input = RawInput {
+                screen_rect: Some(Rect::from_min_max(pos2(0.0, 0.0), pos2(400.0, 300.0))),
+                time: Some(time),
+                predicted_dt: DT,
+                events,
+                ..Default::default()
+            };
+            let mut this_frame = None;
+            let mut output = ctx.run_ui(input, |ui| {
+                draw_entries(&mut app, ui, entries, &mut this_frame);
+            });
+            output.textures_delta.clear();
+            chosen.extend(this_frame);
         };
-        if toggle_item(ui, &label, "", filter.min_rating == stars, true) {
-            filter.min_rating = stars;
+        for y in (2..120).step_by(4) {
+            let pos = pos2(20.0, y as f32);
+            let button = |pressed| Event::PointerButton {
+                pos,
+                button: PointerButton::Primary,
+                pressed,
+                modifiers: Default::default(),
+            };
+            frame(vec![Event::PointerMoved(pos)]);
+            frame(vec![button(true)]);
+            frame(vec![button(false)]);
         }
+        chosen
     }
-    ui.separator();
-    for flag in FlagFilter::ALL {
-        if toggle_item(ui, flag.label(), "", filter.flag == flag, true) {
-            filter.flag = flag;
-        }
-    }
-    ui.separator();
-    for label in ColorLabel::ALL {
-        let on = filter.labels.contains(&label);
-        if toggle_item(ui, label.name(), "", on, true) && !filter.labels.remove(&label) {
-            filter.labels.insert(label);
-        }
-    }
-    ui.separator();
-    for edited in EditedFilter::ALL {
-        if toggle_item(ui, edited.label(), "", filter.edited == edited, true) {
-            filter.edited = edited;
-        }
-    }
-    ui.separator();
-    if item(ui, "Clear Filter", "", filter.is_active()) {
-        *filter = Default::default();
-    }
-}
 
-fn help(app: &mut PhotonationApp, ui: &mut Ui) {
-    if item(ui, "Photonation Help", "F1", true) {
-        help::open(&mut app.view);
-    }
-    if item(ui, "Keyboard Shortcuts", "", true) {
-        help::open_page(&mut app.view, help::Page::Shortcuts);
-    }
-    ui.separator();
-    if item(ui, "About Photonation", "", true) {
-        app.view.show_about = true;
+    #[test]
+    fn clicking_an_item_chooses_its_action_unless_it_is_disabled() {
+        let chosen = chosen_by_clicking_down(&[
+            entry("Disabled", Action::Export, false),
+            Entry::Separator,
+            entry("Enabled", Action::About, true),
+        ]);
+        assert!(chosen.contains(&Action::About), "{chosen:?}");
+        assert!(!chosen.contains(&Action::Export), "{chosen:?}");
     }
 }

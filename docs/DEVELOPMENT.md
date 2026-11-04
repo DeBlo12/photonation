@@ -34,7 +34,7 @@ that doesn't run on Intel Macs. `--skip-build` packages the binaries already in
 
 The script assembles `Photonation.app` from `packaging/macos/Info.plist`, signs
 it, and puts it in a compressed disk image beside a link to `/Applications`, so
-installing is a drag and uninstalling is moving the app to the Bin. Preferences
+installing is a drag and uninstalling is moving the app to the Trash. Preferences
 and models stay in `~/Library/Application Support/Photonation`.
 
 - **No local paths.** The script remaps this machine's paths out of the binaries'

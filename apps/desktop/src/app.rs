@@ -270,6 +270,17 @@ impl ViewState {
     }
 
     /// Opens or closes the masks panel; it replaces the other tools.
+    /// Whether a dialog that has to be answered first is open.
+    pub fn dialog_open(&self) -> bool {
+        self.show_export
+            || self.show_settings
+            || self.show_about
+            || self.library.confirm_trash
+            || self.presets.show_copy
+            || self.presets.new_preset.is_some()
+            || self.presets.confirm_delete.is_some()
+    }
+
     pub fn toggle_masks(&mut self) {
         let open = !self.show_masks;
         self.close_tools();
@@ -362,6 +373,8 @@ pub struct PhotonationApp {
     pub export_progress: Option<(usize, usize)>,
     thumbnails_by_path: HashMap<PathBuf, usize>,
     screenshot: Option<crate::screenshot::Screenshot>,
+    #[cfg(target_os = "macos")]
+    native_menus: Option<crate::native_menu::NativeMenus>,
     /// The graphics adapter in use, e.g. "AMD Radeon Pro 5500M (discrete GPU, Metal)".
     pub gpu: Option<String>,
     /// Settings and remembered choices (`preferences.json`).
@@ -386,6 +399,14 @@ impl PhotonationApp {
         let engine = RenderService::new(move || repaint.request_repaint());
         let mut app = PhotonationApp::with_engine(&cc.egui_ctx, engine);
         app.screenshot = crate::screenshot::Screenshot::from_env();
+        #[cfg(target_os = "macos")]
+        {
+            let menus = crate::menus::menus(&app, true);
+            app.native_menus = Some(crate::native_menu::NativeMenus::install(
+                &cc.egui_ctx,
+                menus,
+            ));
+        }
         app.preferences = crate::preferences::Preferences::load();
         app.gpu_setting_at_launch = app.preferences.gpu.clone();
         app.view.export_options = app.preferences.export_options();
@@ -459,6 +480,8 @@ impl PhotonationApp {
             export_progress: None,
             thumbnails_by_path: HashMap::new(),
             screenshot: None,
+            #[cfg(target_os = "macos")]
+            native_menus: None,
             gpu: None,
             preferences: Default::default(),
             gpu_setting_at_launch: Default::default(),
@@ -1077,11 +1100,34 @@ fn preview_long_edge(
     }
 }
 
+#[cfg(target_os = "macos")]
+impl PhotonationApp {
+    fn perform_native_menu_choices(&mut self, ctx: &egui::Context) {
+        let chosen = self
+            .native_menus
+            .as_ref()
+            .map(crate::native_menu::NativeMenus::take_chosen)
+            .unwrap_or_default();
+        for action in chosen {
+            self.perform(&action, ctx);
+        }
+    }
+
+    fn update_native_menus(&mut self) {
+        let menus = crate::menus::menus(self, true);
+        if let Some(native) = &mut self.native_menus {
+            native.update(menus);
+        }
+    }
+}
+
 impl eframe::App for PhotonationApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.handle_events(&ctx);
         self.arrange_photos();
+        #[cfg(target_os = "macos")]
+        self.perform_native_menu_choices(&ctx);
         crate::library::shortcuts(self, &ctx);
         self.shortcuts(&ctx);
 
@@ -1164,6 +1210,8 @@ impl eframe::App for PhotonationApp {
                 .photos
                 .iter()
                 .all(|p| p.thumbnail.is_some() || p.unsupported);
+        #[cfg(target_os = "macos")]
+        self.update_native_menus();
         if let Some(screenshot) = &mut self.screenshot {
             screenshot.update(&ctx, settled);
         }

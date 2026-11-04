@@ -35,6 +35,10 @@ changes to CI alone are not released.
   verticals itself and levels the photo by them (up to 20°), and leaves it
   alone when the photo has no clear straight lines.
 
+- On macOS the menus are in the system menu bar, as in other Mac apps, with
+  About, Settings and Quit in the Photonation menu and a new Window menu. Windows
+  and Linux keep them in the window. Resting on a preset in the Mac menu no longer
+  previews it; the Presets card still does.
 - A macOS installer: `packaging/macos/build-installer.sh` builds
   `Photonation.app`, with the `photonation` CLI inside, and a disk image to drag
   it to Applications from. It ships the same licence texts as the Windows
@@ -48,9 +52,9 @@ changes to CI alone are not released.
   licences; `photonation --version` prints the same notice.
 - The Windows installer ships `THIRD-PARTY-LICENSES.txt`, the licence texts
   of every compiled-in crate, generated with cargo-about.
-- On macOS, photos and presets go to the Bin without asking for permission to
+- On macOS, photos and presets go to the Trash without asking for permission to
   control Finder, and much faster. macOS may not offer Put Back for them; drag
-  them out of the Bin instead.
+  them out of the Trash instead.
 
 ### Fixed
 

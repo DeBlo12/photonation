@@ -27,7 +27,7 @@ Or paste this into Terminal, then open the app as usual:
 Uninstalling
 ------------
 
-Move Photonation from Applications to the Bin. Your preferences and thumbnails
+Move Photonation from Applications to the Trash. Your preferences and thumbnails
 are in ~/Library/Application Support/Photonation; delete that folder to remove
 them too. Your photos and the edits saved beside them stay where they are.
 

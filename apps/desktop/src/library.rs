@@ -269,6 +269,21 @@ impl Batch {
     }
 }
 
+/// How files go to the system's bin. On macOS the crate's default scripts
+/// Finder, which makes the system ask for permission to control it and fails
+/// from then on if refused; the file manager needs no permission, though macOS
+/// may not offer Put Back for what it moves.
+pub fn trash_context() -> trash::TrashContext {
+    #[cfg_attr(not(target_os = "macos"), expect(unused_mut))]
+    let mut context = trash::TrashContext::default();
+    #[cfg(target_os = "macos")]
+    {
+        use trash::macos::{DeleteMethod, TrashContextExtMacos};
+        context.set_delete_method(DeleteMethod::NsFileManager);
+    }
+    context
+}
+
 /// A change to the rating, flag or label of the photos it applies to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LibraryChange {
@@ -564,7 +579,7 @@ impl PhotonationApp {
             .find(|i| !rejected.contains(i))
             .map(|&i| self.photos[i].path.clone());
         let bin = crate::panels::library_bar::BIN_NAME;
-        match trash::delete_all(&files) {
+        match trash_context().delete_all(&files) {
             Ok(()) => {
                 self.open_folder(folder);
                 let moved = rejected.len();
@@ -810,6 +825,16 @@ mod tests {
         app.open_folder(folder.path().to_path_buf());
         app.arrange_photos();
         (app, folder)
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn moving_to_the_bin_needs_no_permission_to_control_finder() {
+        use trash::macos::{DeleteMethod, TrashContextExtMacos};
+        assert!(matches!(
+            trash_context().delete_method(),
+            DeleteMethod::NsFileManager
+        ));
     }
 
     fn saved(app: &PhotonationApp, index: usize) -> LibraryInfo {

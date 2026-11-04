@@ -757,7 +757,7 @@ fn content(page: Page) -> Content {
                 Block::Heading("Throwing rejects away"),
                 text(&format!(
                     "Library › Move Rejected Photos to {bin}… moves every rejected photo, \
-                     with its sidecars, to the {bin}, after asking. They can be put back \
+                     with its sidecars, to the {bin}, after asking. You can get them back \
                      from there.",
                     bin = crate::panels::library_bar::BIN_NAME
                 )),

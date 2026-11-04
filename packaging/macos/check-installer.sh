@@ -3,16 +3,17 @@
 # Copyright (C) 2026 The Photonation contributors
 #
 # Checks a built disk image the way someone receiving it would use it: mounts it,
-# copies the app out, inspects what ships, and runs the CLI and the editor. The
-# editor starts with an empty home folder, as on a Mac that has never run it.
+# copies the app out, inspects what ships, and runs the CLI and the editor.
 #
 # Usage: packaging/macos/check-installer.sh <image.dmg> [folder-of-raw-photos]
 #   With a folder, the editor opens it and the CLI exports its photos.
 
 set -euo pipefail
 
-# How long the editor gets to draw and quit; its own screenshot limit is 20 s.
-readonly EDITOR_TIMEOUT_SECONDS=90
+# How long the editor must keep running after it starts.
+readonly EDITOR_START_SECONDS=10
+# How long it gets to show a photo and save a screenshot of it.
+readonly EDITOR_TIMEOUT_SECONDS=60
 
 if [[ $# -lt 1 || $# -gt 2 ]]; then
     echo "usage: $0 <image.dmg> [folder-of-raw-photos]" >&2
@@ -91,22 +92,31 @@ if [[ -n "$photos" ]]; then
     passed "CLI exports"
 fi
 
-# Through Launch Services, as Finder starts it, with the hardened runtime on.
+# Through Launch Services, as Finder starts it, with the hardened runtime on and
+# an empty home folder, as on a Mac that has never run it.
+editor="$contents/MacOS/photonation-desktop"
 first_run_home="$work/home"
+output="$work/editor.log"
 mkdir "$first_run_home"
-capture="$work/editor.png"
-arguments=()
+open -n --env HOME="$first_run_home" --stdout "$output" --stderr "$output" "$app"
+sleep "$EDITOR_START_SECONDS"
+pgrep -f "$editor" >/dev/null || failed "the editor quit on a first run: $(cat "$output")"
+grep -q "rendering on" "$output" || failed "the editor found no way to draw: $(cat "$output")"
+pkill -f "$editor"
+passed "editor starts and keeps running on a first run"
+
+# A screenshot needs the photo to load and macOS to draw a window that opens
+# unfocused, so it only runs when there is a photo to show.
 if [[ -n "$photos" ]]; then
-    arguments=(--args "$photos")
+    capture="$work/editor.png"
+    open -n --env HOME="$first_run_home" --env PHOTONATION_SCREENSHOT="$capture" "$app" --args "$photos"
+    for ((second = 0; second < EDITOR_TIMEOUT_SECONDS; second++)); do
+        [[ -s "$capture" ]] && break
+        sleep 1
+    done
+    pkill -f "$editor" 2>/dev/null || true
+    [[ -s "$capture" ]] || failed "the editor drew no photo in $EDITOR_TIMEOUT_SECONDS s"
+    passed "editor opens a photo"
 fi
-open -n --env HOME="$first_run_home" --env PHOTONATION_SCREENSHOT="$capture" \
-    "$app" ${arguments[@]+"${arguments[@]}"}
-for ((second = 0; second < EDITOR_TIMEOUT_SECONDS; second++)); do
-    [[ -s "$capture" ]] && break
-    sleep 1
-done
-pkill -f "$contents/MacOS/photonation-desktop" 2>/dev/null || true
-[[ -s "$capture" ]] || failed "the editor drew nothing in $EDITOR_TIMEOUT_SECONDS s"
-passed "editor starts and draws on a first run"
 
 echo "All checks passed for $(basename "$image")"

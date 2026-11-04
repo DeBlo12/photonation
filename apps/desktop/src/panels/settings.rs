@@ -197,14 +197,42 @@ pub fn about(app: &mut PhotonationApp, ctx: &egui::Context) {
                     .color(theme::TEXT_SECONDARY),
             );
             ui.add_space(8.0);
+            // The "Appropriate Legal Notices" of GPLv3 section 0: copyright,
+            // no warranty, and where to read the licence and get the source.
             ui.label(
                 RichText::new(
-                    "A raw photo editor. Free software under the GNU General Public \
-                     License, version 3 or later.",
+                    "A raw photo editor.\nCopyright (C) 2026 The Photonation contributors\n\n\
+                     Free software under the GNU General Public License, version 3 or \
+                     later: you may share and modify it under its terms. It comes with \
+                     ABSOLUTELY NO WARRANTY, to the extent permitted by law.",
                 )
                 .size(12.0)
                 .color(theme::TEXT_SECONDARY),
             );
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.hyperlink_to(
+                    RichText::new("Licence").size(12.0),
+                    "https://www.gnu.org/licenses/gpl-3.0.html",
+                );
+                ui.hyperlink_to(
+                    RichText::new("Source code").size(12.0),
+                    concat!(
+                        env!("CARGO_PKG_REPOSITORY"),
+                        "/tree/v",
+                        env!("CARGO_PKG_VERSION")
+                    ),
+                );
+                ui.hyperlink_to(
+                    RichText::new("Third-party licences").size(12.0),
+                    concat!(
+                        env!("CARGO_PKG_REPOSITORY"),
+                        "/blob/v",
+                        env!("CARGO_PKG_VERSION"),
+                        "/NOTICE"
+                    ),
+                );
+            });
             ui.add_space(4.0);
             ui.label(
                 RichText::new(

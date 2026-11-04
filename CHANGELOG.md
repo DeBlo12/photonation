@@ -33,6 +33,14 @@ changes to CI alone are not released.
   verticals itself and levels the photo by them (up to 20°), and leaves it
   alone when the photo has no clear straight lines.
 
+### Changed
+
+- The About window shows the copyright, the GPL's no-warranty notice and
+  links to the licence, this version's source code and the third-party
+  licences; `photonation --version` prints the same notice.
+- The Windows installer ships `THIRD-PARTY-LICENSES.txt`, the licence texts
+  of every compiled-in crate, generated with cargo-about.
+
 ## [0.17.1] - 2026-11-01
 
 ### Changed

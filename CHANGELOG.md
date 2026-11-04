@@ -8,6 +8,8 @@ changes to CI alone are not released.
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-11-04
+
 ### Added
 
 - Lens corrections on a new **Lens Corrections** card: **Enable Profile
@@ -36,7 +38,8 @@ changes to CI alone are not released.
 - A macOS installer: `packaging/macos/build-installer.sh` builds
   `Photonation.app`, with the `photonation` CLI inside, and a disk image to drag
   it to Applications from. It ships the same licence texts as the Windows
-  installer, and can sign and notarize with a Developer ID.
+  installer, says how to approve the first launch when the app isn't notarized,
+  and can sign and notarize with a Developer ID.
 
 ### Changed
 
@@ -45,12 +48,16 @@ changes to CI alone are not released.
   licences; `photonation --version` prints the same notice.
 - The Windows installer ships `THIRD-PARTY-LICENSES.txt`, the licence texts
   of every compiled-in crate, generated with cargo-about.
+- On macOS, photos and presets go to the Bin without asking for permission to
+  control Finder, and much faster. macOS may not offer Put Back for them; drag
+  them out of the Bin instead.
 
 ### Fixed
 
 - In narrow windows the toolbar's photo details no longer run under the
-  buttons on the right; the file name and camera summary are shortened
-  instead.
+  buttons on the right, or take their clicks. The camera summary goes first,
+  then the file name shortens, then the colour labels go; they stay in the
+  Library menu.
 - Saving an edit while a photo's thumbnail was loading no longer decodes and
   renders that thumbnail twice.
 
@@ -398,7 +405,8 @@ changes to CI alone are not released.
 
 - Licensed under GPL-3.0-or-later.
 
-[Unreleased]: https://github.com/DeBlo12/photonation/compare/v0.17.1...HEAD
+[Unreleased]: https://github.com/DeBlo12/photonation/compare/v0.18.0...HEAD
+[0.18.0]: https://github.com/DeBlo12/photonation/compare/v0.17.1...v0.18.0
 [0.17.1]: https://github.com/DeBlo12/photonation/compare/v0.17.0...v0.17.1
 [0.17.0]: https://github.com/DeBlo12/photonation/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/DeBlo12/photonation/compare/v0.15.1...v0.16.0

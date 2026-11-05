@@ -8,7 +8,7 @@
 use crate::app::PhotonationApp;
 use crate::folders::{FolderCard, FolderRequest};
 use crate::panels::grid::{GAP, columns_of};
-use crate::panels::tool_button;
+use crate::panels::{TOOL_BUTTON_SIZE, hover_tip, tool_button};
 use crate::theme;
 use eframe::egui::{
     self, Align2, Color32, CornerRadius, CursorIcon, FontId, Rect, RichText, Sense, Stroke,
@@ -24,10 +24,10 @@ const CARD_PADDING: f32 = 8.0;
 const CARD_TEXT_HEIGHT: f32 = 42.0;
 /// Folder names longer than this shorten in the breadcrumb.
 const MAX_CRUMB_CHARS: usize = 22;
-/// The size of a breadcrumb button's text (see `tool_button`).
+/// The size of a breadcrumb button's text.
 const CRUMB_TEXT_SIZE: f32 = 13.0;
-/// A `tool_button` is at least this wide.
-const MIN_CRUMB_WIDTH: f32 = 30.0;
+/// A breadcrumb button is at least this wide.
+const MIN_CRUMB_WIDTH: f32 = TOOL_BUTTON_SIZE.x;
 const SEPARATOR: &str = "›";
 /// Stands for the folders the breadcrumb has no room to name.
 const ELLIPSIS: &str = "…";
@@ -261,7 +261,7 @@ pub fn breadcrumb(app: &mut PhotonationApp, ui: &mut egui::Ui, room: f32) {
         Some(first) => {
             if first > 0 {
                 let tip = format!("Go up\nShows {}.", labels[first - 1]);
-                if tool_button(ui, ELLIPSIS, false, &tip).clicked() {
+                if crumb_button(ui, ELLIPSIS, &tip).clicked() {
                     request = Some(FolderRequest::Open(trail[first - 1].clone()));
                 }
                 separator_label(ui);
@@ -270,13 +270,13 @@ pub fn breadcrumb(app: &mut PhotonationApp, ui: &mut egui::Ui, room: f32) {
             for (index, path) in trail.iter().enumerate().skip(first) {
                 if index < last {
                     let tip = format!("Go up\nShows {}.", folder_name(path));
-                    if tool_button(ui, &labels[index], false, &tip).clicked() {
+                    if crumb_button(ui, &labels[index], &tip).clicked() {
                         request = Some(FolderRequest::Open(path.clone()));
                     }
                     separator_label(ui);
                 } else if app.folders.showing_over_photos() {
                     let tip = "Back to the photos\nShows this folder's own photos again.";
-                    if tool_button(ui, &labels[index], false, tip).clicked() {
+                    if crumb_button(ui, &labels[index], tip).clicked() {
                         request = Some(FolderRequest::ShowPhotos);
                     }
                 } else {
@@ -291,7 +291,7 @@ pub fn breadcrumb(app: &mut PhotonationApp, ui: &mut egui::Ui, room: f32) {
         None => {
             if let Some(parent) = parent.filter(|_| names_room >= MIN_CRUMB_WIDTH) {
                 let tip = format!("Go up\nShows {}.", folder_name(&parent));
-                if tool_button(ui, UP, false, &tip).clicked() {
+                if crumb_button(ui, UP, &tip).clicked() {
                     request = Some(FolderRequest::Open(parent));
                 }
             }
@@ -304,7 +304,12 @@ pub fn breadcrumb(app: &mut PhotonationApp, ui: &mut egui::Ui, room: f32) {
         } else {
             "Folders inside this one\nShows them with a cover and how many photos they hold."
         };
-        if tool_button(ui, &chip, showing, tip).clicked() {
+        let response = if showing {
+            tool_button(ui, &chip, true, tip)
+        } else {
+            crumb_button(ui, &chip, tip)
+        };
+        if response.clicked() {
             request = Some(if showing {
                 FolderRequest::ShowPhotos
             } else {
@@ -315,6 +320,18 @@ pub fn breadcrumb(app: &mut PhotonationApp, ui: &mut egui::Ui, room: f32) {
     if let Some(request) = request {
         app.folders.request(request);
     }
+}
+
+/// A step on the path. Its background sets it apart from the open folder's
+/// name, which is plain text, and from the toolbar around it.
+fn crumb_button(ui: &mut egui::Ui, label: &str, tooltip: &str) -> egui::Response {
+    let text = RichText::new(label)
+        .size(CRUMB_TEXT_SIZE)
+        .color(theme::TEXT);
+    let button = egui::Button::new(text)
+        .corner_radius(theme::CONTROL_RADIUS)
+        .min_size(TOOL_BUTTON_SIZE);
+    hover_tip(ui.add(button), tooltip).on_hover_cursor(CursorIcon::PointingHand)
 }
 
 fn separator_label(ui: &mut egui::Ui) {
@@ -357,7 +374,7 @@ fn text_width(ui: &egui::Ui, text: &str) -> f32 {
         .x
 }
 
-/// How wide a `tool_button` with this label comes out.
+/// How wide a `crumb_button` with this label comes out.
 fn crumb_width(ui: &egui::Ui, label: &str) -> f32 {
     (text_width(ui, label) + 2.0 * ui.spacing().button_padding.x).max(MIN_CRUMB_WIDTH)
 }

@@ -207,7 +207,9 @@ inside the root keeps it, so moving rejects to the bin, which reopens the folder
 doesn't lose the way back; any other folder becomes the new root. The photo's
 name and stars come first: with less room the breadcrumb drops folders from the
 top (`…` leads to the nearest one dropped), then shows only `‹`, which goes up
-one folder. A plain folder of photos shows nothing.
+one folder. Everything on it that can be clicked has a control's background
+(`crumb_button`), and the open folder's own name is plain text. A plain folder
+of photos shows nothing.
 
 **Moves wait for the next frame.** Panels call `FolderBrowser::request`, and
 `apply_folder_request` carries it out before the frame's settings snapshot, so

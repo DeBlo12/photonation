@@ -33,6 +33,8 @@ use eframe::egui::{self, Atom, Button, IdSalt, Response, RichText, Ui};
 
 /// Brand icons in toolbar buttons, in points.
 pub const ICON_SIZE: f32 = 18.0;
+/// The smallest a toolbar button comes out, in points.
+pub const TOOL_BUTTON_SIZE: egui::Vec2 = egui::vec2(30.0, 26.0);
 
 /// Borderless toolbar button with an optional "on" state.
 pub fn tool_button(ui: &mut Ui, label: &str, active: bool, tooltip: &str) -> Response {
@@ -49,7 +51,7 @@ pub fn tool_button(ui: &mut Ui, label: &str, active: bool, tooltip: &str) -> Res
         Button::new(text)
             .fill(fill)
             .corner_radius(theme::CONTROL_RADIUS)
-            .min_size(egui::vec2(30.0, 26.0)),
+            .min_size(TOOL_BUTTON_SIZE),
     );
     hover_tip(response, tooltip)
 }

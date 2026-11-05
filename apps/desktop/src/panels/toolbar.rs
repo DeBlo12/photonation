@@ -174,8 +174,9 @@ fn photo_details(app: &mut PhotonationApp, ui: &mut egui::Ui) {
         Some("Open"),
         false,
         &format!(
-            "Open a folder ({})\nShows its raw photos in the filmstrip. Edits are \
-             saved beside each photo; the raw file is never changed.",
+            "Open a folder ({})\nShows its raw photos in the filmstrip, or the folders \
+             inside it that have some. Edits are saved beside each photo; the raw file is \
+             never changed.",
             theme::SHORTCUT_OPEN
         ),
     )
@@ -184,11 +185,16 @@ fn photo_details(app: &mut PhotonationApp, ui: &mut egui::Ui) {
         app.pick_folder();
     }
     library_buttons(app, ui);
+    let name_gap = ui.spacing().item_spacing.x + DETAILS_GAP;
+    // The photo's name and stars come first; the path has what they leave.
+    let photo_room = app.current.map_or(0.0, |_| {
+        MIN_NAME_WIDTH + name_gap + rating_control_width(ui, false)
+    });
+    crate::panels::folders::breadcrumb(app, ui, ui.available_width() - photo_room);
     ui.add_space(12.0);
     let Some(index) = app.current else {
         return;
     };
-    let name_gap = ui.spacing().item_spacing.x + DETAILS_GAP;
     let available = ui.available_width();
     let with_labels = available >= MIN_NAME_WIDTH + name_gap + rating_control_width(ui, true);
     let name_width = available - name_gap - rating_control_width(ui, with_labels);
@@ -225,7 +231,7 @@ fn photo_details(app: &mut PhotonationApp, ui: &mut egui::Ui) {
 
 /// The grid and, while a filter hides photos, a reminder of it.
 fn library_buttons(app: &mut PhotonationApp, ui: &mut egui::Ui) {
-    if app.photos.is_empty() {
+    if app.photos.is_empty() || app.showing_folder_overview() {
         return;
     }
     let library = &app.view.library;
@@ -393,6 +399,21 @@ mod tests {
                     used.right()
                 );
             }
+        }
+    }
+
+    #[test]
+    fn details_stay_in_their_space_with_a_long_path_to_the_folder() {
+        let mut details = Details::with_photo_named("IMG_2200.CR3");
+        let root = details._folder.path().to_path_buf();
+        let folder = root.join("A folder with quite a long name indeed/2026/06");
+        details.app.folders.folder_opened(&root);
+        details.app.folders.folder_opened(&folder);
+        details.app.folder = Some(folder);
+        for width in (NARROWEST_FIT..=1200).step_by(10) {
+            let width = width as f32;
+            let used = details.frame(width, Vec::new());
+            assert!(used.right() <= width + 0.5, "{} in {width}", used.right());
         }
     }
 

@@ -14,7 +14,7 @@ use eframe::egui::{
     self, Color32, CornerRadius, Rect, RichText, Sense, Stroke, StrokeKind, pos2, vec2,
 };
 
-const GAP: f32 = 10.0;
+pub const GAP: f32 = 10.0;
 /// Space around the thumbnail inside its cell.
 const CELL_PADDING: f32 = 8.0;
 const PLACEHOLDER_ASPECT: f32 = 1.5;
@@ -33,9 +33,7 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
                 return;
             }
             let width = ui.available_width();
-            let wanted = app.view.library.grid_size;
-            let columns = (((width + GAP) / (wanted + GAP)).floor() as usize).max(1);
-            let cell = (width - GAP * (columns - 1) as f32) / columns as f32;
+            let (columns, cell) = columns_of(width, app.view.library.grid_size);
             let row_height = cell + GAP;
             let rows = shown.len().div_ceil(columns);
             let library = &mut app.view.library;
@@ -109,6 +107,15 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
                 app.view.library.grid = false;
             }
         });
+}
+
+/// How many cells about `wanted` wide fit in `width`, and their exact width.
+pub fn columns_of(width: f32, wanted: f32) -> (usize, f32) {
+    let columns = (((width + GAP) / (wanted + GAP)).floor() as usize).max(1);
+    (
+        columns,
+        (width - GAP * (columns - 1) as f32) / columns as f32,
+    )
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

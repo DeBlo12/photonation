@@ -9,6 +9,8 @@
 //! * Thumbnail workers: a small pool showing embedded previews or cached
 //!   renders at once, then rendering small previews (`thumbnails.rs`).
 //! * Export worker: one thread running export batches in order.
+//! * Folder worker: one thread walking the subfolders of the folder just
+//!   opened (latest-wins), so a slow disk never holds up the window.
 //! * Retouch worker: one thread filling removals in the background (a
 //!   neural fill takes seconds), so previews never wait for them; it loads
 //!   the generative model too.
@@ -17,11 +19,12 @@
 //! by an unusual file becomes an [`Event::Error`] instead of silently
 //! killing the worker thread for the rest of the session.
 
+use crate::library::scan_subfolders;
 use crate::preview::PreviewRenderer;
 use crate::thumbnails::{THUMBNAIL_WORKERS, ThumbnailCache, ThumbnailQueue, thumbnail_worker};
 use crate::{
-    Decoder, ExportOptions, Histogram, ModelStatus, RawDecoder, Retoucher, data_directory,
-    default_model_path, export_photo_with, output_path, unused_path,
+    Decoder, ExportOptions, Histogram, ModelStatus, RawDecoder, Retoucher, Subfolder,
+    data_directory, default_model_path, export_photo_with, output_path, unused_path,
 };
 use photonation_develop::{OklabLch, Settings, WhiteBalance};
 use photonation_image::{CameraInfo, Pixels, SensorImage};
@@ -30,7 +33,7 @@ use std::any::Any;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PreviewKind {
@@ -127,6 +130,15 @@ pub enum Event {
     /// The generative removal model's state, after a status request or
     /// when it changes.
     ModelStatus(ModelStatus),
+    /// A folder inside `parent` has raw files ([`RenderService::scan_subfolders`]).
+    SubfolderFound {
+        parent: PathBuf,
+        subfolder: Subfolder,
+    },
+    /// Every folder inside `parent` has been looked through.
+    SubfoldersScanned {
+        parent: PathBuf,
+    },
     Error {
         path: Option<PathBuf>,
         message: String,
@@ -190,6 +202,7 @@ pub struct RenderService {
     thumbnails: Arc<ThumbnailQueue>,
     exports: Sender<ExportJob>,
     retouches: Sender<RetouchJob>,
+    folder_scans: Sender<PathBuf>,
     events: Receiver<Event>,
 }
 
@@ -290,6 +303,13 @@ impl RenderService {
             .spawn(move || cache.trim_to_limit())
             .expect("spawning the thumbnail cache thread");
 
+        let (folder_scans, folder_jobs) = channel();
+        let folder_sink = sink.clone();
+        std::thread::Builder::new()
+            .name("folders".into())
+            .spawn(move || folder_worker(folder_jobs, folder_sink))
+            .expect("spawning the folder thread");
+
         let (exports, export_jobs) = channel();
         std::thread::Builder::new()
             .name("export".into())
@@ -301,6 +321,7 @@ impl RenderService {
             thumbnails,
             exports,
             retouches,
+            folder_scans,
             events,
         }
     }
@@ -325,6 +346,13 @@ impl RenderService {
     /// Forgets thumbnails asked for but not started (another folder opened).
     pub fn cancel_thumbnails(&self) {
         self.thumbnails.cancel();
+    }
+
+    /// Looks through the folders inside `folder` for raw files
+    /// ([`Event::SubfolderFound`], then [`Event::SubfoldersScanned`]),
+    /// giving up on any scan still running.
+    pub fn scan_subfolders(&self, folder: PathBuf) {
+        self.folder_scans.send(folder).ok();
     }
 
     /// A `long_edge` image of a photo for the survey view
@@ -581,6 +609,47 @@ impl Drop for RenderService {
 /// The thumbnail cache in the data directory (none without one).
 fn disk_cache() -> ThumbnailCache {
     ThumbnailCache::in_directory(data_directory().map(|data| data.join("thumbnails")))
+}
+
+/// Runs the newest scan asked for; one that a newer request catches midway
+/// stops there and says nothing more, so a scan that reports being done
+/// has reported every folder.
+fn folder_worker(jobs: Receiver<PathBuf>, sink: EventSink) {
+    let mut newer = None;
+    loop {
+        let parent = match newer.take() {
+            Some(parent) => parent,
+            None => match jobs.recv() {
+                Ok(parent) => parent,
+                Err(_) => return,
+            },
+        };
+        let superseded = || loop {
+            match jobs.try_recv() {
+                Ok(request) => newer = Some(request),
+                Err(TryRecvError::Empty) => return newer.is_some(),
+                Err(TryRecvError::Disconnected) => return true,
+            }
+        };
+        let found = |subfolder| {
+            sink.send(Event::SubfolderFound {
+                parent: parent.clone(),
+                subfolder,
+            })
+        };
+        let scanned = isolate_panics(|| Ok(scan_subfolders(&parent, superseded, found)));
+        match scanned {
+            Ok(true) => sink.send(Event::SubfoldersScanned { parent }),
+            Ok(false) => {}
+            Err(message) => {
+                sink.send(Event::Error {
+                    path: None,
+                    message,
+                });
+                sink.send(Event::SubfoldersScanned { parent });
+            }
+        }
+    }
 }
 
 fn export_worker(

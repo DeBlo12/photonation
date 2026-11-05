@@ -8,6 +8,14 @@ changes to CI alone are not released.
 
 ## [Unreleased]
 
+### Added
+
+- Opening a folder that holds only folders, such as one per month, now shows
+  an overview of the ones with raw photos, with a cover and how many photos
+  each holds, instead of saying there are no raw files. Click one to open it;
+  the path in the toolbar leads back up. A folder with photos of its own too
+  opens on them, with a button that shows the folders inside.
+
 ## [0.18.0] - 2026-11-04
 
 ### Added

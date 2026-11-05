@@ -11,10 +11,33 @@ Crate: `photonation-engine`. Front ends talk to `RenderService` and receive
 | Thumbnails | 2 | `ThumbnailJob` (`Survey`, `Quick`, `Render`) | `Thumbnail`, `CaptureTime`, `SurveyImage`, `Error` |
 | Export | 1 | `ExportJob` (a batch) | `ExportProgress`, `ExportFinished` |
 | Retouch | 1 | `RetouchJob::Fill`, `RetouchJob::Status` | `RemovalsFilled`, `ModelStatus`, `Error` |
+| Folders | 1 | The folder to look through (`scan_subfolders`) | `SubfolderFound`, `SubfoldersScanned`, `Error` |
 
 Every event send also calls the `notify` callback the front end passed in (the
 desktop app passes `ctx.request_repaint`), so the UI wakes up only when there is
 something to show.
+
+## Subfolders (`library.rs`, `service.rs: folder_worker`)
+
+`scan_folder` lists the raw files directly inside a folder and returns at once;
+the desktop app calls it on the UI thread. What lies below takes a walk, which
+on a slow disk could take a long time, so the folder worker does it:
+
+1. Each folder directly inside the one asked for is walked level by level
+   (`summarize_subfolder`), counting raw files at any depth. Its cover is the
+   first by name at the level nearest the top.
+2. A folder with raw files is reported at once (`SubfolderFound`), so the
+   overview fills in as the walk goes. A folder without any, or one that can't
+   be read, is not reported.
+3. Before reading each folder the worker checks for a newer request. If there
+   is one it abandons this walk and starts that one, so `SubfoldersScanned`
+   only follows a walk that finished. The front end ignores results for any
+   folder but the open one.
+
+Hidden folders, `$RECYCLE.BIN`, `System Volume Information` and packages such as
+`.photoslibrary` and `.lrdata` are not walked (`is_browsable_folder`). Neither
+are symbolic links to folders, because one pointing back up would make the walk
+endless; a symbolic link to a raw file still counts as a photo.
 
 ## Thumbnails (`thumbnails.rs`)
 

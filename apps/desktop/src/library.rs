@@ -486,7 +486,7 @@ impl PhotonationApp {
     /// The grid and survey take the editor's place, so they wait while
     /// masks, crop or Remove is open: the tool's panel is outlined and a
     /// toast says how to finish. True when a tool is open.
-    fn tool_blocks_library(&mut self) -> bool {
+    pub(crate) fn tool_blocks_library(&mut self) -> bool {
         let Some((tool, key)) = self.view.open_tool() else {
             return false;
         };

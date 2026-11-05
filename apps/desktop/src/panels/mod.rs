@@ -4,12 +4,13 @@
 //! The window's regions: toolbar (top), filmstrip (bottom), adjustments,
 //! masks, crop or remove sidebar (right), viewer (centre) and the export
 //! sheet; or, in place of the editor, the library bar with the grid or the
-//! survey view.
+//! survey view, or the overview of a folder's subfolders.
 
 pub mod adjustments;
 pub mod crop;
 pub mod export;
 pub mod filmstrip;
+pub mod folders;
 pub mod grid;
 pub mod help;
 pub mod library_bar;

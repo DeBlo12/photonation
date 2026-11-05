@@ -189,7 +189,7 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
 /// Size of the rendered image at 100%: the preview's aspect ratio (which
 /// reflects any crop) at the photo's full-resolution long edge.
 /// Status message as a pill at the bottom of the canvas, fading out.
-fn toast(app: &mut PhotonationApp, ui: &egui::Ui, canvas: Rect) {
+pub fn toast(app: &mut PhotonationApp, ui: &egui::Ui, canvas: Rect) {
     let Some((message, posted)) = &app.status else {
         return;
     };

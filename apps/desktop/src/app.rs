@@ -347,6 +347,7 @@ impl ViewState {
 pub struct PhotonationApp {
     pub engine: RenderService,
     pub folder: Option<PathBuf>,
+    pub folders: crate::folders::FolderBrowser,
     pub photos: Vec<Photo>,
     pub current: Option<usize>,
     pub settings: Settings,
@@ -460,6 +461,7 @@ impl PhotonationApp {
         PhotonationApp {
             engine,
             folder: None,
+            folders: Default::default(),
             photos: Vec::new(),
             current: None,
             settings: Settings::default(),
@@ -516,11 +518,10 @@ impl PhotonationApp {
                     photo.library = loaded.library;
                     self.engine.request_thumbnail(photo.path.clone(), settings);
                 }
-                if self.photos.is_empty() {
-                    self.notify("No supported raw files in this folder");
-                }
+                self.folders.folder_opened(&folder);
+                self.engine.scan_subfolders(folder.clone());
                 self.folder = Some(folder);
-                self.current = None;
+                self.close_photo();
                 self.select(0);
             }
             Err(e) => self.notify(format!("Could not open folder: {e}")),
@@ -552,11 +553,7 @@ impl PhotonationApp {
             }
         };
         self.history = History::new(self.settings.clone());
-        self.info = None;
-        self.preview = None;
-        self.before = None;
-        self.histogram = None;
-        self.before_requested = None;
+        self.forget_rendered_photo();
         self.view.zoom = Zoom::Fit;
         self.view.pan = egui::Vec2::ZERO;
         self.view.disabled.clear();
@@ -569,6 +566,27 @@ impl PhotonationApp {
         self.view.painting = None;
         self.filling_removals = false;
         self.refresh();
+    }
+
+    /// Saves and closes the current photo, leaving none open: nothing of it
+    /// stays behind to undo or to show.
+    pub fn close_photo(&mut self) {
+        self.save_now();
+        if self.status_is_about_photo {
+            self.status = None;
+        }
+        self.current = None;
+        self.settings = Settings::default();
+        self.history = History::default();
+        self.forget_rendered_photo();
+    }
+
+    fn forget_rendered_photo(&mut self) {
+        self.info = None;
+        self.preview = None;
+        self.before = None;
+        self.histogram = None;
+        self.before_requested = None;
     }
 
     pub fn notify(&mut self, message: impl Into<String>) {
@@ -725,7 +743,7 @@ impl PhotonationApp {
         }
     }
 
-    fn handle_events(&mut self, ctx: &egui::Context) {
+    pub(crate) fn handle_events(&mut self, ctx: &egui::Context) {
         let events: Vec<Event> = self.engine.poll().collect();
         for event in events {
             match event {
@@ -781,17 +799,17 @@ impl PhotonationApp {
                         if photo.thumbnail_rendered && !rendered {
                             continue;
                         }
-                        let color_image =
-                            egui::ColorImage::from_rgb([image.width, image.height], &image.rgb);
-                        let texture = ctx.load_texture(
-                            format!("thumb-{index}"),
-                            color_image,
-                            TextureOptions::LINEAR,
-                        );
-                        photo.thumbnail = Some(texture);
+                        let name = format!("thumb-{index}");
+                        photo.thumbnail = Some(thumbnail_texture(ctx, name, &image));
                         photo.thumbnail_rendered = rendered;
+                    } else {
+                        self.folders.cover_arrived(ctx, &path, &image, rendered);
                     }
                 }
+                Event::SubfolderFound { parent, subfolder } => {
+                    self.subfolder_found(&parent, subfolder);
+                }
+                Event::SubfoldersScanned { parent } => self.subfolders_scanned(&parent),
                 Event::CaptureTime { path, captured } => {
                     if let Some(&index) = self.thumbnails_by_path.get(&path) {
                         self.photos[index].captured = Some(captured);
@@ -1055,6 +1073,16 @@ impl PhotonationApp {
     }
 }
 
+/// A thumbnail or folder cover as a texture.
+pub fn thumbnail_texture(
+    ctx: &egui::Context,
+    name: String,
+    image: &photonation_engine::RenderedImage,
+) -> egui::TextureHandle {
+    let color_image = egui::ColorImage::from_rgb([image.width, image.height], &image.rgb);
+    ctx.load_texture(name, color_image, TextureOptions::LINEAR)
+}
+
 /// Tells the user a photo opened with its Lightroom edits, and which of
 /// them Photonation could not bring along.
 fn lightroom_notice(not_imported: &[&str]) -> String {
@@ -1125,6 +1153,7 @@ impl eframe::App for PhotonationApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.handle_events(&ctx);
+        self.apply_folder_request();
         self.arrange_photos();
         #[cfg(target_os = "macos")]
         self.perform_native_menu_choices(&ctx);
@@ -1139,7 +1168,9 @@ impl eframe::App for PhotonationApp {
 
         panels::menu_bar::show(self, ui);
         panels::toolbar::show(self, ui);
-        if self.view.library.survey {
+        if self.showing_folder_overview() {
+            panels::folders::show(self, ui);
+        } else if self.view.library.survey {
             panels::library_bar::show(self, ui);
             panels::survey::show(self, ui);
         } else if self.view.library.grid {
@@ -1202,9 +1233,11 @@ impl eframe::App for PhotonationApp {
         if !ctx.input(|i| i.pointer.any_down()) {
             self.history.commit(&self.settings);
         }
-        // The grid and survey views draw no preview.
-        let library_view = self.view.library.grid || self.view.library.survey;
+        // The folder overview, grid and survey views draw no preview.
+        let overview = self.showing_folder_overview();
+        let library_view = overview || self.view.library.grid || self.view.library.survey;
         let settled = (library_view || (!self.is_rendering() && self.preview.is_some()))
+            && (!overview || self.folders.settled())
             && (!self.view.library.survey || self.survey_images.len() >= 2)
             && self
                 .photos

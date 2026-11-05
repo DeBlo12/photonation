@@ -634,6 +634,15 @@ fn content(page: Page) -> Content {
                         theme::SHORTCUT_OPEN
                     ),
                 ),
+                term(
+                    "A folder of folders",
+                    "with no raw photos of its own, such as one for each month, opens on an \
+                     overview of the folders inside that have some, each with a cover and how \
+                     many photos it holds. Click one to open it; the path in the toolbar leads \
+                     back up. When a folder has photos of its own too, they open first and a \
+                     button beside the path, such as 3 subfolders, shows the overview. Click \
+                     it again to go back.",
+                ),
                 Block::Heading("The filmstrip"),
                 term(
                     "At rest",

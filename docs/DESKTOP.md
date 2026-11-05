@@ -36,7 +36,7 @@ it, and the inspector's outline pulses amber (`ViewState::tool_warning`).
 
 | File | Region |
 |---|---|
-| `panels/toolbar.rs` | Open, the grid button and filter chip, photo name, its stars, flag and label, exposure info, undo/redo, compare, zoom, export. As the window narrows the exposure info goes, then the name shortens, then the labels go (they stay in the Library menu); nothing reaches the controls on the right |
+| `panels/toolbar.rs` | Open, the grid button and filter chip, the path to the open folder (see *Folders* below), photo name, its stars, flag and label, exposure info, undo/redo, compare, zoom, export. As the window narrows the exposure info goes, then the name shortens, then the labels go (they stay in the Library menu); nothing reaches the controls on the right |
 | `menus.rs` | The menus as data, and what choosing an item does |
 | `native_menu.rs` | macOS only: the menus in the system menu bar, built with muda and kept up to date |
 | `panels/menu_bar.rs` | The row above the toolbar: the window buttons' room on macOS, the menus drawn with egui elsewhere |
@@ -50,6 +50,8 @@ it, and the inspector's outline pulses amber (`ViewState::tool_warning`).
 | `panels/library_bar.rs` | The bar above the grid and survey: views, count, filter, sort, auto-advance, thumbnail size; the move-rejects-to-bin dialog |
 | `panels/grid.rs` | The grid of the shown photos (multi-select, follows the current photo) |
 | `panels/survey.rs` | 2–8 photos side by side, each with its stars and flag |
+| `folders.rs` | Moving between the folder opened and the folders below it: the root, the cards, the requests |
+| `panels/folders.rs` | The folder overview and the toolbar's breadcrumb |
 | `widgets/rating.rs` | Stars, flag and label badges, and the toolbar's rating control |
 | `panels/masks.rs` | Masks panel: layer list, the selected mask's shapes, settings and local adjustments |
 | `panels/masks/groups.rs` | Mask groups in the layer list: rows, drop targets, group edits, the group row and card |
@@ -87,7 +89,8 @@ Photomator's arrangement in the Photonation brand:
   themselves and, after a first line, say what they do. They show on
   disabled tools too, so the welcome screen explains tools that need a photo.
 - **Welcome screen**: the iris from the app icon, drawn as vectors, over the
-  wordmark and an amber Open Folder… button.
+  wordmark and an amber Open Folder… button. It shows only while no folder is
+  open; a folder without photos of its own shows the folder overview instead.
 
 ## Per-frame control flow (`app.rs: PhotonationApp::ui`)
 
@@ -170,6 +173,46 @@ over it, and while it is dragged; otherwise it stays out of the way.
 Dragging the thumb crosses a long folder quickly, with a bubble above it
 naming the photo under the middle of the strip and its capture date; a
 click on the track jumps there. It draws only when the photos don't fit.
+
+## Folders (`folders.rs`, `panels/folders.rs`)
+
+`open_folder` lists the folder's own raw files at once and asks the engine to
+look through the folders inside it (see ENGINE.md), whose cards then arrive one
+by one. What the window shows depends on what the folder holds:
+
+| The folder holds | The window shows |
+|---|---|
+| Only raw files | The editor, as ever; no breadcrumb at the top of the folder opened |
+| Only folders with raw files | The overview |
+| Both | The editor, and a "3 subfolders" button in the toolbar that opens the overview |
+| Neither, at any depth | The overview saying so, with an Open Folder… button |
+
+**Overview.** A card per subfolder, in name order, with its cover, name and
+photo count at any depth. A click opens the folder, which may lead to another
+overview. It takes the place of the editor, grid and survey
+(`showing_folder_overview`, checked first in the per-frame draw) and draws only
+the rows in view. Covers come through `request_thumbnail` like any thumbnail,
+with the photo's own settings; `handle_events` gives one that belongs to no
+photo of the folder to `FolderBrowser::cover_arrived`.
+
+**No photo stays open behind it.** In a folder with both, `ShowSubfolders`
+remembers the current photo and closes it (`close_photo`), so the toolbar, menus
+and keys that need a photo go quiet by the rules they already have, and a rating
+key can't change a photo nobody can see. `ShowPhotos` selects it again. Opening a
+folder with no photos of its own closes the photo the same way.
+
+**Breadcrumb** (`breadcrumb`). The toolbar shows the way from the folder the user
+chose (`FolderBrowser::root`) to the open one, and goes no higher. A folder
+inside the root keeps it, so moving rejects to the bin, which reopens the folder,
+doesn't lose the way back; any other folder becomes the new root. The photo's
+name and stars come first: with less room the breadcrumb drops folders from the
+top (`…` leads to the nearest one dropped), then shows only `‹`, which goes up
+one folder. A plain folder of photos shows nothing.
+
+**Moves wait for the next frame.** Panels call `FolderBrowser::request`, and
+`apply_folder_request` carries it out before the frame's settings snapshot, so
+the photo's settings changing isn't taken for an edit and saved to a sidecar.
+Like the grid, a move waits while an editing tool is open (`tool_blocks_library`).
 
 ## Library (`library.rs`)
 

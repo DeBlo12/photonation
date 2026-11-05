@@ -38,7 +38,7 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
     egui::CentralPanel::no_frame()
         .frame(
             egui::Frame::NONE
-                .fill(theme::palette().window)
+                .fill(theme::window_fill())
                 .inner_margin(egui::Margin::symmetric(16, 8)),
         )
         .show(ui, |ui| {

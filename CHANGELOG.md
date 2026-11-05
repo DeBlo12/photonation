@@ -19,8 +19,14 @@ changes to CI alone are not released.
   also when the system switches while it runs. Light mode uses warm Paper
   surfaces with a neutral mid-grey behind the photo, so the surfaces do not
   skew how it looks.
+- On macOS 26 and later the window is Liquid Glass, with the inspector and the
+  filmstrip as glass panes on it, so the desktop and other windows show through.
+  Only the photo is solid, with a small border.
 
 ### Changed
+
+- The inspector now runs the full height of the window, with the filmstrip
+  beside it.
 
 - Faint text in dark mode is a little brighter, so it stays readable on
   controls.

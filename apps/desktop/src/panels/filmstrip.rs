@@ -63,6 +63,11 @@ impl FilmstripReveal {
         self.open
     }
 
+    /// Stays open from now on, for a screenshot of the open strip.
+    pub fn keep_open(&mut self) {
+        self.open_until = 1e9;
+    }
+
     pub fn is_open(&self) -> bool {
         self.open
     }
@@ -76,13 +81,24 @@ impl FilmstripReveal {
 pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
     // Reserve only the resting strip; the open strip floats over the viewer
     // so the photo never changes size (and never re-renders) as it opens.
-    let resting = egui::Panel::bottom("filmstrip")
-        .exact_size(theme::FILMSTRIP_RESTING_HEIGHT)
+    let margin = if theme::glass() {
+        theme::GLASS_PANE_MARGIN
+    } else {
+        0.0
+    };
+    let band = egui::Panel::bottom("filmstrip")
+        .exact_size(theme::FILMSTRIP_RESTING_HEIGHT + margin * 2.0)
         .show_separator_line(false)
-        .frame(egui::Frame::NONE.fill(theme::palette().window))
+        // The strip painted below covers this.
+        .frame(egui::Frame::NONE)
         .show(ui, |_| {})
         .response
         .rect;
+    // On glass the strip floats, clear of the window's edge and the viewer.
+    let resting = Rect::from_min_max(
+        pos2(band.left() + margin, band.top() + margin),
+        pos2(band.right() - margin, band.bottom() - margin),
+    );
     let ctx = ui.ctx().clone();
     let open_rect = Rect::from_min_max(
         pos2(resting.left(), resting.bottom() - theme::FILMSTRIP_HEIGHT),
@@ -111,6 +127,7 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
     );
     let thumb_height = egui::lerp(RESTING_THUMB_HEIGHT..=THUMB_HEIGHT, openness);
     let strip = Rect::from_min_max(pos2(resting.left(), resting.bottom() - height), resting.max);
+    app.view.filmstrip_rect = Some(strip);
 
     egui::Area::new(egui::Id::unique("filmstrip-strip"))
         .order(egui::Order::Foreground)
@@ -119,8 +136,10 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
             // Claim the whole strip: egui sends the wheel only to an area
             // whose rect holds the pointer, and the child below claims nothing.
             ui.allocate_rect(strip, Sense::hover());
-            ui.painter()
-                .rect_filled(strip, 0.0, theme::palette().window);
+            if !theme::glass() {
+                ui.painter()
+                    .rect_filled(strip, 0.0, theme::palette().window);
+            }
             ui.set_clip_rect(strip);
             // The scroll area spans the whole strip, so the wheel works
             // anywhere on it, not just on the thumbnails.

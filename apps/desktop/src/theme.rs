@@ -6,9 +6,8 @@
 //! here so the widgets stay consistent.
 //!
 //! Dark surfaces are near-neutral greys leaning slightly toward the brand's
-//! Ink; light ones are its warm Paper. In light mode the viewer sits on a
-//! neutral mid-grey instead, so the surfaces do not skew how a photo is
-//! judged. Photon amber is reserved for "on": active tools, changed values,
+//! Ink; light ones are its warm Paper. In light mode the photo sits on a
+//! neutral mid-grey instead, so the surfaces do not skew how it is judged. Photon amber is reserved for "on": active tools, changed values,
 //! switches and the primary button. Text on amber is Ink, because Paper on
 //! amber fails contrast, and amber text is unreadable on Paper, so text and
 //! thin marks on a surface use [`Palette::accent_strong`].
@@ -35,6 +34,9 @@ pub struct Palette {
     pub control_hover: Color32,
     pub separator: Color32,
     pub track: Color32,
+    /// Under text on glass, on cards and bars: as light a veil as keeps it readable on
+    /// anything behind the window (see `glass_cards_keep_text_readable`).
+    pub glass_card: Color32,
     /// Around a slider's knob, which is pale like the light surfaces.
     pub knob_edge: Color32,
     pub text: Color32,
@@ -57,6 +59,7 @@ const DARK: Palette = Palette {
     control_hover: Color32::from_rgb(0x36, 0x3c, 0x49),
     separator: Color32::from_rgb(0x27, 0x2c, 0x37),
     track: Color32::from_rgb(0x3a, 0x40, 0x4e),
+    glass_card: Color32::from_rgba_premultiplied(0x00, 0x00, 0x00, 0x85),
     knob_edge: Color32::TRANSPARENT,
     text: PAPER,
     text_secondary: Color32::from_rgb(0xa7, 0xae, 0xc0),
@@ -83,6 +86,7 @@ const LIGHT: Palette = Palette {
     control_hover: Color32::from_rgb(0xce, 0xcb, 0xc3),
     separator: Color32::from_rgb(0xd9, 0xd7, 0xd0),
     track: Color32::from_rgb(0xcf, 0xcc, 0xc4),
+    glass_card: Color32::from_rgba_premultiplied(0x78, 0x78, 0x78, 0x78),
     knob_edge: Color32::from_black_alpha(90),
     text: INK,
     text_secondary: Color32::from_rgb(0x4a, 0x50, 0x61),
@@ -125,6 +129,35 @@ pub fn follow_mode(ctx: &egui::Context) {
     LIGHT_MODE.store(ctx.theme() == Theme::Light, Ordering::Relaxed);
 }
 
+/// Whether the panes are on glass (glass.rs). Set once at startup.
+static GLASS: AtomicBool = AtomicBool::new(false);
+
+/// Tells the theme that the panes have glass behind them.
+#[cfg(target_os = "macos")]
+pub fn use_glass() {
+    GLASS.store(true, Ordering::Relaxed);
+}
+
+/// Whether the panes are on glass and must leave their area see-through.
+pub fn glass() -> bool {
+    GLASS.load(Ordering::Relaxed)
+}
+
+/// The corner radius of a glass pane of this size.
+pub fn pane_radius(pane: egui::Rect) -> f32 {
+    f32::from(INSPECTOR_RADIUS).min(pane.height() / 2.0)
+}
+
+/// Behind toolbars and library views: a veil on glass, for their text, else
+/// the window colour.
+pub fn window_fill() -> Color32 {
+    if glass() {
+        palette().glass_card
+    } else {
+        palette().window
+    }
+}
+
 /// Brand Ink.
 pub const INK: Color32 = Color32::from_rgb(0x0e, 0x13, 0x22);
 /// Brand Paper.
@@ -158,6 +191,10 @@ pub const INSPECTOR_RADIUS: u8 = 14;
 pub const CONTROL_RADIUS: u8 = 6;
 pub const SIDEBAR_WIDTH: f32 = 320.0;
 pub const TOOLBAR_HEIGHT: f32 = 46.0;
+/// Around a pane floating on glass, to the window's edge and the viewer.
+pub const GLASS_PANE_MARGIN: f32 = 10.0;
+/// The solid border around the photo on glass.
+pub const PHOTO_BORDER: f32 = 6.0;
 /// The filmstrip while the pointer is on it.
 pub const FILMSTRIP_HEIGHT: f32 = 104.0;
 /// The filmstrip at rest: a thin row of tiny thumbnails.
@@ -209,7 +246,11 @@ const DISPLAY: &str = "display";
 
 pub fn card_frame() -> egui::Frame {
     egui::Frame::NONE
-        .fill(palette().card)
+        .fill(if glass() {
+            palette().glass_card
+        } else {
+            palette().card
+        })
         .corner_radius(CornerRadius::same(CARD_RADIUS))
         .inner_margin(Margin::same(12))
 }
@@ -217,7 +258,11 @@ pub fn card_frame() -> egui::Frame {
 /// Photomator's inspector: a rounded panel floating over the window.
 pub fn inspector_frame() -> egui::Frame {
     egui::Frame::NONE
-        .fill(palette().sidebar)
+        .fill(if glass() {
+            Color32::TRANSPARENT
+        } else {
+            palette().sidebar
+        })
         .stroke(Stroke::new(1.0, palette().separator))
         .corner_radius(CornerRadius::same(INSPECTOR_RADIUS))
         .inner_margin(Margin::same(12))
@@ -430,6 +475,34 @@ mod tests {
         };
         let (a, b) = (luminance(a), luminance(b));
         (a.max(b) + 0.05) / (a.min(b) + 0.05)
+    }
+
+    /// A veil of premultiplied `veil` over the opaque `backdrop`.
+    fn over(veil: Color32, backdrop: Color32) -> Color32 {
+        let [red, green, blue, alpha] = veil.to_array();
+        let through = |channel: u8, base: u8| {
+            channel + (u32::from(base) * u32::from(255 - alpha) / 255) as u8
+        };
+        Color32::from_rgb(
+            through(red, backdrop.r()),
+            through(green, backdrop.g()),
+            through(blue, backdrop.b()),
+        )
+    }
+
+    /// Glass as measured on macOS 27 over the hardest thing behind the window:
+    /// a black one in light mode, a white one in dark mode.
+    #[test]
+    fn glass_cards_keep_text_readable() {
+        for (palette, hardest_glass) in [
+            (&LIGHT, Color32::from_gray(0x9a)),
+            (&DARK, Color32::from_gray(0x82)),
+        ] {
+            let card = over(palette.glass_card, hardest_glass);
+            assert!(contrast(palette.text, card) >= 4.5);
+            assert!(contrast(palette.text_secondary, card) >= 4.5);
+            assert!(contrast(palette.text_tertiary, card) >= 3.0);
+        }
     }
 
     #[test]

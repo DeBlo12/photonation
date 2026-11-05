@@ -19,8 +19,11 @@
 //! first three photos in the survey view.
 //! `PHOTONATION_SCREENSHOT_PRESETS=1` opens the Presets card (`=copy`
 //! also opens Copy Settings, `=new` the New Preset dialog).
+//! `PHOTONATION_SCREENSHOT_FILMSTRIP=1` keeps the filmstrip open.
 //! `PHOTONATION_SCREENSHOT_THEME=light` (or `=dark`) overrides the system's
-//! mode.
+//! mode. With glass panes the window comes to the front, without the keyboard,
+//! and macOS's `screencapture` takes that part of the screen, since the glass
+//! and what shows through it are not in what the app draws.
 
 use eframe::egui;
 use std::path::PathBuf;
@@ -29,6 +32,9 @@ use std::time::{Duration, Instant};
 
 /// Give up waiting for everything to settle after this long.
 const TIMEOUT: Duration = Duration::from_secs(20);
+/// Time for a settled frame to reach the screen before capturing the window.
+#[cfg(target_os = "macos")]
+const SCREEN_CAPTURE_DELAY: Duration = Duration::from_millis(600);
 
 /// The sidebar's starting width: `PHOTONATION_SCREENSHOT_SIDEBAR`, so
 /// narrow and wide layouts can be checked, else the usual default.
@@ -55,6 +61,11 @@ pub struct Screenshot {
     path: PathBuf,
     started: Instant,
     requested: bool,
+    /// Where on the screen to capture, instead of what the app drew.
+    #[cfg(target_os = "macos")]
+    screen_region: Option<[f64; 4]>,
+    #[cfg(target_os = "macos")]
+    settled_at: Option<Instant>,
 }
 
 impl Screenshot {
@@ -64,11 +75,24 @@ impl Screenshot {
             path: path.into(),
             started: Instant::now(),
             requested: false,
+            #[cfg(target_os = "macos")]
+            screen_region: None,
+            #[cfg(target_os = "macos")]
+            settled_at: None,
         })
+    }
+
+    /// Captures this part of the screen when the time comes.
+    #[cfg(target_os = "macos")]
+    pub fn capture_screen_region(&mut self, region: [f64; 4]) {
+        self.screen_region = Some(region);
     }
 
     /// Applies the requested panel layout.
     pub fn prepare(&self, view: &mut crate::app::ViewState) {
+        if std::env::var_os("PHOTONATION_SCREENSHOT_FILMSTRIP").is_some() {
+            view.filmstrip.keep_open();
+        }
         if let Some(library) = std::env::var_os("PHOTONATION_SCREENSHOT_LIBRARY") {
             view.library.grid = true;
             if library == "survey" {
@@ -133,6 +157,11 @@ impl Screenshot {
     }
 
     pub fn update(&mut self, ctx: &egui::Context, settled: bool) {
+        #[cfg(target_os = "macos")]
+        if let Some(region) = self.screen_region {
+            self.update_screen_capture(ctx, settled, region);
+            return;
+        }
         if !self.requested && (settled || self.started.elapsed() > TIMEOUT) {
             self.requested = true;
             let (path, ctx_for_close) = (self.path.clone(), ctx.clone());
@@ -145,6 +174,30 @@ impl Screenshot {
                     ctx_for_close.request_repaint();
                 }),
             ));
+        }
+        ctx.request_repaint_after(Duration::from_millis(100));
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Screenshot {
+    fn update_screen_capture(&mut self, ctx: &egui::Context, settled: bool, region: [f64; 4]) {
+        if settled || self.started.elapsed() > TIMEOUT {
+            let settled_at = *self.settled_at.get_or_insert_with(Instant::now);
+            if !self.requested && settled_at.elapsed() > SCREEN_CAPTURE_DELAY {
+                self.requested = true;
+                let captured = std::process::Command::new("/usr/sbin/screencapture")
+                    .args([
+                        "-x",
+                        &format!("-R{},{},{},{}", region[0], region[1], region[2], region[3]),
+                    ])
+                    .arg(&self.path)
+                    .status();
+                if let Err(e) = captured {
+                    eprintln!("screenshot: {e}");
+                }
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
         }
         ctx.request_repaint_after(Duration::from_millis(100));
     }

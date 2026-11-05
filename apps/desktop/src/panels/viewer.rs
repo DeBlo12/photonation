@@ -28,14 +28,30 @@ const TOAST_DURATION: std::time::Duration = std::time::Duration::from_secs(6);
 
 pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
     egui::CentralPanel::no_frame()
-        .frame(egui::Frame::NONE.fill(if app.current.is_some() {
-            theme::palette().viewer
-        } else {
-            theme::palette().window
-        }))
+        .frame(egui::Frame::NONE)
         .show(ui, |ui| {
             let canvas = ui.max_rect();
             toast(app, ui, canvas);
+            // Nothing is drawn under the open filmstrip, which may be glass:
+            // the photo's background stays solid and stops at the strip.
+            let visible = match app.view.filmstrip_rect {
+                Some(strip) if theme::glass() => {
+                    canvas.with_max_y(canvas.bottom().min(strip.top() - theme::GLASS_PANE_MARGIN))
+                }
+                Some(strip) => canvas.with_max_y(canvas.bottom().min(strip.top())),
+                None => canvas,
+            };
+            ui.set_clip_rect(visible);
+            ui.painter().rect_filled(
+                visible,
+                0.0,
+                match (app.current.is_some(), theme::glass()) {
+                    (false, _) => theme::window_fill(),
+                    // On glass only the photo's own border is solid.
+                    (true, true) => Color32::TRANSPARENT,
+                    (true, false) => theme::palette().viewer,
+                },
+            );
             if app.current.is_none() {
                 empty_state(app, ui, canvas);
                 return;
@@ -132,11 +148,20 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
             let image_rect = Rect::from_center_size(canvas.center() + app.view.pan, displayed);
 
             let painter = ui.painter_at(canvas);
+            // The solid background: a border on glass, else the viewer itself.
+            let backing = if theme::glass() {
+                image_rect.expand(theme::PHOTO_BORDER)
+            } else {
+                image_rect
+            };
             painter.rect_filled(
-                image_rect.translate(vec2(0.0, 6.0)).expand(4.0),
+                backing.translate(vec2(0.0, 6.0)).expand(4.0),
                 4.0,
                 Color32::from_black_alpha(60),
             );
+            if theme::glass() {
+                painter.rect_filled(backing, 2.0, theme::palette().viewer);
+            }
             if let Some(preview) = &app.preview {
                 paint(&painter, preview, image_rect, image_rect);
             }
@@ -336,12 +361,19 @@ fn empty_state(app: &mut PhotonationApp, ui: &mut egui::Ui, canvas: Rect) {
     }
 }
 
+/// A spinner on the viewer: its own background differs on glass.
+fn spinner_color() -> Color32 {
+    if theme::glass() {
+        theme::palette().text
+    } else {
+        theme::palette().on_viewer
+    }
+}
+
 fn loading(ui: &mut egui::Ui, canvas: Rect) {
     ui.put(
         Rect::from_center_size(canvas.center(), vec2(28.0, 28.0)),
-        egui::Spinner::new()
-            .size(28.0)
-            .color(theme::palette().on_viewer),
+        egui::Spinner::new().size(28.0).color(spinner_color()),
     );
 }
 

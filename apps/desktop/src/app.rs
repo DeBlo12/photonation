@@ -154,6 +154,10 @@ impl RemovalBrush {
 
 /// Transient view state (not saved with the photo).
 pub struct ViewState {
+    /// Where the inspector is this frame, if shown.
+    pub inspector_rect: Option<egui::Rect>,
+    /// Where the filmstrip is this frame, if shown.
+    pub filmstrip_rect: Option<egui::Rect>,
     pub expanded: HashSet<AdjustmentGroup>,
     pub disabled: HashSet<AdjustmentGroup>,
     pub mixer_band: usize,
@@ -218,6 +222,8 @@ pub struct ViewState {
 impl Default for ViewState {
     fn default() -> Self {
         ViewState {
+            inspector_rect: None,
+            filmstrip_rect: None,
             expanded: [
                 AdjustmentGroup::WhiteBalance,
                 AdjustmentGroup::Light,
@@ -384,6 +390,8 @@ pub struct PhotonationApp {
     thumbnails_by_path: HashMap<PathBuf, usize>,
     screenshot: Option<crate::screenshot::Screenshot>,
     #[cfg(target_os = "macos")]
+    glass: Option<crate::glass::GlassPanes>,
+    #[cfg(target_os = "macos")]
     native_menus: Option<crate::native_menu::NativeMenus>,
     /// The graphics adapter in use, e.g. "AMD Radeon Pro 5500M (discrete GPU, Metal)".
     pub gpu: Option<String>,
@@ -411,6 +419,18 @@ impl PhotonationApp {
         app.screenshot = crate::screenshot::Screenshot::from_env();
         #[cfg(target_os = "macos")]
         {
+            app.glass = crate::glass::GlassPanes::install();
+            if let Some(glass) = &app.glass {
+                theme::use_glass();
+                if let Some(forced_theme) = crate::screenshot::forced_theme() {
+                    crate::glass::force_appearance(forced_theme);
+                }
+                if let Some(screenshot) = &mut app.screenshot
+                    && let Some(region) = glass.front_for_capture()
+                {
+                    screenshot.capture_screen_region(region);
+                }
+            }
             let menus = crate::menus::menus(&app, true);
             app.native_menus = Some(crate::native_menu::NativeMenus::install(
                 &cc.egui_ctx,
@@ -495,6 +515,8 @@ impl PhotonationApp {
             export_progress: None,
             thumbnails_by_path: HashMap::new(),
             screenshot: None,
+            #[cfg(target_os = "macos")]
+            glass: None,
             #[cfg(target_os = "macos")]
             native_menus: None,
             gpu: None,
@@ -1192,9 +1214,17 @@ impl PhotonationApp {
 }
 
 impl eframe::App for PhotonationApp {
+    /// See-through wherever nothing is painted, for the glass panes. A window
+    /// without glass is opaque and ignores the alpha.
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        [0.0; 4]
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         theme::follow_mode(&ctx);
+        self.view.inspector_rect = None;
+        self.view.filmstrip_rect = None;
         self.handle_events(&ctx);
         self.apply_folder_request();
         self.arrange_photos();
@@ -1219,11 +1249,12 @@ impl eframe::App for PhotonationApp {
             panels::library_bar::show(self, ui);
             panels::grid::show(self, ui);
         } else {
-            if !self.photos.is_empty() {
-                panels::filmstrip::show(self, ui);
-            }
+            // The inspector takes the full height; the filmstrip runs beside it.
             if self.current.is_some() {
                 panels::adjustments::show(self, ui);
+            }
+            if !self.photos.is_empty() {
+                panels::filmstrip::show(self, ui);
             }
             panels::viewer::show(self, ui);
         }
@@ -1276,6 +1307,10 @@ impl eframe::App for PhotonationApp {
                 .all(|p| p.thumbnail.is_some() || p.unsupported);
         #[cfg(target_os = "macos")]
         self.update_native_menus();
+        #[cfg(target_os = "macos")]
+        if let Some(glass) = &mut self.glass {
+            glass.place(self.view.inspector_rect, self.view.filmstrip_rect);
+        }
         if let Some(screenshot) = &mut self.screenshot {
             screenshot.update(&ctx, settled);
         }

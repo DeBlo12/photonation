@@ -46,7 +46,11 @@ pub fn show(app: &mut PhotonationApp, ui: &mut Ui) {
         .show_separator_line(false)
         .frame(
             egui::Frame::NONE
-                .fill(theme::palette().window)
+                .fill(if theme::glass() {
+                    egui::Color32::TRANSPARENT
+                } else {
+                    theme::palette().window
+                })
                 .inner_margin(egui::Margin {
                     left: 0,
                     right: 10,
@@ -60,6 +64,7 @@ pub fn show(app: &mut PhotonationApp, ui: &mut Ui) {
                 inspector(app, ui);
             });
             tool_warning(app, ui, frame.response.rect);
+            app.view.inspector_rect = Some(frame.response.rect);
         });
 }
 
@@ -161,7 +166,7 @@ fn process_notice(settings: &mut Settings, ui: &mut Ui) {
         );
         ui.label(
             RichText::new(format!(
-                "Process {} recovers detail in bright highlights that one                  colour channel clipped. Updating can brighten blown areas.",
+                "Process {} recovers detail in bright highlights that one colour channel clipped. Updating can brighten blown areas.",
                 ProcessVersion::LATEST.number()
             ))
             .size(11.5)

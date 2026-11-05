@@ -60,6 +60,11 @@ pollster = "1.0"
 # desktop app
 # The macOS menu bar (Apache-2.0 OR MIT).
 muda = { version = "0.21", default-features = false }
+# AppKit's Liquid Glass view (MIT; Zlib OR Apache-2.0 OR MIT). Already in the
+# tree through eframe and muda.
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSAppearance", "NSApplication", "NSGlassEffectView", "NSGraphics", "NSResponder", "NSScreen", "NSView", "NSWindow"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSGeometry"] }
 eframe = "0.37"
 rfd = "0.17"
 # Moving rejected photos to the Recycle Bin / Trash (MIT)

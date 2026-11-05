@@ -17,9 +17,9 @@ a floating inspector. The look is Photonation's brand (see *Look* below).
 │                 viewer                    │ ▾ Light         │  adjustments
 │        (fit / zoom / pan / compare)       │   sliders…      │  sidebar
 │                                           │ ▸ Curves …      │
-├───────────────────────────────────────────┴─────────────────┤
-│ ▫ ▫ ▫ …                                                      │  filmstrip (resting)
-└─────────────────────────────────────────────────────────────┘
+├───────────────────────────────────────────┤                 │
+│ ▫ ▫ ▫ …   filmstrip (resting)             │                 │
+└───────────────────────────────────────────┴─────────────────┘
 ```
 
 While masking (◎ or `M`) the sidebar shows the masks panel instead of the
@@ -39,6 +39,7 @@ it, and the inspector's outline pulses amber (`ViewState::tool_warning`).
 | `panels/toolbar.rs` | Open, the grid button and filter chip, the path to the open folder (see *Folders* below), photo name, its stars, flag and label, exposure info, undo/redo, compare, zoom, export. As the window narrows the exposure info goes, then the name shortens, then the labels go (they stay in the Library menu); nothing reaches the controls on the right |
 | `menus.rs` | The menus as data, and what choosing an item does |
 | `native_menu.rs` | macOS only: the menus in the system menu bar, built with muda and kept up to date |
+| `glass.rs` | macOS 26 and later: the Liquid Glass views behind the inspector and the filmstrip |
 | `panels/menu_bar.rs` | The row above the toolbar: the window buttons' room on macOS, the menus drawn with egui elsewhere |
 | `panels/settings.rs` | Settings window (graphics processor, export folder, export defaults) and About |
 | `panels/help.rs` | The Help window (? button, Help ▸ Photonation Help, F1): one page per feature, written from the pipeline, the panels and these documents |
@@ -85,7 +86,21 @@ is:
   floats over it.
 - **Viewer**: `Palette::viewer` is behind the photo. It is the window colour in
   dark mode and a neutral mid-grey (`#777777`) in light mode, so warm surfaces do
-  not skew how a photo is judged. The welcome screen keeps the window colour.
+  not skew how a photo is judged. On glass it is only the photo's border. The
+  welcome screen keeps the window colour.
+- **Glass** (`glass.rs`, macOS 26 and later): the window is Liquid Glass over the
+  macOS desktop, with the inspector and the filmstrip as glass panes on it. egui
+  draws everything into one Metal layer, so an `NSGlassEffectView` covers the
+  window behind that layer and each pane gets another, moved each frame to the
+  rectangle the panel reports (`ViewState::inspector_rect`, `filmstrip_rect`).
+  The window is transparent and egui leaves those areas see-through, so the glass
+  bends what is behind the window. The views are siblings below winit's view,
+  because winit expects its view to stay the window's content view. Text sits on
+  `Palette::glass_card` (`theme::window_fill` for the bars and library views), the
+  lightest veil that keeps it readable with a black window behind in light mode
+  or a white one in dark mode. Only the photo is solid: it has a border of
+  `Palette::viewer`, `theme::PHOTO_BORDER` wide. The viewer draws nothing else and
+  stops above the filmstrip. Other platforms and older macOS have opaque panes.
 - **Photon amber** (`#FFB224`) means "on": active tools, switches, slider
   fills from the default, the modified dot on a card, selections and the
   primary button. Text and icons on an amber fill are Ink (`ON_ACCENT`),
@@ -115,8 +130,9 @@ is:
    filmstrip or grid, Open, moving rejects to the bin): one photo's settings
    replacing another's are not an edit, and must not write a sidecar next to
    a photo that was only looked at.
-4. **Draw** the toolbar, filmstrip, sidebar (adjustment cards or the masks
-   panel), viewer and, if open, the export sheet. Widgets edit `app.settings` directly. The viewer asks for a preview
+4. **Draw** the toolbar, sidebar (adjustment cards or the masks panel),
+   filmstrip, viewer and, if open, the export sheet, then move the glass views
+   to where the panes ended up. Widgets edit `app.settings` directly. The viewer asks for a preview
    at the resolution it needs (`request_previews`), which sends a request only
    when the edit generation or the size changed.
    Then drop a mask or mask group selection that undo or a deletion made
@@ -166,7 +182,8 @@ half a second after the pointer leaves, and opens for 1.2 s whenever the photo
 changes, to show where in the folder the new one is (`FilmstripReveal`). Only
 the resting strip is reserved in the layout. The open strip floats over the
 bottom of the viewer, so the photo neither moves nor re-renders as the strip
-opens and closes.
+opens and closes. The viewer stops drawing at the strip's top edge, so the
+strip's glass never has the photo in front of it.
 
 It scrolls sideways, resting or open: a two-finger swipe, or the mouse wheel
 while the pointer is anywhere on it, margins included (the strip's area claims
@@ -561,6 +578,10 @@ state and are not saved.
 `PHOTONATION_SCREENSHOT=out.png photonation-desktop <folder or photo>` saves the window
 once the preview and thumbnails are ready, then quits.
 `PHOTONATION_SCREENSHOT_THEME=light` (or `=dark`) overrides the system's mode;
+`PHOTONATION_SCREENSHOT_FILMSTRIP=1` keeps the filmstrip open. With glass panes
+the window comes to the front, without the keyboard, and macOS's `screencapture`
+takes that part of the screen, since the glass and what shows through it are not
+in what the app draws;
 `PHOTONATION_SCREENSHOT_PANELS="Curves,Color Grading"` picks the open cards;
 `PHOTONATION_SCREENSHOT_POINT_COLOR=1` opens the Point Color tab (`=range` also
 shows the first point colour's range); `PHOTONATION_SCREENSHOT_MASKS=1` opens

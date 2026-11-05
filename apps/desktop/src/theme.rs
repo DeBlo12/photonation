@@ -132,6 +132,9 @@ pub fn primary_button(label: &str) -> egui::Button<'_> {
 /// Installs fonts and widget visuals.
 pub fn install(ctx: &egui::Context) {
     install_fonts(ctx);
+    // There is only a dark look. Following the system would swap in egui's
+    // light widgets whenever macOS or Windows is in light mode.
+    ctx.set_theme(egui::Theme::Dark);
     let mut visuals = egui::Visuals::dark();
     visuals.panel_fill = SIDEBAR;
     visuals.window_fill = CARD;
@@ -284,5 +287,20 @@ mod tests {
                 .collect()
         });
         assert!(unchecked.is_empty(), "no checked glyph for {unchecked:?}");
+    }
+
+    #[test]
+    fn the_app_stays_dark_when_the_system_is_light() {
+        let ctx = egui::Context::default();
+        install(&ctx);
+        let light_system = egui::RawInput {
+            system_theme: Some(egui::Theme::Light),
+            ..Default::default()
+        };
+        ctx.run_ui(light_system, |_| {}).textures_delta.clear();
+        assert_eq!(
+            ctx.global_style().visuals.widgets.inactive.weak_bg_fill,
+            CONTROL
+        );
     }
 }

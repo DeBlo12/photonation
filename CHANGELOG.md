@@ -16,6 +16,11 @@ changes to CI alone are not released.
   the path in the toolbar leads back up. A folder with photos of its own too
   opens on them, with a button that shows the folders inside.
 
+### Fixed
+
+- Dropdowns and other standard controls no longer turn white when macOS or
+  Windows is in light mode. The app is dark whatever the system uses.
+
 ## [0.18.0] - 2026-11-04
 
 ### Added

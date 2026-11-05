@@ -76,7 +76,7 @@ Photomator's arrangement in the Photonation brand:
   (`#0E1322`), so the window reads as Photonation without tinting how a photo
   is judged. The toolbar, viewer and filmstrip share the window colour; the
   adjustments, masks, crop and Remove panels sit in a rounded inspector that
-  floats over it.
+  floats over it. The look stays dark when the system is in light mode.
 - **Photon amber** (`#FFB224`) means "on": active tools, switches, slider
   fills from the default, the modified dot on a card, selections and the
   primary button. Text and icons on an amber fill are Ink (`ON_ACCENT`),

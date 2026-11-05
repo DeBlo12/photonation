@@ -20,8 +20,7 @@ pub struct FolderCard {
 }
 
 /// A move between folders. Panels ask for one and it happens as the next
-/// frame starts, because a photo closing or opening midway through a frame
-/// would look like an edit to the photo.
+/// frame starts, so a frame draws one folder from top to bottom.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FolderRequest {
     Open(PathBuf),

@@ -18,6 +18,10 @@ changes to CI alone are not released.
 
 ### Fixed
 
+- Clicking a photo in the filmstrip or grid, or opening a folder, no longer
+  counts as editing the photo that opens. Merely looking at a photo with
+  Lightroom edits wrote a Photonation sidecar that then took over from the
+  XMP, and looking at one whose sidecar could not be read deleted that sidecar.
 - Dropdowns and other standard controls no longer turn white when macOS or
   Windows is in light mode. The app is dark whatever the system uses.
 

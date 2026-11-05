@@ -98,17 +98,23 @@ Photomator's arrangement in the Photonation brand:
    (ignoring stale generations), apply eyedropper results (see below), record photo info,
    show errors as a toast.
 2. **Keyboard shortcuts.**
-3. **Snapshot** the settings and the disabled panels.
+3. **Snapshot** the settings and the disabled panels
+   (`remember_photo_before_panels`). A photo opening or closing takes the
+   snapshot again, because panels can do that while they draw (a click in the
+   filmstrip or grid, Open, moving rejects to the bin): one photo's settings
+   replacing another's are not an edit, and must not write a sidecar next to
+   a photo that was only looked at.
 4. **Draw** the toolbar, filmstrip, sidebar (adjustment cards or the masks
    panel), viewer and, if open, the export sheet. Widgets edit `app.settings` directly. The viewer asks for a preview
    at the resolution it needs (`request_previews`), which sends a request only
    when the edit generation or the size changed.
    Then drop a mask or mask group selection that undo or a deletion made
    invalid (`MaskSelection::validated`, `GroupView::validate`).
-5. **Edited?** If the settings or switches differ from the snapshot, bump the
-   generation (triggering a new preview) and schedule a sidecar save. While
-   the crop tool is open, a change to the crop alone only schedules the save:
-   the tool shows the whole photo, so there is nothing new to render.
+5. **Edited?** (`notice_panel_edits`) If the settings or switches differ from
+   the snapshot, bump the generation (triggering a new preview) and schedule a
+   sidecar save. While the crop tool is open, a change to the crop alone only
+   schedules the save: the tool shows the whole photo, so there is nothing new
+   to render.
 6. **Commit history** when no pointer button is down (one undo step per drag).
 7. **Save the sidecar** 400 ms after the last edit, once the pointer is released.
 
@@ -212,9 +218,9 @@ one folder. Everything on it that can be clicked has a control's background
 of photos shows nothing.
 
 **Moves wait for the next frame.** Panels call `FolderBrowser::request`, and
-`apply_folder_request` carries it out before the frame's settings snapshot, so
-the photo's settings changing isn't taken for an edit and saved to a sidecar.
-Like the grid, a move waits while an editing tool is open (`tool_blocks_library`).
+`apply_folder_request` carries it out before anything is drawn, so a frame
+draws one folder from top to bottom. Like the grid, a move waits while an
+editing tool is open (`tool_blocks_library`).
 
 ## Library (`library.rs`)
 

@@ -143,11 +143,6 @@ pub fn glass() -> bool {
     GLASS.load(Ordering::Relaxed)
 }
 
-/// The corner radius of a glass pane of this size.
-pub fn pane_radius(pane: egui::Rect) -> f32 {
-    f32::from(INSPECTOR_RADIUS).min(pane.height() / 2.0)
-}
-
 /// Behind toolbars and library views: a veil on glass, for their text, else
 /// the window colour.
 pub fn window_fill() -> Color32 {

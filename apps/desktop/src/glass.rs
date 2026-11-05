@@ -43,6 +43,11 @@ pub fn force_appearance(theme: Theme) {
         .setAppearance(NSAppearance::appearanceNamed(name).as_deref());
 }
 
+/// The corner radius of a glass pane of this size.
+fn pane_radius(pane: Rect) -> f32 {
+    f32::from(crate::theme::INSPECTOR_RADIUS).min(pane.height() / 2.0)
+}
+
 /// One glass view and where it was last put.
 struct GlassPane {
     view: Retained<NSGlassEffectView>,
@@ -126,7 +131,7 @@ impl GlassPanes {
 
     /// Moves the panes to where egui drew them this frame. `None` hides one.
     pub fn place(&mut self, inspector: Option<Rect>, filmstrip: Option<Rect>) {
-        let radius_of = |rect: Option<Rect>| rect.map_or(0.0, crate::theme::pane_radius);
+        let radius_of = |rect: Option<Rect>| rect.map_or(0.0, pane_radius);
         let height = self.parent.bounds().size.height;
         let inspector_moved = self
             .inspector

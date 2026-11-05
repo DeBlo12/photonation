@@ -19,6 +19,8 @@
 //! first three photos in the survey view.
 //! `PHOTONATION_SCREENSHOT_PRESETS=1` opens the Presets card (`=copy`
 //! also opens Copy Settings, `=new` the New Preset dialog).
+//! `PHOTONATION_SCREENSHOT_THEME=light` (or `=dark`) overrides the system's
+//! mode.
 
 use eframe::egui;
 use std::path::PathBuf;
@@ -38,6 +40,15 @@ pub fn sidebar_width() -> f32 {
             .and_then(|width| width.trim().parse().ok())
             .unwrap_or(crate::theme::SIDEBAR_WIDTH)
     })
+}
+
+/// The mode asked for by `PHOTONATION_SCREENSHOT_THEME`, if any.
+pub fn forced_theme() -> Option<egui::Theme> {
+    match std::env::var("PHOTONATION_SCREENSHOT_THEME").ok()?.as_str() {
+        "light" => Some(egui::Theme::Light),
+        "dark" => Some(egui::Theme::Dark),
+        _ => None,
+    }
 }
 
 pub struct Screenshot {

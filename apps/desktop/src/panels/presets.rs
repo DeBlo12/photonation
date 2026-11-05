@@ -58,7 +58,7 @@ pub fn card(app: &mut PhotonationApp, ui: &mut Ui) {
             ui.label(
                 RichText::new(format!("Applies to the {targets} selected photos"))
                     .size(11.5)
-                    .color(theme::TEXT_SECONDARY),
+                    .color(theme::palette().text_secondary),
             );
         }
         for (group, members) in listing(app) {
@@ -105,9 +105,9 @@ fn header(app: &mut PhotonationApp, ui: &mut Ui) -> bool {
     let painter = ui.painter();
     let expanded = &mut app.view.presets.expanded;
     let color = if response.hovered() {
-        theme::TEXT
+        theme::palette().text
     } else {
-        theme::TEXT_SECONDARY
+        theme::palette().text_secondary
     };
     chevron(
         painter,
@@ -121,7 +121,7 @@ fn header(app: &mut PhotonationApp, ui: &mut Ui) -> bool {
         Align2::LEFT_CENTER,
         "Presets",
         theme::title(13.5),
-        theme::TEXT,
+        theme::palette().text,
     );
     let mut buttons = ui.new_child(
         egui::UiBuilder::new()
@@ -158,9 +158,9 @@ fn group_heading(ui: &mut Ui, group: &str, folded: bool) -> bool {
     ui.add_space(2.0);
     let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 18.0), Sense::click());
     let color = if response.hovered() {
-        theme::TEXT
+        theme::palette().text
     } else {
-        theme::TEXT_SECONDARY
+        theme::palette().text_secondary
     };
     chevron(
         ui.painter(),
@@ -207,7 +207,7 @@ fn preset_row(ui: &mut Ui, name: &str) -> egui::Response {
         ui.painter().rect_filled(
             rect,
             egui::CornerRadius::same(theme::CONTROL_RADIUS),
-            theme::CONTROL_HOVER,
+            theme::palette().control_hover,
         );
     }
     ui.painter().text(
@@ -215,7 +215,7 @@ fn preset_row(ui: &mut Ui, name: &str) -> egui::Response {
         Align2::LEFT_CENTER,
         name,
         theme::body(12.5),
-        theme::TEXT,
+        theme::palette().text,
     );
     response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
@@ -285,7 +285,7 @@ fn dialog_title(ui: &mut Ui, title: &str) {
     ui.label(
         RichText::new(title)
             .font(theme::title(16.0))
-            .color(theme::TEXT),
+            .color(theme::palette().text),
     );
     ui.add_space(8.0);
 }
@@ -385,7 +385,7 @@ fn new_preset_dialog(app: &mut PhotonationApp, ctx: &egui::Context) {
         ui.label(
             RichText::new("Settings to include")
                 .size(12.0)
-                .color(theme::TEXT_SECONDARY),
+                .color(theme::palette().text_secondary),
         );
         ui.add_space(4.0);
         parts_picker(ui, &mut new.parts);
@@ -419,7 +419,7 @@ fn delete_dialog(app: &mut PhotonationApp, ctx: &egui::Context) {
                 crate::panels::library_bar::BIN_NAME
             ))
             .size(12.5)
-            .color(theme::TEXT_SECONDARY),
+            .color(theme::palette().text_secondary),
         );
         let (delete, cancel) = dialog_buttons(ui, "Delete", true);
         if delete {

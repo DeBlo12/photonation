@@ -23,7 +23,7 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
         .show_separator_line(false)
         .frame(
             egui::Frame::NONE
-                .fill(theme::WINDOW)
+                .fill(theme::palette().window)
                 .inner_margin(egui::Margin::symmetric(12, 8)),
         )
         .show(ui, |ui| {
@@ -147,7 +147,7 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
                         ui.label(
                             RichText::new(format!("Exporting {}/{}", done + 1, total))
                                 .size(12.0)
-                                .color(theme::TEXT_SECONDARY),
+                                .color(theme::palette().text_secondary),
                         );
                         ui.add(egui::Spinner::new().size(14.0));
                     }
@@ -205,7 +205,7 @@ fn photo_details(app: &mut PhotonationApp, ui: &mut egui::Ui) {
                 egui::Label::new(
                     RichText::new(&app.photos[index].name)
                         .size(13.5)
-                        .color(theme::TEXT),
+                        .color(theme::palette().text),
                 )
                 .truncate(),
             );
@@ -222,7 +222,7 @@ fn photo_details(app: &mut PhotonationApp, ui: &mut egui::Ui) {
             egui::Label::new(
                 RichText::new(camera_summary(info))
                     .size(12.0)
-                    .color(theme::TEXT_SECONDARY),
+                    .color(theme::palette().text_secondary),
             )
             .truncate(),
         );

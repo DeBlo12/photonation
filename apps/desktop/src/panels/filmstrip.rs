@@ -79,7 +79,7 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
     let resting = egui::Panel::bottom("filmstrip")
         .exact_size(theme::FILMSTRIP_RESTING_HEIGHT)
         .show_separator_line(false)
-        .frame(egui::Frame::NONE.fill(theme::WINDOW))
+        .frame(egui::Frame::NONE.fill(theme::palette().window))
         .show(ui, |_| {})
         .response
         .rect;
@@ -119,7 +119,8 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
             // Claim the whole strip: egui sends the wheel only to an area
             // whose rect holds the pointer, and the child below claims nothing.
             ui.allocate_rect(strip, Sense::hover());
-            ui.painter().rect_filled(strip, 0.0, theme::WINDOW);
+            ui.painter()
+                .rect_filled(strip, 0.0, theme::palette().window);
             ui.set_clip_rect(strip);
             // The scroll area spans the whole strip, so the wheel works
             // anywhere on it, not just on the thumbnails.
@@ -287,12 +288,14 @@ fn scroll_bar(
     painter.rect_filled(
         track,
         radius,
-        theme::CONTROL.gamma_multiply(0.85 * opacity * emphasis),
+        theme::palette()
+            .control
+            .gamma_multiply(0.85 * opacity * emphasis),
     );
     let thumb_color = if dragging {
-        theme::ACCENT
+        theme::palette().accent_strong
     } else {
-        theme::TEXT_SECONDARY
+        theme::palette().text_secondary
     };
     painter.rect_filled(thumb, radius, thumb_color.gamma_multiply(opacity));
 
@@ -313,15 +316,23 @@ fn scroll_bar(
             Some(date) => format!("{} · {date}", photo.name),
             None => photo.name.clone(),
         };
-        let galley = painter.layout_no_wrap(text, theme::body(11.5), theme::TEXT);
+        let galley = painter.layout_no_wrap(text, theme::body(11.5), theme::palette().text);
         let size = galley.size() + vec2(14.0, 6.0);
         let x = thumb
             .center()
             .x
             .clamp(strip.left() + size.x / 2.0, strip.right() - size.x / 2.0);
         let bubble = Rect::from_center_size(pos2(x, track.top() - 4.0 - size.y / 2.0), size);
-        painter.rect_filled(bubble, size.y / 2.0, theme::CARD.gamma_multiply(0.96));
-        painter.galley(bubble.center() - galley.size() / 2.0, galley, theme::TEXT);
+        painter.rect_filled(
+            bubble,
+            size.y / 2.0,
+            theme::palette().card.gamma_multiply(0.96),
+        );
+        painter.galley(
+            bubble.center() - galley.size() / 2.0,
+            galley,
+            theme::palette().text,
+        );
     }
 }
 
@@ -534,14 +545,14 @@ fn thumbnail(
             );
         }
         None => {
-            painter.rect_filled(rect, radius, theme::CARD);
+            painter.rect_filled(rect, radius, theme::palette().card);
             if photo.unsupported && openness > 0.5 {
                 painter.text(
                     rect.center(),
                     egui::Align2::CENTER_CENTER,
                     "Unsupported",
                     theme::body(10.5),
-                    theme::TEXT_TERTIARY,
+                    theme::palette().text_tertiary,
                 );
             }
         }
@@ -552,7 +563,7 @@ fn thumbnail(
             painter.rect_stroke(
                 rect.expand(SELECTION_RING / 2.0),
                 CornerRadius::same(radius.nw + 2),
-                Stroke::new(SELECTION_RING / 2.0, theme::ACCENT),
+                Stroke::new(SELECTION_RING / 2.0, theme::palette().accent_strong),
                 StrokeKind::Outside,
             );
         }
@@ -560,7 +571,7 @@ fn thumbnail(
             painter.rect_stroke(
                 rect.expand(SELECTION_RING / 2.0),
                 CornerRadius::same(radius.nw + 2),
-                Stroke::new(1.5, theme::TEXT_SECONDARY),
+                Stroke::new(1.5, theme::palette().text_secondary),
                 StrokeKind::Outside,
             );
         }

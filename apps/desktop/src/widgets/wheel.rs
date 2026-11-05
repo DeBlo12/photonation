@@ -37,7 +37,7 @@ pub fn color_wheel(ui: &mut Ui, wheel: &mut GradingWheel, diameter: f32) -> Resp
 
     let painter = ui.painter();
     painter.add(wheel_mesh(center, radius));
-    painter.circle_stroke(center, radius, Stroke::new(1.0, theme::SEPARATOR));
+    painter.circle_stroke(center, radius, Stroke::new(1.0, theme::palette().separator));
     let angle = wheel.hue.to_radians();
     let puck = center + Vec2::new(angle.cos(), -angle.sin()) * radius * wheel.saturation / 100.0;
     painter.circle_filled(

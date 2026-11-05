@@ -15,6 +15,15 @@ changes to CI alone are not released.
   each holds, instead of saying there are no raw files. Click one to open it;
   the path in the toolbar leads back up. A folder with photos of its own too
   opens on them, with a button that shows the folders inside.
+- A light mode. The app now follows macOS or Windows between dark and light,
+  also when the system switches while it runs. Light mode uses warm Paper
+  surfaces with a neutral mid-grey behind the photo, so the surfaces do not
+  skew how it looks.
+
+### Changed
+
+- Faint text in dark mode is a little brighter, so it stays readable on
+  controls.
 
 ### Fixed
 
@@ -22,8 +31,6 @@ changes to CI alone are not released.
   counts as editing the photo that opens. Merely looking at a photo with
   Lightroom edits wrote a Photonation sidecar that then took over from the
   XMP, and looking at one whose sidecar could not be read deleted that sidecar.
-- Dropdowns and other standard controls no longer turn white when macOS or
-  Windows is in light mode. The app is dark whatever the system uses.
 
 ## [0.18.0] - 2026-11-04
 

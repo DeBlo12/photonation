@@ -30,7 +30,7 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
         .show_separator_line(false)
         .frame(
             egui::Frame::NONE
-                .fill(theme::WINDOW)
+                .fill(theme::palette().window)
                 .inner_margin(egui::Margin::symmetric(12, 4)),
         )
         .show(ui, |ui| {
@@ -106,7 +106,11 @@ fn count(app: &PhotonationApp, ui: &mut egui::Ui) {
     if selected > 1 {
         text.push_str(&format!(" · {selected} selected"));
     }
-    ui.label(RichText::new(text).size(12.5).color(theme::TEXT_SECONDARY));
+    ui.label(
+        RichText::new(text)
+            .size(12.5)
+            .color(theme::palette().text_secondary),
+    );
 }
 
 fn filter(app: &mut PhotonationApp, ui: &mut egui::Ui) {
@@ -144,8 +148,11 @@ fn filter(app: &mut PhotonationApp, ui: &mut egui::Ui) {
             if on { color } else { color.gamma_multiply(0.5) },
         );
         if on {
-            ui.painter()
-                .circle_stroke(rect.center(), radius + 1.5, Stroke::new(1.0, theme::TEXT));
+            ui.painter().circle_stroke(
+                rect.center(),
+                radius + 1.5,
+                Stroke::new(1.0, theme::palette().text),
+            );
         }
         let tip = format!(
             "{} label\nShows photos with this label (or any of the labels switched on).",
@@ -194,7 +201,7 @@ pub fn confirm_trash(app: &mut PhotonationApp, ctx: &egui::Context) {
         ui.label(
             RichText::new(format!("Move {photos} to the {BIN_NAME}?"))
                 .font(theme::title(16.0))
-                .color(theme::TEXT),
+                .color(theme::palette().text),
         );
         ui.add_space(8.0);
         ui.label(
@@ -203,7 +210,7 @@ pub fn confirm_trash(app: &mut PhotonationApp, ctx: &egui::Context) {
                  sidecars. You can put them back from there."
             ))
             .size(12.5)
-            .color(theme::TEXT_SECONDARY),
+            .color(theme::palette().text_secondary),
         );
         ui.add_space(14.0);
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {

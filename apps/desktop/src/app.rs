@@ -467,6 +467,9 @@ impl PhotonationApp {
     /// `new` starts from.
     fn with_engine(ctx: &egui::Context, engine: RenderService) -> PhotonationApp {
         theme::install(ctx);
+        if let Some(forced_theme) = crate::screenshot::forced_theme() {
+            ctx.set_theme(forced_theme);
+        }
         PhotonationApp {
             engine,
             folder: None,
@@ -1191,6 +1194,7 @@ impl PhotonationApp {
 impl eframe::App for PhotonationApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        theme::follow_mode(&ctx);
         self.handle_events(&ctx);
         self.apply_folder_request();
         self.arrange_photos();

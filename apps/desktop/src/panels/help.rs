@@ -266,8 +266,8 @@ pub fn show(view: &mut ViewState, ctx: &egui::Context) {
         .title_bar(false)
         .frame(
             egui::Frame::NONE
-                .fill(theme::SIDEBAR)
-                .stroke(egui::Stroke::new(1.0, theme::SEPARATOR))
+                .fill(theme::palette().sidebar)
+                .stroke(egui::Stroke::new(1.0, theme::palette().separator))
                 .corner_radius(CornerRadius::same(theme::INSPECTOR_RADIUS))
                 .inner_margin(egui::Margin::same(14))
                 .shadow(ctx.global_style().visuals.window_shadow),
@@ -306,12 +306,12 @@ pub fn show(view: &mut ViewState, ctx: &egui::Context) {
 fn header(ui: &mut Ui, close: &mut bool) {
     ui.horizontal(|ui| {
         let (rect, _) = ui.allocate_exact_size(vec2(26.0, 26.0), Sense::hover());
-        paint_brand_mark(ui.painter(), rect.center(), 24.0, theme::SIDEBAR);
+        paint_brand_mark(ui.painter(), rect.center(), 24.0, theme::palette().sidebar);
         ui.add_space(2.0);
         ui.label(
             RichText::new("Photonation Help")
                 .font(theme::display(17.0))
-                .color(theme::TEXT),
+                .color(theme::palette().text),
         );
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             if tool_button(ui, "×", false, "Close Help (Esc)").clicked() {
@@ -323,7 +323,7 @@ fn header(ui: &mut Ui, close: &mut bool) {
 
 fn navigation(ui: &mut Ui, selected: &mut Page, reveal: bool) {
     egui::Frame::NONE
-        .fill(theme::WINDOW)
+        .fill(theme::palette().window)
         .corner_radius(CornerRadius::same(theme::CARD_RADIUS))
         .inner_margin(egui::Margin::same(6))
         .show(ui, |ui| {
@@ -336,7 +336,7 @@ fn navigation(ui: &mut Ui, selected: &mut Page, reveal: bool) {
                         ui.label(
                             RichText::new(*chapter)
                                 .font(theme::title(11.0))
-                                .color(theme::TEXT_TERTIARY),
+                                .color(theme::palette().text_tertiary),
                         );
                         for &page in *pages {
                             let row = nav_row(ui, page, page == *selected);
@@ -361,9 +361,9 @@ fn nav_row(ui: &mut Ui, page: Page, selected: bool) -> egui::Response {
     let (fill, color) = if selected {
         (theme::ACCENT, theme::ON_ACCENT)
     } else if response.hovered() {
-        (theme::CONTROL, theme::TEXT)
+        (theme::palette().control, theme::palette().text)
     } else {
-        (Color32::TRANSPARENT, theme::TEXT_SECONDARY)
+        (Color32::TRANSPARENT, theme::palette().text_secondary)
     };
     painter.rect_filled(rect, CornerRadius::same(theme::CONTROL_RADIUS), fill);
     let icon_rect = egui::Rect::from_center_size(
@@ -402,17 +402,17 @@ fn page(ui: &mut Ui, current: &mut Page) {
             ui.horizontal(|ui| {
                 if let Some(icon) = current.icon() {
                     let (rect, _) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::hover());
-                    paint_icon(ui.painter(), rect, icon, theme::ACCENT);
+                    paint_icon(ui.painter(), rect, icon, theme::palette().accent_strong);
                     ui.add_space(2.0);
                 }
                 ui.label(
                     RichText::new(current.title())
                         .font(theme::title(22.0))
-                        .color(theme::TEXT),
+                        .color(theme::palette().text),
                 );
             });
             ui.add_space(6.0);
-            paragraph(ui, &content.lede, theme::body(14.0), theme::TEXT);
+            paragraph(ui, &content.lede, theme::body(14.0), theme::palette().text);
             ui.add_space(4.0);
             let mut step = 0;
             for block in &content.blocks {
@@ -422,12 +422,12 @@ fn page(ui: &mut Ui, current: &mut Page) {
                         ui.label(
                             RichText::new(*text)
                                 .font(theme::title(15.0))
-                                .color(theme::TEXT),
+                                .color(theme::palette().text),
                         );
                         ui.add_space(2.0);
                     }
                     Block::Text(text) => {
-                        paragraph(ui, text, theme::body(13.0), theme::TEXT_SECONDARY);
+                        paragraph(ui, text, theme::body(13.0), theme::palette().text_secondary);
                         ui.add_space(4.0);
                     }
                     Block::Term(term, text) => {
@@ -453,7 +453,7 @@ fn page(ui: &mut Ui, current: &mut Page) {
                     ui.label(
                         RichText::new("See also")
                             .font(theme::title(12.5))
-                            .color(theme::TEXT_TERTIARY),
+                            .color(theme::palette().text_tertiary),
                     );
                     for &page in content.see_also {
                         let link = ui.link(RichText::new(page.title()).font(theme::body(13.0)));
@@ -481,9 +481,13 @@ fn paragraph(ui: &mut Ui, text: &str, font_id: egui::FontId, color: Color32) {
 fn term_paragraph(ui: &mut Ui, term: &str, text: &str, width: f32) {
     let mut job = LayoutJob::default();
     job.wrap.max_width = width;
-    job.append(term, 0.0, format(theme::title(13.0), theme::TEXT));
-    job.append(" ", 0.0, format(theme::body(13.0), theme::TEXT));
-    job.append(text, 0.0, format(theme::body(13.0), theme::TEXT_SECONDARY));
+    job.append(term, 0.0, format(theme::title(13.0), theme::palette().text));
+    job.append(" ", 0.0, format(theme::body(13.0), theme::palette().text));
+    job.append(
+        text,
+        0.0,
+        format(theme::body(13.0), theme::palette().text_secondary),
+    );
     ui.label(job);
 }
 
@@ -521,19 +525,19 @@ fn key_row(ui: &mut Ui, keys: &[String], action: &str) {
                         ui.label(
                             RichText::new("or")
                                 .font(theme::body(11.5))
-                                .color(theme::TEXT_TERTIARY),
+                                .color(theme::palette().text_tertiary),
                         );
                     }
                     egui::Frame::NONE
-                        .fill(theme::CONTROL)
-                        .stroke(egui::Stroke::new(1.0, theme::TRACK))
+                        .fill(theme::palette().control)
+                        .stroke(egui::Stroke::new(1.0, theme::palette().track))
                         .corner_radius(CornerRadius::same(5))
                         .inner_margin(egui::Margin::symmetric(7, 2))
                         .show(ui, |ui| {
                             ui.label(
                                 RichText::new(key)
                                     .font(theme::body(12.0))
-                                    .color(theme::TEXT),
+                                    .color(theme::palette().text),
                             );
                         });
                 }
@@ -541,7 +545,12 @@ fn key_row(ui: &mut Ui, keys: &[String], action: &str) {
         );
         ui.vertical(|ui| {
             ui.add_space(3.0);
-            paragraph(ui, action, theme::body(13.0), theme::TEXT_SECONDARY);
+            paragraph(
+                ui,
+                action,
+                theme::body(13.0),
+                theme::palette().text_secondary,
+            );
         });
     });
     ui.add_space(3.0);
@@ -550,15 +559,23 @@ fn key_row(ui: &mut Ui, keys: &[String], action: &str) {
 /// A tip on a card, marked in amber.
 fn note(ui: &mut Ui, text: &str) {
     egui::Frame::NONE
-        .fill(theme::CARD)
+        .fill(theme::palette().card)
         .corner_radius(CornerRadius::same(theme::CARD_RADIUS))
         .inner_margin(egui::Margin::symmetric(12, 9))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             let mut job = LayoutJob::default();
             job.wrap.max_width = ui.available_width();
-            job.append("Tip ", 0.0, format(theme::title(13.0), theme::ACCENT));
-            job.append(text, 0.0, format(theme::body(13.0), theme::TEXT_SECONDARY));
+            job.append(
+                "Tip ",
+                0.0,
+                format(theme::title(13.0), theme::palette().accent_strong),
+            );
+            job.append(
+                text,
+                0.0,
+                format(theme::body(13.0), theme::palette().text_secondary),
+            );
             ui.label(job);
         });
 }

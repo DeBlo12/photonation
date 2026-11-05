@@ -38,10 +38,11 @@ pub const TOOL_BUTTON_SIZE: egui::Vec2 = egui::vec2(30.0, 26.0);
 
 /// Borderless toolbar button with an optional "on" state.
 pub fn tool_button(ui: &mut Ui, label: &str, active: bool, tooltip: &str) -> Response {
-    let text =
-        RichText::new(label)
-            .size(13.0)
-            .color(if active { theme::ACCENT } else { theme::TEXT });
+    let text = RichText::new(label).size(13.0).color(if active {
+        theme::palette().accent_strong
+    } else {
+        theme::palette().text
+    });
     let fill = if active {
         theme::ACCENT_SOFT
     } else {
@@ -64,7 +65,11 @@ pub fn icon_button(
     active: bool,
     tooltip: &str,
 ) -> Response {
-    let color = if active { theme::ACCENT } else { theme::TEXT };
+    let color = if active {
+        theme::palette().accent_strong
+    } else {
+        theme::palette().text
+    };
     let fill = if active {
         theme::ACCENT_SOFT
     } else {
@@ -100,13 +105,13 @@ pub fn hover_tip(response: Response, tip: &str) -> Response {
         ui.label(
             RichText::new(name)
                 .font(theme::title(12.5))
-                .color(theme::TEXT),
+                .color(theme::palette().text),
         );
         if !detail.is_empty() {
             ui.label(
                 RichText::new(detail)
                     .font(theme::body(12.0))
-                    .color(theme::TEXT_SECONDARY),
+                    .color(theme::palette().text_secondary),
             );
         }
     };

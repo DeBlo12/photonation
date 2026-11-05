@@ -70,17 +70,28 @@ it, and the inspector's outline pulses amber (`ViewState::tool_warning`).
 
 ## Look (`theme.rs`)
 
-Photomator's arrangement in the Photonation brand:
+Photomator's arrangement in the Photonation brand, dark or light as the system
+is:
 
-- **Surfaces** are near-neutral greys leaning slightly toward the brand's Ink
-  (`#0E1322`), so the window reads as Photonation without tinting how a photo
-  is judged. The toolbar, viewer and filmstrip share the window colour; the
+- **Modes**: egui resolves the mode from the system, also when it changes while
+  the app runs, and `theme::follow_mode` picks it up at the start of each frame.
+  `theme::palette()` returns the colours that differ between the modes; the
+  constants in `theme.rs` are those that do not, such as the brand colours and
+  whatever is drawn on the photo (`ON_PHOTO`, `KNOB`, `PIN_FILL`).
+- **Surfaces**: in dark mode, near-neutral greys leaning slightly toward the
+  brand's Ink (`#0E1322`), with Paper (`#F6F5F1`) text. In light mode, warm
+  Paper with Ink text. The toolbar and filmstrip share the window colour; the
   adjustments, masks, crop and Remove panels sit in a rounded inspector that
-  floats over it. The look stays dark when the system is in light mode.
+  floats over it.
+- **Viewer**: `Palette::viewer` is behind the photo. It is the window colour in
+  dark mode and a neutral mid-grey (`#777777`) in light mode, so warm surfaces do
+  not skew how a photo is judged. The welcome screen keeps the window colour.
 - **Photon amber** (`#FFB224`) means "on": active tools, switches, slider
   fills from the default, the modified dot on a card, selections and the
   primary button. Text and icons on an amber fill are Ink (`ON_ACCENT`),
-  because Paper on amber fails contrast. Text is Paper (`#F6F5F1`).
+  because Paper on amber fails contrast. Amber is unreadable on Paper, so text,
+  icons and thin marks on a surface use `Palette::accent_strong` (`#885100` in
+  light mode); on the photo they stay amber.
 - **Type**: Inter for the interface (regular; semibold for card and sheet
   titles), Sora semibold for the wordmark. Both are variable fonts bundled
   from `assets/fonts` and instanced by weight; egui's own fonts stay behind
@@ -549,6 +560,7 @@ state and are not saved.
 
 `PHOTONATION_SCREENSHOT=out.png photonation-desktop <folder or photo>` saves the window
 once the preview and thumbnails are ready, then quits.
+`PHOTONATION_SCREENSHOT_THEME=light` (or `=dark`) overrides the system's mode;
 `PHOTONATION_SCREENSHOT_PANELS="Curves,Color Grading"` picks the open cards;
 `PHOTONATION_SCREENSHOT_POINT_COLOR=1` opens the Point Color tab (`=range` also
 shows the first point colour's range); `PHOTONATION_SCREENSHOT_MASKS=1` opens

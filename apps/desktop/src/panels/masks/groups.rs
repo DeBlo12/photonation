@@ -225,7 +225,7 @@ impl DropTarget {
             return;
         };
         let right = rows[0].1.right();
-        let stroke = Stroke::new(2.0, theme::ACCENT);
+        let stroke = Stroke::new(2.0, theme::palette().accent_strong);
         match self.marker {
             DropMarker::Line { y, indented } => {
                 let left = if indented { left + GROUP_INDENT } else { left };
@@ -474,14 +474,15 @@ pub fn group_row(
             rect,
             radius,
             theme::ACCENT_SOFT,
-            Stroke::new(1.0, theme::ACCENT),
+            Stroke::new(1.0, theme::palette().accent_strong),
             StrokeKind::Inside,
         );
     } else if response.hovered() || response.dragged() {
-        ui.painter().rect_filled(rect, radius, theme::CONTROL);
+        ui.painter()
+            .rect_filled(rect, radius, theme::palette().control);
     } else {
         ui.painter()
-            .rect_filled(rect, radius, theme::CONTROL.gamma_multiply(0.45));
+            .rect_filled(rect, radius, theme::palette().control.gamma_multiply(0.45));
     }
 
     let arrow_rect = Rect::from_min_size(
@@ -496,9 +497,9 @@ pub fn group_row(
             "Hide this group's masks"
         });
     let arrow_color = if arrow.hovered() {
-        theme::TEXT
+        theme::palette().text
     } else {
-        theme::TEXT_SECONDARY
+        theme::palette().text_secondary
     };
     paint_fold_arrow(ui.painter(), arrow_rect.center(), collapsed, arrow_color);
 
@@ -506,9 +507,9 @@ pub fn group_row(
     let text_left = arrow_rect.right() + 2.0;
     let text_width = rect.right() - toggle_size.x - 14.0 - text_left;
     let text_color = if group.enabled {
-        theme::TEXT
+        theme::palette().text
     } else {
-        theme::TEXT_TERTIARY
+        theme::palette().text_tertiary
     };
     let name = single_line(
         ui.painter(),
@@ -521,7 +522,7 @@ pub fn group_row(
         ui.painter(),
         summary(group, members),
         theme::body(11.0),
-        theme::TEXT_SECONDARY,
+        theme::palette().text_secondary,
         text_width,
     );
     ui.painter().galley(
@@ -532,7 +533,7 @@ pub fn group_row(
     ui.painter().galley(
         pos2(text_left, rect.center().y + 1.0),
         details,
-        theme::TEXT_SECONDARY,
+        theme::palette().text_secondary,
     );
 
     // A child Ui, unlike `ui.put`, leaves the list's cursor below the row.
@@ -643,11 +644,15 @@ pub fn group_settings(
     ui: &mut Ui,
 ) -> Option<LayerAction> {
     ui.horizontal(|ui| {
-        ui.label(RichText::new("Group").size(13.0).color(theme::TEXT));
+        ui.label(
+            RichText::new("Group")
+                .size(13.0)
+                .color(theme::palette().text),
+        );
         ui.label(
             RichText::new(summary(group, members))
                 .size(11.0)
-                .color(theme::TEXT_TERTIARY),
+                .color(theme::palette().text_tertiary),
         );
     });
     ui.horizontal(|ui| {

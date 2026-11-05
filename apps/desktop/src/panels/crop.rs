@@ -307,12 +307,16 @@ pub fn sidebar(app: &mut PhotonationApp, ui: &mut Ui) {
     let mut not_level = false;
     card(ui, |ui| {
         ui.horizontal(|ui| {
-            ui.label(RichText::new("Crop").size(14.0).color(theme::TEXT));
+            ui.label(
+                RichText::new("Crop")
+                    .size(14.0)
+                    .color(theme::palette().text),
+            );
             let [width, height] = frame.size();
             ui.label(
                 RichText::new(format!("{width:.0} × {height:.0}"))
                     .size(11.0)
-                    .color(theme::TEXT_TERTIARY),
+                    .color(theme::palette().text_tertiary),
             );
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 done = tool_button(ui, "Done", false, "Back to the adjustments (R)").clicked();
@@ -322,7 +326,7 @@ pub fn sidebar(app: &mut PhotonationApp, ui: &mut Ui) {
         ui.label(
             RichText::new("Aspect")
                 .size(12.0)
-                .color(theme::TEXT_SECONDARY),
+                .color(theme::palette().text_secondary),
         );
         ui.horizontal_wrapped(|ui| {
             for (label, aspect) in ASPECTS {
@@ -399,7 +403,7 @@ pub fn sidebar(app: &mut PhotonationApp, ui: &mut Ui) {
                 theme::COMMAND_KEY
             ))
             .size(11.0)
-            .color(theme::TEXT_TERTIARY),
+            .color(theme::palette().text_tertiary),
         );
     });
     if not_level {
@@ -611,7 +615,7 @@ pub fn paint(app: &PhotonationApp, painter: &Painter, view: &PhotoFrame) {
             Align2::LEFT_BOTTOM,
             format!("{:+.1}°", line_level(from, to)),
             theme::body(13.0),
-            theme::TEXT,
+            theme::ON_PHOTO,
         );
     }
     if matches!(
@@ -627,7 +631,7 @@ pub fn paint(app: &PhotonationApp, painter: &Painter, view: &PhotoFrame) {
             Align2::CENTER_BOTTOM,
             format!("{:+.1}°", frame.angle()),
             theme::body(13.0),
-            theme::TEXT,
+            theme::ON_PHOTO,
         );
     }
 }

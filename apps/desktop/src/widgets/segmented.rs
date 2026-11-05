@@ -13,7 +13,7 @@ pub fn segmented(ui: &mut Ui, labels: &[&str], selected: &mut usize) -> Response
     painter.rect_filled(
         rect,
         CornerRadius::same(theme::CONTROL_RADIUS),
-        theme::CONTROL,
+        theme::palette().control,
     );
     let segment_width = rect.width() / labels.len() as f32;
     for (index, label) in labels.iter().enumerate() {
@@ -27,13 +27,13 @@ pub fn segmented(ui: &mut Ui, labels: &[&str], selected: &mut usize) -> Response
             painter.rect_filled(
                 segment,
                 CornerRadius::same(theme::CONTROL_RADIUS - 1),
-                theme::CONTROL_HOVER,
+                theme::palette().control_hover,
             );
         }
         let color = if is_selected {
-            theme::TEXT
+            theme::palette().text
         } else {
-            theme::TEXT_SECONDARY
+            theme::palette().text_secondary
         };
         painter.text(
             segment.center(),

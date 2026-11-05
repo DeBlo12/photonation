@@ -38,7 +38,7 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
     egui::CentralPanel::no_frame()
         .frame(
             egui::Frame::NONE
-                .fill(theme::WINDOW)
+                .fill(theme::palette().window)
                 .inner_margin(egui::Margin::symmetric(16, 8)),
         )
         .show(ui, |ui| {
@@ -64,7 +64,7 @@ fn header(app: &PhotonationApp, ui: &mut egui::Ui) {
             ui.label(
                 RichText::new(folder_name(folder))
                     .font(theme::title(15.0))
-                    .color(theme::TEXT),
+                    .color(theme::palette().text),
             );
         }
         let found = folders.subfolders.len();
@@ -77,7 +77,7 @@ fn header(app: &PhotonationApp, ui: &mut egui::Ui) {
                     count_label(folders.photos_below(), "photo"),
                 ))
                 .font(theme::body(12.5))
-                .color(theme::TEXT_SECONDARY),
+                .color(theme::palette().text_secondary),
             );
         }
         if folders.scanning {
@@ -87,7 +87,7 @@ fn header(app: &PhotonationApp, ui: &mut egui::Ui) {
                 ui.label(
                     RichText::new("Looking for raw photos…")
                         .font(theme::body(12.5))
-                        .color(theme::TEXT_SECONDARY),
+                        .color(theme::palette().text_secondary),
                 );
             }
         }
@@ -100,7 +100,7 @@ fn nothing_found(app: &mut PhotonationApp, ui: &mut egui::Ui) {
         ui.label(
             RichText::new("No raw photos in this folder or the folders inside it")
                 .size(15.0)
-                .color(theme::TEXT_SECONDARY),
+                .color(theme::palette().text_secondary),
         );
         ui.add_space(12.0);
         if ui.add(theme::primary_button("Open Folder…")).clicked() {
@@ -153,13 +153,17 @@ fn card_ui(ui: &egui::Ui, rect: Rect, card: &FolderCard) -> egui::Response {
     painter.rect_filled(
         rect,
         radius,
-        if hovered { theme::CARD } else { theme::SIDEBAR },
+        if hovered {
+            theme::palette().card
+        } else {
+            theme::palette().sidebar
+        },
     );
     if hovered {
         painter.rect_stroke(
             rect,
             radius,
-            Stroke::new(1.5, theme::TEXT_SECONDARY),
+            Stroke::new(1.5, theme::palette().text_secondary),
             StrokeKind::Inside,
         );
     }
@@ -179,7 +183,7 @@ fn card_ui(ui: &egui::Ui, rect: Rect, card: &FolderCard) -> egui::Response {
             );
         }
         None => {
-            painter.rect_filled(cover, corner, theme::CONTROL);
+            painter.rect_filled(cover, corner, theme::palette().control);
         }
     }
 
@@ -187,17 +191,21 @@ fn card_ui(ui: &egui::Ui, rect: Rect, card: &FolderCard) -> egui::Response {
     let name_galley = ui.painter().layout_job(single_line(
         name.clone(),
         theme::title(13.0),
-        theme::TEXT,
+        theme::palette().text,
         inner_width,
     ));
     let name_top = cover.bottom() + 7.0;
-    painter.galley(pos2(cover.left(), name_top), name_galley, theme::TEXT);
+    painter.galley(
+        pos2(cover.left(), name_top),
+        name_galley,
+        theme::palette().text,
+    );
     painter.text(
         pos2(cover.left(), name_top + 18.0),
         Align2::LEFT_TOP,
         count_label(subfolder.photo_count, "photo"),
         theme::body(12.0),
-        theme::TEXT_SECONDARY,
+        theme::palette().text_secondary,
     );
     response.on_hover_text(name)
 }
@@ -283,7 +291,7 @@ pub fn breadcrumb(app: &mut PhotonationApp, ui: &mut egui::Ui, room: f32) {
                     ui.label(
                         RichText::new(&labels[index])
                             .size(CRUMB_TEXT_SIZE)
-                            .color(theme::TEXT_SECONDARY),
+                            .color(theme::palette().text_secondary),
                     );
                 }
             }
@@ -327,7 +335,7 @@ pub fn breadcrumb(app: &mut PhotonationApp, ui: &mut egui::Ui, room: f32) {
 fn crumb_button(ui: &mut egui::Ui, label: &str, tooltip: &str) -> egui::Response {
     let text = RichText::new(label)
         .size(CRUMB_TEXT_SIZE)
-        .color(theme::TEXT);
+        .color(theme::palette().text);
     let button = egui::Button::new(text)
         .corner_radius(theme::CONTROL_RADIUS)
         .min_size(TOOL_BUTTON_SIZE);
@@ -338,7 +346,7 @@ fn separator_label(ui: &mut egui::Ui) {
     ui.label(
         RichText::new(SEPARATOR)
             .size(CRUMB_TEXT_SIZE)
-            .color(theme::TEXT_TERTIARY),
+            .color(theme::palette().text_tertiary),
     );
 }
 
@@ -368,7 +376,7 @@ fn text_width(ui: &egui::Ui, text: &str) -> f32 {
         .layout_no_wrap(
             text.to_owned(),
             FontId::proportional(CRUMB_TEXT_SIZE),
-            theme::TEXT,
+            theme::palette().text,
         )
         .size()
         .x

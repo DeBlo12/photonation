@@ -16,7 +16,7 @@ pub fn show(app: &mut PhotonationApp, ui: &mut Ui) {
         .show_separator_line(false)
         .frame(
             egui::Frame::NONE
-                .fill(theme::WINDOW)
+                .fill(theme::palette().window)
                 .inner_margin(egui::Margin::symmetric(8, 2)),
         )
         .show(ui, |ui| {

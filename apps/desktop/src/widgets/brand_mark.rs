@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 The Photonation contributors
 
-//! The Photonation iris: six paper blades around an amber photon, drawn as
+//! The Photonation iris: six blades around an amber photon, drawn as
 //! vectors from the app icon's geometry (`packaging/icons`), so it stays
 //! sharp at any size.
 
@@ -11,38 +11,15 @@ use eframe::egui::{Color32, Painter, Pos2, Shape, Stroke, Vec2, vec2};
 /// The icon's 100 u grid: blades reach this radius around (50, 50).
 const RADIUS: f32 = 34.0;
 const CENTER: Vec2 = vec2(50.0, 50.0);
-/// Each blade's inner corner, where its rim arc starts, and its shade.
-const BLADES: [([f32; 2], [f32; 2], Color32); 6] = [
-    (
-        [62.07, 53.24],
-        [34.86, 80.45],
-        Color32::from_rgb(0xd6, 0xcf, 0xc1),
-    ),
-    (
-        [53.24, 62.07],
-        [16.07, 52.11],
-        Color32::from_rgb(0xea, 0xe5, 0xda),
-    ),
-    (
-        [41.16, 58.84],
-        [31.20, 21.67],
-        Color32::from_rgb(0xff, 0xfd, 0xf8),
-    ),
-    (
-        [37.93, 46.76],
-        [65.14, 19.55],
-        Color32::from_rgb(0xf6, 0xf2, 0xea),
-    ),
-    (
-        [46.76, 37.93],
-        [83.93, 47.89],
-        Color32::from_rgb(0xe2, 0xdc, 0xd0),
-    ),
-    (
-        [58.84, 41.16],
-        [68.80, 78.33],
-        Color32::from_rgb(0xcd, 0xc5, 0xb6),
-    ),
+/// Each blade's inner corner and where its rim arc starts. Its shade comes
+/// from `Palette::brand_blades`.
+const BLADES: [([f32; 2], [f32; 2]); 6] = [
+    ([62.07, 53.24], [34.86, 80.45]),
+    ([53.24, 62.07], [16.07, 52.11]),
+    ([41.16, 58.84], [31.20, 21.67]),
+    ([37.93, 46.76], [65.14, 19.55]),
+    ([46.76, 37.93], [83.93, 47.89]),
+    ([58.84, 41.16], [68.80, 78.33]),
 ];
 const ARC_STEPS: usize = 16;
 
@@ -56,7 +33,7 @@ pub fn paint_brand_mark(painter: &Painter, center: Pos2, diameter: f32, backgrou
     let blade_angle = std::f32::consts::TAU / BLADES.len() as f32;
     let mut aperture = Vec::with_capacity(BLADES.len());
     let mut seams = Vec::with_capacity(BLADES.len());
-    for (inner, rim, color) in BLADES {
+    for ((inner, rim), color) in BLADES.into_iter().zip(theme::palette().brand_blades) {
         let start = angle_of(rim);
         let mut points = vec![to_screen(inner)];
         points.extend(
@@ -83,7 +60,7 @@ mod tests {
     /// no longer matches the app icon.
     #[test]
     fn blade_rims_lie_on_the_circle() {
-        for (_, [x, y], _) in BLADES {
+        for (_, [x, y]) in BLADES {
             let distance = (pos2(x, y) - CENTER.to_pos2()).length();
             assert!((distance - RADIUS).abs() < 0.05, "{distance}");
         }

@@ -23,7 +23,7 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
     egui::CentralPanel::no_frame()
         .frame(
             egui::Frame::NONE
-                .fill(theme::WINDOW)
+                .fill(theme::palette().window)
                 .inner_margin(egui::Margin::symmetric(16, 8)),
         )
         .show(ui, |ui| {
@@ -136,10 +136,10 @@ fn cell_ui(
     let painter = ui.painter();
     let radius = CornerRadius::same(theme::CARD_RADIUS);
     let background = match marked {
-        Marked::Current => theme::CONTROL,
-        Marked::Selected => theme::CARD,
-        Marked::None if response.hovered() => theme::CARD,
-        Marked::None => theme::SIDEBAR,
+        Marked::Current => theme::palette().control,
+        Marked::Selected => theme::palette().card,
+        Marked::None if response.hovered() => theme::palette().card,
+        Marked::None => theme::palette().sidebar,
     };
     painter.rect_filled(cell, radius, background);
     match marked {
@@ -147,7 +147,7 @@ fn cell_ui(
             painter.rect_stroke(
                 cell,
                 radius,
-                Stroke::new(2.0, theme::ACCENT),
+                Stroke::new(2.0, theme::palette().accent_strong),
                 StrokeKind::Inside,
             );
         }
@@ -155,7 +155,7 @@ fn cell_ui(
             painter.rect_stroke(
                 cell,
                 radius,
-                Stroke::new(1.5, theme::TEXT_SECONDARY),
+                Stroke::new(1.5, theme::palette().text_secondary),
                 StrokeKind::Inside,
             );
         }
@@ -183,14 +183,14 @@ fn cell_ui(
             );
         }
         None => {
-            painter.rect_filled(image, corner, theme::CARD);
+            painter.rect_filled(image, corner, theme::palette().card);
             if photo.unsupported {
                 painter.text(
                     image.center(),
                     egui::Align2::CENTER_CENTER,
                     "Unsupported",
                     theme::body(11.0),
-                    theme::TEXT_TERTIARY,
+                    theme::palette().text_tertiary,
                 );
             }
         }
@@ -219,7 +219,7 @@ fn nothing_shown(app: &mut PhotonationApp, ui: &mut egui::Ui) {
         ui.label(
             RichText::new("No photos match the filter")
                 .size(15.0)
-                .color(theme::TEXT_SECONDARY),
+                .color(theme::palette().text_secondary),
         );
         ui.add_space(8.0);
         if tool_button(

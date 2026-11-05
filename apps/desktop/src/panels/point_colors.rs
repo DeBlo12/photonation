@@ -27,7 +27,7 @@ pub fn show(ui: &mut Ui, settings: &mut Settings, view: &mut ViewState) {
                 "Pick a color in the photo with the picker to edit it and colors like it.",
             )
             .size(11.5)
-            .color(theme::TEXT_TERTIARY),
+            .color(theme::palette().text_tertiary),
         );
         return;
     }
@@ -51,7 +51,7 @@ pub fn show(ui: &mut Ui, settings: &mut Settings, view: &mut ViewState) {
     ui.label(
         RichText::new("Range")
             .size(11.5)
-            .color(theme::TEXT_SECONDARY),
+            .color(theme::palette().text_secondary),
     );
     let plain = SliderStyle {
         format: |v| format!("{v:.0}"),
@@ -66,7 +66,7 @@ pub fn show(ui: &mut Ui, settings: &mut Settings, view: &mut ViewState) {
         ui.label(
             RichText::new("Visualize range")
                 .size(12.0)
-                .color(theme::TEXT_SECONDARY),
+                .color(theme::palette().text_secondary),
         );
     });
 
@@ -93,11 +93,15 @@ fn swatches(ui: &mut Ui, points: &[PointColor], selected: &mut usize) {
                 painter.circle_stroke(
                     rect.center(),
                     SWATCH_DIAMETER / 2.0 - 0.5,
-                    Stroke::new(2.0, theme::KNOB),
+                    Stroke::new(2.0, theme::palette().text),
                 );
             }
             if point.is_active() {
-                painter.circle_filled(rect.center_bottom() + vec2(0.0, 3.0), 2.0, theme::ACCENT);
+                painter.circle_filled(
+                    rect.center_bottom() + vec2(0.0, 3.0),
+                    2.0,
+                    theme::palette().accent_strong,
+                );
             }
             if response
                 .on_hover_text(format!("Point color {}", index + 1))

@@ -1,43 +1,146 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 The Photonation contributors
 
-//! Visual language: Photomator's dark, image-first layout in the
-//! Photonation brand. All colours, type and metrics live here so the widgets
-//! stay consistent.
+//! Visual language: Photomator's image-first layout in the Photonation
+//! brand, dark or light as the system is. All colours, type and metrics live
+//! here so the widgets stay consistent.
 //!
-//! Surfaces are near-neutral greys leaning slightly toward the brand's Ink,
-//! so the window reads as Photonation without tinting how a photo is
+//! Dark surfaces are near-neutral greys leaning slightly toward the brand's
+//! Ink; light ones are its warm Paper. In light mode the viewer sits on a
+//! neutral mid-grey instead, so the surfaces do not skew how a photo is
 //! judged. Photon amber is reserved for "on": active tools, changed values,
 //! switches and the primary button. Text on amber is Ink, because Paper on
-//! amber fails contrast.
+//! amber fails contrast, and amber text is unreadable on Paper, so text and
+//! thin marks on a surface use [`Palette::accent_strong`].
+//!
+//! [`palette`] holds what changes with the mode. The constants do not change:
+//! brand colours, and whatever is drawn on the photo rather than on a surface.
 
 use eframe::egui::{
     self, Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, FontTweak, Margin,
-    Stroke, epaint::text::VariationCoords,
+    Stroke, Theme, epaint::text::VariationCoords,
 };
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
-pub const WINDOW: Color32 = Color32::from_rgb(0x0e, 0x10, 0x15);
-/// The floating inspector on the right.
-pub const SIDEBAR: Color32 = Color32::from_rgb(0x17, 0x1a, 0x21);
-pub const CARD: Color32 = Color32::from_rgb(0x1f, 0x23, 0x2b);
-pub const CONTROL: Color32 = Color32::from_rgb(0x2b, 0x30, 0x3b);
-pub const CONTROL_HOVER: Color32 = Color32::from_rgb(0x36, 0x3c, 0x49);
-pub const SEPARATOR: Color32 = Color32::from_rgb(0x27, 0x2c, 0x37);
-pub const TRACK: Color32 = Color32::from_rgb(0x3a, 0x40, 0x4e);
+/// The colours that differ between dark and light mode.
+pub struct Palette {
+    pub window: Color32,
+    /// Behind the photo in the viewer.
+    pub viewer: Color32,
+    /// The floating inspector on the right.
+    pub sidebar: Color32,
+    pub card: Color32,
+    pub control: Color32,
+    pub control_hover: Color32,
+    pub separator: Color32,
+    pub track: Color32,
+    /// Around a slider's knob, which is pale like the light surfaces.
+    pub knob_edge: Color32,
+    pub text: Color32,
+    pub text_secondary: Color32,
+    pub text_tertiary: Color32,
+    /// Marks on [`Palette::viewer`], such as the rendering spinner.
+    pub on_viewer: Color32,
+    /// The accent as text, icons and thin marks on a surface.
+    pub accent_strong: Color32,
+    /// The iris's blades, in the order of `widgets::brand_mark`.
+    pub brand_blades: [Color32; 6],
+}
+
+const DARK: Palette = Palette {
+    window: Color32::from_rgb(0x0e, 0x10, 0x15),
+    viewer: Color32::from_rgb(0x0e, 0x10, 0x15),
+    sidebar: Color32::from_rgb(0x17, 0x1a, 0x21),
+    card: Color32::from_rgb(0x1f, 0x23, 0x2b),
+    control: Color32::from_rgb(0x2b, 0x30, 0x3b),
+    control_hover: Color32::from_rgb(0x36, 0x3c, 0x49),
+    separator: Color32::from_rgb(0x27, 0x2c, 0x37),
+    track: Color32::from_rgb(0x3a, 0x40, 0x4e),
+    knob_edge: Color32::TRANSPARENT,
+    text: PAPER,
+    text_secondary: Color32::from_rgb(0xa7, 0xae, 0xc0),
+    text_tertiary: Color32::from_rgb(0x85, 0x8b, 0xa0),
+    on_viewer: Color32::from_rgb(0xa7, 0xae, 0xc0),
+    accent_strong: ACCENT,
+    brand_blades: [
+        Color32::from_rgb(0xd6, 0xcf, 0xc1),
+        Color32::from_rgb(0xea, 0xe5, 0xda),
+        Color32::from_rgb(0xff, 0xfd, 0xf8),
+        Color32::from_rgb(0xf6, 0xf2, 0xea),
+        Color32::from_rgb(0xe2, 0xdc, 0xd0),
+        Color32::from_rgb(0xcd, 0xc5, 0xb6),
+    ],
+};
+
+const LIGHT: Palette = Palette {
+    window: Color32::from_rgb(0xe7, 0xe5, 0xdf),
+    // About 18 % grey, the photographer's middle grey.
+    viewer: Color32::from_rgb(0x77, 0x77, 0x77),
+    sidebar: PAPER,
+    card: Color32::WHITE,
+    control: Color32::from_rgb(0xda, 0xd8, 0xd1),
+    control_hover: Color32::from_rgb(0xce, 0xcb, 0xc3),
+    separator: Color32::from_rgb(0xd9, 0xd7, 0xd0),
+    track: Color32::from_rgb(0xcf, 0xcc, 0xc4),
+    knob_edge: Color32::from_black_alpha(90),
+    text: INK,
+    text_secondary: Color32::from_rgb(0x4a, 0x50, 0x61),
+    text_tertiary: Color32::from_rgb(0x6a, 0x6f, 0x7d),
+    on_viewer: PAPER,
+    accent_strong: Color32::from_rgb(0x88, 0x51, 0x00),
+    brand_blades: [
+        Color32::from_rgb(0x17, 0x1b, 0x2a),
+        Color32::from_rgb(0x26, 0x2c, 0x3e),
+        Color32::from_rgb(0x3a, 0x42, 0x58),
+        Color32::from_rgb(0x2f, 0x36, 0x4a),
+        Color32::from_rgb(0x1e, 0x23, 0x34),
+        Color32::from_rgb(0x11, 0x14, 0x1f),
+    ],
+};
+
+/// Whether this frame is in light mode. Set once per frame by [`follow_mode`];
+/// painting code often has no `Context` at hand to ask.
+static LIGHT_MODE: AtomicBool = AtomicBool::new(false);
+
+const fn palette_of(theme: Theme) -> &'static Palette {
+    match theme {
+        Theme::Dark => &DARK,
+        Theme::Light => &LIGHT,
+    }
+}
+
+/// The colours of the mode the app is in.
+pub fn palette() -> &'static Palette {
+    palette_of(if LIGHT_MODE.load(Ordering::Relaxed) {
+        Theme::Light
+    } else {
+        Theme::Dark
+    })
+}
+
+/// Picks up the mode egui resolved from the system. Call at the start of a
+/// frame, before anything paints.
+pub fn follow_mode(ctx: &egui::Context) {
+    LIGHT_MODE.store(ctx.theme() == Theme::Light, Ordering::Relaxed);
+}
+
+/// Brand Ink.
+pub const INK: Color32 = Color32::from_rgb(0x0e, 0x13, 0x22);
 /// Brand Paper.
-pub const TEXT: Color32 = Color32::from_rgb(0xf6, 0xf5, 0xf1);
-pub const TEXT_SECONDARY: Color32 = Color32::from_rgb(0xa7, 0xae, 0xc0);
-pub const TEXT_TERTIARY: Color32 = Color32::from_rgb(0x6b, 0x72, 0x87);
-/// Brand Photon amber.
+pub const PAPER: Color32 = Color32::from_rgb(0xf6, 0xf5, 0xf1);
+/// Brand Photon amber, as a fill or on the photo. On a surface, text and thin
+/// marks use [`Palette::accent_strong`].
 pub const ACCENT: Color32 = Color32::from_rgb(0xff, 0xb2, 0x24);
 /// Accent at 25 % opacity (premultiplied).
 pub const ACCENT_SOFT: Color32 = Color32::from_rgba_premultiplied(0x40, 0x2c, 0x09, 0x40);
 /// Text and icons on an [`ACCENT`] fill: brand Ink.
-pub const ON_ACCENT: Color32 = Color32::from_rgb(0x0e, 0x13, 0x22);
-pub const KNOB: Color32 = TEXT;
+pub const ON_ACCENT: Color32 = INK;
+pub const KNOB: Color32 = PAPER;
+/// Text and icons drawn on the photo or on a dark band over it.
+pub const ON_PHOTO: Color32 = PAPER;
 pub const MASK_OVERLAY: Color32 = Color32::from_rgba_premultiplied(0x8c, 0x14, 0x1e, 0x8c);
-/// Colour labels, muted to sit on the dark surfaces (Lightroom's five).
+/// Colour labels (Lightroom's five).
 pub const LABEL_RED: Color32 = Color32::from_rgb(0xe5, 0x48, 0x4d);
 pub const LABEL_YELLOW: Color32 = Color32::from_rgb(0xf2, 0xcc, 0x3d);
 pub const LABEL_GREEN: Color32 = Color32::from_rgb(0x46, 0xb8, 0x6b);
@@ -45,6 +148,8 @@ pub const LABEL_BLUE: Color32 = Color32::from_rgb(0x4a, 0x90, 0xe2);
 pub const LABEL_PURPLE: Color32 = Color32::from_rgb(0xa3, 0x6b, 0xdb);
 /// The reject mark.
 pub const REJECT: Color32 = LABEL_RED;
+/// Inside the mask pins on the photo.
+pub const PIN_FILL: Color32 = Color32::from_rgb(0x1f, 0x23, 0x2b);
 /// Under mask lines and handles, so they stay visible on bright photos.
 pub const HANDLE_SHADOW: Color32 = Color32::from_black_alpha(140);
 
@@ -104,7 +209,7 @@ const DISPLAY: &str = "display";
 
 pub fn card_frame() -> egui::Frame {
     egui::Frame::NONE
-        .fill(CARD)
+        .fill(palette().card)
         .corner_radius(CornerRadius::same(CARD_RADIUS))
         .inner_margin(Margin::same(12))
 }
@@ -112,8 +217,8 @@ pub fn card_frame() -> egui::Frame {
 /// Photomator's inspector: a rounded panel floating over the window.
 pub fn inspector_frame() -> egui::Frame {
     egui::Frame::NONE
-        .fill(SIDEBAR)
-        .stroke(Stroke::new(1.0, SEPARATOR))
+        .fill(palette().sidebar)
+        .stroke(Stroke::new(1.0, palette().separator))
         .corner_radius(CornerRadius::same(INSPECTOR_RADIUS))
         .inner_margin(Margin::same(12))
 }
@@ -129,38 +234,14 @@ pub fn primary_button(label: &str) -> egui::Button<'_> {
     .corner_radius(CornerRadius::same(u8::MAX))
 }
 
-/// Installs fonts and widget visuals.
+/// Installs fonts and the widget visuals of both modes. The app then follows
+/// the system's mode, also when it changes while running.
 pub fn install(ctx: &egui::Context) {
     install_fonts(ctx);
-    // There is only a dark look. Following the system would swap in egui's
-    // light widgets whenever macOS or Windows is in light mode.
-    ctx.set_theme(egui::Theme::Dark);
-    let mut visuals = egui::Visuals::dark();
-    visuals.panel_fill = SIDEBAR;
-    visuals.window_fill = CARD;
-    visuals.extreme_bg_color = WINDOW;
-    visuals.faint_bg_color = CARD;
-    visuals.selection.bg_fill = ACCENT;
-    visuals.selection.stroke = Stroke::new(1.0, ON_ACCENT);
-    visuals.hyperlink_color = ACCENT;
-    visuals.window_corner_radius = CornerRadius::same(CARD_RADIUS + 2);
-    visuals.window_stroke = Stroke::new(1.0, SEPARATOR);
-    let radius = CornerRadius::same(CONTROL_RADIUS);
-    for (widget, fill) in [
-        (&mut visuals.widgets.noninteractive, CARD),
-        (&mut visuals.widgets.inactive, CONTROL),
-        (&mut visuals.widgets.hovered, CONTROL_HOVER),
-        (&mut visuals.widgets.active, CONTROL_HOVER),
-        (&mut visuals.widgets.open, CONTROL),
-    ] {
-        widget.bg_fill = fill;
-        widget.weak_bg_fill = fill;
-        widget.corner_radius = radius;
-        widget.bg_stroke = Stroke::NONE;
-        widget.fg_stroke = Stroke::new(1.0, TEXT);
+    ctx.set_theme(egui::ThemePreference::System);
+    for theme in [Theme::Dark, Theme::Light] {
+        ctx.set_visuals_of(theme, visuals_of(theme));
     }
-    visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, TEXT_SECONDARY);
-    ctx.set_visuals(visuals);
     ctx.all_styles_mut(|style| {
         style.spacing.item_spacing = egui::vec2(8.0, 6.0);
         style.spacing.button_padding = egui::vec2(10.0, 5.0);
@@ -174,6 +255,40 @@ pub fn install(ctx: &egui::Context) {
             .text_styles
             .insert(egui::TextStyle::Heading, body(15.0));
     });
+}
+
+/// egui's own visuals for `theme`, in the brand's colours.
+fn visuals_of(theme: Theme) -> egui::Visuals {
+    let colors = palette_of(theme);
+    let mut visuals = match theme {
+        Theme::Dark => egui::Visuals::dark(),
+        Theme::Light => egui::Visuals::light(),
+    };
+    visuals.panel_fill = colors.sidebar;
+    visuals.window_fill = colors.card;
+    visuals.extreme_bg_color = colors.window;
+    visuals.faint_bg_color = colors.card;
+    visuals.selection.bg_fill = ACCENT;
+    visuals.selection.stroke = Stroke::new(1.0, ON_ACCENT);
+    visuals.hyperlink_color = colors.accent_strong;
+    visuals.window_corner_radius = CornerRadius::same(CARD_RADIUS + 2);
+    visuals.window_stroke = Stroke::new(1.0, colors.separator);
+    let radius = CornerRadius::same(CONTROL_RADIUS);
+    for (widget, fill) in [
+        (&mut visuals.widgets.noninteractive, colors.card),
+        (&mut visuals.widgets.inactive, colors.control),
+        (&mut visuals.widgets.hovered, colors.control_hover),
+        (&mut visuals.widgets.active, colors.control_hover),
+        (&mut visuals.widgets.open, colors.control),
+    ] {
+        widget.bg_fill = fill;
+        widget.weak_bg_fill = fill;
+        widget.corner_radius = radius;
+        widget.bg_stroke = Stroke::NONE;
+        widget.fg_stroke = Stroke::new(1.0, colors.text);
+    }
+    visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, colors.text_secondary);
+    visuals
 }
 
 /// Bundles the brand faces (variable fonts, instanced by weight): Inter for
@@ -290,17 +405,51 @@ mod tests {
     }
 
     #[test]
-    fn the_app_stays_dark_when_the_system_is_light() {
-        let ctx = egui::Context::default();
-        install(&ctx);
-        let light_system = egui::RawInput {
-            system_theme: Some(egui::Theme::Light),
-            ..Default::default()
+    fn the_app_follows_the_system_mode() {
+        for (system, palette) in [(Theme::Light, &LIGHT), (Theme::Dark, &DARK)] {
+            let ctx = egui::Context::default();
+            install(&ctx);
+            let input = egui::RawInput {
+                system_theme: Some(system),
+                ..Default::default()
+            };
+            ctx.run_ui(input, |_| {}).textures_delta.clear();
+            assert_eq!(ctx.theme(), system);
+            assert_eq!(
+                ctx.global_style().visuals.widgets.inactive.weak_bg_fill,
+                palette.control
+            );
+        }
+    }
+
+    /// WCAG contrast ratio of two opaque colours.
+    fn contrast(a: Color32, b: Color32) -> f32 {
+        let luminance = |color: Color32| {
+            let [red, green, blue, _] = egui::Rgba::from(color).to_array();
+            0.2126 * red + 0.7152 * green + 0.0722 * blue
         };
-        ctx.run_ui(light_system, |_| {}).textures_delta.clear();
-        assert_eq!(
-            ctx.global_style().visuals.widgets.inactive.weak_bg_fill,
-            CONTROL
-        );
+        let (a, b) = (luminance(a), luminance(b));
+        (a.max(b) + 0.05) / (a.min(b) + 0.05)
+    }
+
+    #[test]
+    fn text_stays_readable_on_every_surface_in_both_modes() {
+        for palette in [&DARK, &LIGHT] {
+            for surface in [
+                palette.window,
+                palette.sidebar,
+                palette.card,
+                palette.control,
+            ] {
+                assert!(contrast(palette.text, surface) >= 4.5);
+                assert!(contrast(palette.text_secondary, surface) >= 4.5);
+                assert!(contrast(palette.accent_strong, surface) >= 4.5);
+                assert!(contrast(palette.text_tertiary, surface) >= 3.0);
+            }
+            assert!(contrast(palette.on_viewer, palette.viewer) >= 3.0);
+            // The library bar puts controls straight on the window.
+            assert!(contrast(palette.control, palette.window) >= 1.1);
+        }
+        assert!(contrast(ON_ACCENT, ACCENT) >= 4.5);
     }
 }

@@ -103,6 +103,9 @@ on `PATH`. Shortcuts use Ctrl where the table below shows ⌘, and Alt for ⌥.
 | ← / → | Previous / next photo |
 | ⌘Z / ⇧⌘Z | Undo / redo |
 | `\` | Compare with original (drag the divider) |
+| `F` | Full screen, the photo alone (`F` or `Esc` leaves) |
+| `M` / `R` / `Q` | Masks / crop and straighten / remove objects |
+| `[` / `]` | With a mask brush: smaller / larger brush |
 | ⌘0, double-click | Fit / actual pixels |
 | ⇧⌘E | Export |
 | ⌘, | Settings |
@@ -116,6 +119,7 @@ on `PATH`. Shortcuts use Ctrl where the table below shows ⌘, and Alt for ⌥.
 | [PIPELINE.md](docs/PIPELINE.md) | The render path step by step: band engine, demosaic, colour, tone |
 | [EDIT-MODEL.md](docs/EDIT-MODEL.md) | Settings, controls, sidecars, process versions |
 | [ENGINE.md](docs/ENGINE.md) | Background workers, events, export |
+| [RETOUCH.md](docs/RETOUCH.md) | Object removal: fills, models, caching |
 | [DESKTOP.md](docs/DESKTOP.md) | The editor's layout and per-frame control flow |
 | [DEVELOPMENT.md](docs/DEVELOPMENT.md) | Building, testing, conventions, adding a control |
 | [ROADMAP.md](docs/ROADMAP.md) | What's done and what's next |

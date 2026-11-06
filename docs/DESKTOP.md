@@ -36,7 +36,7 @@ it, and the inspector's outline pulses amber (`ViewState::tool_warning`).
 
 | File | Region |
 |---|---|
-| `panels/toolbar.rs` | Open, the grid button and filter chip, the path to the open folder (see *Folders* below), photo name, its stars, flag and label, exposure info, undo/redo, compare, zoom, export. As the window narrows the exposure info goes, then the name shortens, then the labels go (they stay in the Library menu); nothing reaches the controls on the right |
+| `panels/toolbar.rs` | Open, the grid button and filter chip, the path to the open folder (see *Folders* below), photo name, its stars, flag and label, exposure info, undo/redo, compare, full screen, zoom, export. As the window narrows the exposure info goes, then the name shortens, then the labels go (they stay in the Library menu); nothing reaches the controls on the right |
 | `menus.rs` | The menus as data, and what choosing an item does |
 | `native_menu.rs` | macOS only: the menus in the system menu bar, built with muda and kept up to date |
 | `glass.rs` | macOS 26 and later: the Liquid Glass views behind the inspector and the filmstrip |
@@ -584,8 +584,8 @@ or photo>`) takes the same paths.
 
 **Menus** (`menus.rs`). File (Open Folder, Open Photo, Export, Export All
 Photos, Settings, Quit), Edit (Undo, Redo, Reset All Adjustments), View (Fit,
-Actual Pixels, Compare, Masks, Crop and Straighten, Remove Objects, previous
-and next photo) and Help (Photonation Help, Keyboard Shortcuts, About).
+Actual Pixels, Compare, Full Screen Photo, Masks, Crop and Straighten, Remove
+Objects, previous and next photo, and the window's full screen) and Help (Photonation Help, Keyboard Shortcuts, About).
 Items show their shortcuts and are disabled when they cannot apply.
 
 Each frame `menus::menus` builds the menus as data from the app's state, so an

@@ -23,6 +23,14 @@ changes to CI alone are not released.
   centre. Its handles still adjust it, and it starts in the usual place if you
   don't drag.
 
+## [0.20.0] - 2026-11-06
+
+### Added
+
+- **Open Photo…** opens one raw file, with the rest of its folder in the
+  filmstrip, alongside **Open Folder…**. The toolbar's **Open** button, the File
+  menu and the welcome screen offer both (⇧⌘O, or Ctrl+Shift+O).
+
 ## [0.19.0] - 2026-11-06
 
 ### Added
@@ -457,7 +465,8 @@ changes to CI alone are not released.
 
 - Licensed under GPL-3.0-or-later.
 
-[Unreleased]: https://github.com/DeBlo12/photonation/compare/v0.19.0...HEAD
+[Unreleased]: https://github.com/DeBlo12/photonation/compare/v0.20.0...HEAD
+[0.20.0]: https://github.com/DeBlo12/photonation/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/DeBlo12/photonation/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/DeBlo12/photonation/compare/v0.17.1...v0.18.0
 [0.17.1]: https://github.com/DeBlo12/photonation/compare/v0.17.0...v0.17.1

@@ -2,6 +2,7 @@
 // Copyright (C) 2026 The Photonation contributors
 
 use crate::app::{PhotonationApp, ViewState, Zoom};
+use crate::menus;
 use crate::panels::{hover_tip, icon_button, tool_button};
 use crate::theme;
 use crate::widgets::{Icon, rating_control, rating_control_width};
@@ -160,6 +161,39 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
         });
 }
 
+/// Open, with a choice of a folder or one photo: a single dialog can't offer both.
+fn open_button(app: &mut PhotonationApp, ui: &mut egui::Ui) {
+    let button = icon_button(
+        ui,
+        Icon::Library,
+        Some("Open"),
+        false,
+        &format!(
+            "Open a folder ({}) or a photo ({})\nA folder shows its raw photos in the \
+             filmstrip, or the folders inside it that have some; a photo opens with the rest \
+             of its folder. Edits are saved beside each photo; the raw file is never changed.",
+            theme::SHORTCUT_OPEN,
+            theme::SHORTCUT_OPEN_PHOTO
+        ),
+    );
+    let chosen = egui::Popup::menu(&button).show(|ui| {
+        let choice = |ui: &mut egui::Ui, label, shortcut| {
+            ui.add(egui::Button::new(label).shortcut_text(shortcut))
+                .clicked()
+        };
+        if choice(ui, menus::OPEN_FOLDER, theme::SHORTCUT_OPEN) {
+            Some(menus::Action::OpenFolder)
+        } else if choice(ui, menus::OPEN_PHOTO, theme::SHORTCUT_OPEN_PHOTO) {
+            Some(menus::Action::OpenPhoto)
+        } else {
+            None
+        }
+    });
+    if let Some(action) = chosen.and_then(|popup| popup.inner) {
+        app.perform(&action, ui.ctx());
+    }
+}
+
 /// Open, the grid, and the current photo's name, rating and camera settings,
 /// within the space `ui` has. As it narrows, the camera settings go first, then
 /// the file name shortens, then the colour labels go.
@@ -168,22 +202,7 @@ fn photo_details(app: &mut PhotonationApp, ui: &mut egui::Ui) {
     // smallest window), the rest is cut off: drawn over the controls on the
     // right, it would also take their clicks.
     ui.set_clip_rect(ui.max_rect().intersect(ui.clip_rect()));
-    if icon_button(
-        ui,
-        Icon::Library,
-        Some("Open"),
-        false,
-        &format!(
-            "Open a folder ({})\nShows its raw photos in the filmstrip, or the folders \
-             inside it that have some. Edits are saved beside each photo; the raw file is \
-             never changed.",
-            theme::SHORTCUT_OPEN
-        ),
-    )
-    .clicked()
-    {
-        app.pick_folder();
-    }
+    open_button(app, ui);
     library_buttons(app, ui);
     let name_gap = ui.spacing().item_spacing.x + DETAILS_GAP;
     // The photo's name and stars come first; the path has what they leave.

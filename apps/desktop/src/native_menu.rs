@@ -308,6 +308,7 @@ mod tests {
     fn every_command_shortcut_the_app_shows_is_understood() {
         for shortcut in [
             theme::SHORTCUT_OPEN,
+            theme::SHORTCUT_OPEN_PHOTO,
             theme::SHORTCUT_EXPORT,
             theme::SHORTCUT_FIT,
             theme::SHORTCUT_UNDO,

@@ -1618,6 +1618,12 @@ fn content(page: Page) -> Content {
             blocks: vec![
                 Block::Heading("General"),
                 term(
+                    "Appearance",
+                    "System follows your computer's light or dark setting, also when it \
+                     changes while Photonation runs; Light and Dark stay as they are. A \
+                     choice applies at once.",
+                ),
+                term(
                     "Graphics processor",
                     "draws the interface, the previews and the mask overlay: Automatic \
                      (a dedicated graphics card first), integrated graphics first, software \

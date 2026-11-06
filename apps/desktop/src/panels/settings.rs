@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 The Photonation contributors
 
-//! The Settings window (File ▸ Settings…): the graphics processor, where
-//! exports are saved, and the options a new export starts with. Saved in
-//! `preferences.json` when the window closes. Also the About window.
+//! The Settings window (File ▸ Settings…): light or dark, the graphics
+//! processor, where exports are saved, and the options a new export starts
+//! with. Saved in `preferences.json` when the window closes. Also the About
+//! window.
 
 use crate::app::PhotonationApp;
 use crate::gpu::{self, GpuSetting};
 use crate::panels::export;
 use crate::preferences::ExportDefaults;
-use crate::theme;
+use crate::theme::{self, Appearance};
 use crate::widgets::{self, paint_brand_mark};
 use eframe::egui::{self, RichText, Sense, Ui};
 
@@ -51,6 +52,11 @@ pub fn show(app: &mut PhotonationApp, ctx: &egui::Context) {
 }
 
 fn general(app: &mut PhotonationApp, ui: &mut Ui) {
+    heading(ui, "Appearance");
+    appearance(app, ui);
+    note(ui, "System follows your computer's light or dark setting.");
+
+    ui.add_space(12.0);
     heading(ui, "Graphics");
     export::label(ui, "Graphics processor");
     let preferences = &mut app.preferences;
@@ -140,6 +146,18 @@ fn general(app: &mut PhotonationApp, ui: &mut Ui) {
          beside each raw file as you work (IMG_0001.CR3.photonation.json); the \
          raw file itself is never changed.",
     );
+}
+
+/// Applies at once, so the choice can be judged before closing the window.
+fn appearance(app: &mut PhotonationApp, ui: &mut Ui) {
+    let mut selected = Appearance::ALL
+        .iter()
+        .position(|&choice| choice == app.preferences.appearance)
+        .unwrap_or_default();
+    if widgets::segmented(ui, &Appearance::LABELS, &mut selected).changed() {
+        app.preferences.appearance = Appearance::ALL[selected];
+        theme::set_appearance(ui.ctx(), app.preferences.appearance);
+    }
 }
 
 fn export_defaults(app: &mut PhotonationApp, ui: &mut Ui) {

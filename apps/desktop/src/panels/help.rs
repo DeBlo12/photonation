@@ -1319,15 +1319,27 @@ fn content(page: Page) -> Content {
                     ),
                 ),
                 term(
+                    "+ Brush",
+                    format!(
+                        "paints the area on the photo: drag to paint, click to dab, and watch \
+                         the adjustments follow. Size, Feather and Flow apply to the next \
+                         stroke; low Flow builds up over several strokes. Erase takes away, \
+                         and holding {alt} does the opposite of the mode that's set. [ and ] \
+                         change the size. Each stroke is one undo step.",
+                        alt = theme::ALT_KEY,
+                    ),
+                ),
+                term(
                     "Combining:",
-                    "a mask holds up to 8 shapes. Each further shape Adds to, Subtracts from \
+                    "a mask holds up to 8 shapes, one of them a brush. Each further shape Adds to, Subtracts from \
                      or Intersects with what the mask selects so far, and Invert flips the \
                      result to adjust everything outside it.",
                 ),
                 term(
                     "On the photo",
-                    "the selected shape shows its handles, hollow amber rings mark the \
-                     mask's other shapes, and pins the other masks. Click one to select it.",
+                    "the selected shape shows its handles (a brush shows its outline under \
+                     the pointer), hollow amber rings mark the mask's other shapes, and pins \
+                     the other masks. Click one to select it.",
                 ),
                 term(
                     "The overlay",
@@ -1791,7 +1803,10 @@ fn content(page: Page) -> Content {
                     &["0", "1", "2", "3", "4", "5"],
                     "Set the stars (0 clears them)",
                 ),
-                keys(&["]", "["], "One star more or fewer"),
+                keys(
+                    &["]", "["],
+                    "One star more or fewer; with a mask brush, a larger or smaller brush",
+                ),
                 keys(&["P"], "Pick"),
                 keys(&["X"], "Reject"),
                 keys(&["U"], "Remove the flag"),

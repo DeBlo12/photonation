@@ -69,7 +69,7 @@ pub fn interact(
 }
 
 /// Appends `position` once the pointer has moved far enough.
-fn extend(stroke: &mut BrushStroke, position: [f64; 2], frame: &PhotoFrame) {
+pub(crate) fn extend(stroke: &mut BrushStroke, position: [f64; 2], frame: &PhotoFrame) {
     if stroke.points.len() >= MAX_STROKE_POINTS {
         return;
     }
@@ -147,7 +147,12 @@ pub fn paint(
     }
 }
 
-fn paint_stroke(painter: &Painter, frame: &PhotoFrame, stroke: &BrushStroke, color: Color32) {
+pub(crate) fn paint_stroke(
+    painter: &Painter,
+    frame: &PhotoFrame,
+    stroke: &BrushStroke,
+    color: Color32,
+) {
     let Some(&first) = stroke.points.first() else {
         return;
     };
@@ -168,7 +173,7 @@ fn paint_stroke(painter: &Painter, frame: &PhotoFrame, stroke: &BrushStroke, col
 }
 
 /// A brush radius (long-edge units) in screen points at `position`.
-fn screen_radius(frame: &PhotoFrame, position: [f64; 2], radius: f64) -> f32 {
+pub(crate) fn screen_radius(frame: &PhotoFrame, position: [f64; 2], radius: f64) -> f32 {
     let centre = frame.space.to_metric(position);
     let edge = frame.metric_to_screen([centre[0] + radius, centre[1]]);
     (edge - frame.to_screen(position)).length()

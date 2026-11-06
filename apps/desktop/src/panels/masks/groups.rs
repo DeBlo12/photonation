@@ -58,7 +58,7 @@ impl GroupView {
 }
 
 /// Changes to the layer list, applied after it is drawn.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum LayerAction {
     /// A new mask of this shape, in the current group if there is one.
     Add(MaskShape),
@@ -761,7 +761,7 @@ mod tests {
                 selection: &mut self.selection,
                 view: &mut self.view,
             }
-            .apply(action);
+            .apply(action.clone());
             let (mut masks, mut groups) = (self.masks.clone(), self.groups.clone());
             tidy_groups(&mut masks, &mut groups);
             assert_eq!(

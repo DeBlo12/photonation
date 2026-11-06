@@ -65,6 +65,33 @@ impl Default for BrushStroke {
     }
 }
 
+impl BrushStroke {
+    /// Caps the points, clamps every value and repairs non-finite input.
+    pub(crate) fn sanitize(&mut self) {
+        self.points.truncate(MAX_STROKE_POINTS);
+        self.points
+            .retain(|point| point.iter().all(|v| v.is_finite()));
+        for point in &mut self.points {
+            *point = point.map(|v| v.clamp(-1.0, 2.0));
+        }
+        self.radius = if self.radius.is_finite() {
+            self.radius.clamp(MIN_BRUSH_RADIUS, MAX_BRUSH_RADIUS)
+        } else {
+            BrushStroke::default().radius
+        };
+    }
+
+    /// Feeds the path into a fingerprint (floats have no `Hash`).
+    pub(crate) fn hash_path(&self, hasher: &mut impl Hasher) {
+        self.radius.to_bits().hash(hasher);
+        self.points.len().hash(hasher);
+        for point in &self.points {
+            point[0].to_bits().hash(hasher);
+            point[1].to_bits().hash(hasher);
+        }
+    }
+}
+
 /// A brushed area to remove. Removals apply in order: each one's fill sees
 /// the photo with the earlier removals already applied.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -141,12 +168,7 @@ impl Removal {
         self.seed.hash(&mut hasher);
         self.feather.to_bits().hash(&mut hasher);
         for stroke in &self.strokes {
-            stroke.radius.to_bits().hash(&mut hasher);
-            stroke.points.len().hash(&mut hasher);
-            for point in &stroke.points {
-                point[0].to_bits().hash(&mut hasher);
-                point[1].to_bits().hash(&mut hasher);
-            }
+            stroke.hash_path(&mut hasher);
         }
         hasher.finish()
     }
@@ -156,20 +178,7 @@ impl Removal {
     pub fn sanitized(&self) -> Removal {
         let mut removal = self.clone();
         removal.strokes.truncate(MAX_REMOVAL_STROKES);
-        for stroke in &mut removal.strokes {
-            stroke.points.truncate(MAX_STROKE_POINTS);
-            stroke
-                .points
-                .retain(|point| point.iter().all(|v| v.is_finite()));
-            for point in &mut stroke.points {
-                *point = point.map(|v| v.clamp(-1.0, 2.0));
-            }
-            stroke.radius = if stroke.radius.is_finite() {
-                stroke.radius.clamp(MIN_BRUSH_RADIUS, MAX_BRUSH_RADIUS)
-            } else {
-                BrushStroke::default().radius
-            };
-        }
+        removal.strokes.iter_mut().for_each(BrushStroke::sanitize);
         removal.strokes.retain(|stroke| !stroke.points.is_empty());
         removal.feather = if removal.feather.is_finite() {
             removal.feather.clamp(0.0, 100.0)

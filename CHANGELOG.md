@@ -8,6 +8,16 @@ changes to CI alone are not released.
 
 ## [Unreleased]
 
+### Added
+
+- A brush for masks. **+ Brush** paints a mask straight on the photo, with Size,
+  Feather and Flow, and the adjustments follow the stroke as you paint. Erase, or
+  hold Option (Alt on Windows and Linux), to take away from it; `[` and `]` change
+  the size. A mask keeps one brush, which combines with its gradients like any
+  other shape. Older versions can't read a photo's sidecar once a mask on it has
+  a brush: they say so and open the photo without its edits, and editing it there
+  would replace them.
+
 ## [0.19.0] - 2026-11-06
 
 ### Added

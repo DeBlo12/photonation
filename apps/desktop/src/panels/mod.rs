@@ -14,6 +14,7 @@ pub mod folders;
 pub mod grid;
 pub mod help;
 pub mod library_bar;
+pub mod mask_brush;
 pub mod mask_handles;
 pub mod mask_thumbnails;
 pub mod masks;

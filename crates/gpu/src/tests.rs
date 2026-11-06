@@ -9,8 +9,8 @@ use super::*;
 use photonation_color::ColorSpace;
 use photonation_develop::{
     BrushStroke, CombineMode, GradingWheel, LensCorrection, LinearGradient, LocalAdjustments, Mask,
-    MaskComponent, MaskGroup, MaskShape, NoiseReduction, OklabLch, PointColor, PointCurve,
-    ProcessVersion, RadialGradient, Removal, RemovalMethod,
+    MaskBrush, MaskComponent, MaskGroup, MaskShape, MaskStroke, NoiseReduction, OklabLch,
+    PointColor, PointCurve, ProcessVersion, RadialGradient, Removal, RemovalMethod,
 };
 use photonation_image::{CfaColor, CfaPattern, NormRect, Orientation, Rect};
 use photonation_pipeline::{removal_canvas, removal_jobs};
@@ -644,6 +644,33 @@ fn linear(start: [f64; 2], end: [f64; 2]) -> MaskShape {
     MaskShape::Linear(LinearGradient { start, end })
 }
 
+/// A brush that paints, paints a soft coat over it, and erases.
+fn brush() -> MaskShape {
+    let stroke = |points: &[[f64; 2]], radius, feather, flow, erase| MaskStroke {
+        path: BrushStroke {
+            points: points.to_vec(),
+            radius,
+        },
+        feather,
+        flow,
+        erase,
+    };
+    MaskShape::Brush(MaskBrush {
+        strokes: vec![
+            stroke(
+                &[[0.15, 0.7], [0.4, 0.6], [0.7, 0.8]],
+                0.09,
+                40.0,
+                100.0,
+                false,
+            ),
+            stroke(&[[0.8, 0.2]], 0.12, 100.0, 60.0, false),
+            stroke(&[[0.35, 0.45], [0.45, 0.85]], 0.03, 0.0, 100.0, true),
+            stroke(&[[0.75, 0.25], [0.95, 0.15]], 0.05, 50.0, 40.0, true),
+        ],
+    })
+}
+
 /// Masks of every kind, combination and local adjustment, overlapping.
 fn masked_settings() -> Settings {
     let mut settings = busy_settings();
@@ -689,7 +716,18 @@ fn masked_settings() -> Settings {
     };
     let mut group = MaskGroup::new("Background");
     group.amount = 60.0;
-    settings.masks = vec![sky, ring, lens];
+    let mut painted = Mask::new("Painted", brush());
+    painted.components.push(MaskComponent::new(
+        radial([0.2, 0.75], [0.1, 0.1], 0.0, 30.0),
+        CombineMode::Subtract,
+    ));
+    painted.adjustments = LocalAdjustments {
+        exposure: 0.9,
+        temperature: 25.0,
+        shadows: 30.0,
+        ..LocalAdjustments::default()
+    };
+    settings.masks = vec![sky, ring, lens, painted];
     settings.mask_groups = vec![group];
     settings
 }
@@ -736,6 +774,43 @@ fn masks_alone_match() {
 }
 
 #[test]
+fn brush_masks_match() {
+    let mut painted = Mask::new("Painted", brush());
+    painted.adjustments.exposure = 1.5;
+    painted.adjustments.saturation = -40.0;
+    let mut inverted = painted.clone();
+    inverted.invert = true;
+    inverted.adjustments.exposure = -1.0;
+    // A brush after another shape, and alone in a second mask with its map
+    // later in the buffer.
+    let mut limited = Mask::new("Limited", linear([0.5, 0.2], [0.5, 0.9]));
+    limited
+        .components
+        .push(MaskComponent::new(brush(), CombineMode::Intersect));
+    limited.adjustments.tint = 50.0;
+    let empty = Mask {
+        adjustments: painted.adjustments,
+        ..Mask::new(
+            "Nothing painted yet",
+            MaskShape::Brush(MaskBrush::default()),
+        )
+    };
+    let settings = Settings {
+        masks: vec![painted, inverted, limited, empty],
+        ..Settings::default()
+    };
+    for opts in [full_size(), preview(70)] {
+        assert_matches_cpu(bayer(160, 110), &settings, &opts);
+    }
+    for exif in [3, 6] {
+        let mut sensor = bayer(120, 80);
+        sensor.orientation = Orientation::from_exif(exif);
+        assert_matches_cpu(sensor, &settings, &preview(60));
+    }
+    assert_matches_cpu(xtrans(96, 72), &settings, &full_size());
+}
+
+#[test]
 fn piled_up_masks_match() {
     // Overlapping masks past the caps on summed amounts.
     let mut settings = Settings::default();
@@ -749,6 +824,34 @@ fn piled_up_masks_match() {
     };
     settings.masks = vec![strong; 8];
     assert_matches_cpu(bayer(100, 70), &settings, &full_size());
+}
+
+/// A mask a long portrait retouch might leave: forty strokes crossing the
+/// photo at a medium brush, on top of the global adjustments.
+fn painted_timing_settings() -> Settings {
+    let strokes = (0..40)
+        .map(|index| {
+            let y = 0.05 + 0.9 * index as f64 / 40.0;
+            MaskStroke {
+                path: BrushStroke {
+                    points: (0..=200)
+                        .map(|step| {
+                            let x = step as f64 / 200.0;
+                            [x, y + 0.02 * (x * 40.0).sin()]
+                        })
+                        .collect(),
+                    radius: 0.02,
+                },
+                ..MaskStroke::default()
+            }
+        })
+        .collect();
+    let mut painted = Mask::new("Painted", MaskShape::Brush(MaskBrush { strokes }));
+    painted.adjustments.exposure = 0.5;
+    Settings {
+        masks: vec![painted],
+        ..busy_settings()
+    }
 }
 
 /// Wall-clock times at a real photo's size, both paths (run with
@@ -770,11 +873,30 @@ fn timings_at_24_megapixels() {
             start.elapsed().as_secs_f64() * 1e3 / runs as f64
         );
     };
+    let three_masks = {
+        let mut settings = masked_settings();
+        settings.masks.retain(|mask| mask.name != "Painted");
+        settings
+    };
     let clarity = Settings {
         clarity: 40.0,
         texture: 30.0,
-        ..masked_settings()
+        ..three_masks.clone()
     };
+    let painted = painted_timing_settings();
+    let MaskShape::Brush(brush) = &painted.masks[0].components[0].shape else {
+        unreachable!("a brush")
+    };
+    let space = photonation_develop::MaskSpace::new(6024.0, 4020.0);
+    let start = std::time::Instant::now();
+    let map = photonation_pipeline::brush_map::BrushMap::new(brush, space);
+    eprintln!(
+        "rasterizing {} strokes to {} x {}: {:.1} ms",
+        brush.strokes.len(),
+        map.width,
+        map.height,
+        start.elapsed().as_secs_f64() * 1e3
+    );
     let denoised = Settings {
         noise_reduction: NoiseReduction {
             luminance: 50.0,
@@ -802,8 +924,9 @@ fn timings_at_24_megapixels() {
     let removal_fills = fill_all(&sensor, &removed);
     for (edits, settings) in [
         ("global", busy_settings()),
-        ("3 masks", masked_settings()),
+        ("3 masks", three_masks),
         ("3 masks, Texture, Clarity", clarity),
+        ("a painted mask", painted),
         ("noise reduction", denoised),
         ("straightened 3°", straightened),
         ("lens corrections", lens),

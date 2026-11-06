@@ -140,19 +140,25 @@ impl RemovalWeight {
         let mut weight: f32 = 0.0;
         for stroke in &self.strokes {
             let distance = distance_to_polyline(point, &stroke.points);
-            let stroke_weight = if distance <= stroke.fade_start {
-                1.0
-            } else if distance >= stroke.radius {
-                0.0
-            } else {
-                1.0 - crate::color::smoothstep(stroke.fade_start, stroke.radius, distance)
-            };
-            weight = weight.max(stroke_weight);
+            weight = weight.max(brush_falloff(distance, stroke.fade_start, stroke.radius));
             if weight >= 1.0 {
                 break;
             }
         }
         weight
+    }
+}
+
+/// A round brush's weight at `distance` from its path: full up to
+/// `fade_start`, none from `radius`.
+#[inline(always)]
+pub(crate) fn brush_falloff(distance: f32, fade_start: f32, radius: f32) -> f32 {
+    if distance <= fade_start {
+        1.0
+    } else if distance >= radius {
+        0.0
+    } else {
+        1.0 - crate::color::smoothstep(fade_start, radius, distance)
     }
 }
 

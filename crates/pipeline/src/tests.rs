@@ -494,7 +494,9 @@ fn linear_rgb_renders_neutral_grey_as_grey() {
 
 mod masks {
     use super::*;
-    use photonation_develop::{LinearGradient, Mask, MaskShape, RadialGradient};
+    use photonation_develop::{
+        BrushStroke, LinearGradient, Mask, MaskBrush, MaskShape, MaskStroke, RadialGradient,
+    };
     use std::ops::Range;
 
     fn radial_mask(feather: f32) -> Mask {
@@ -505,6 +507,18 @@ mod masks {
                 radius: [0.15, 0.15],
                 rotation: 0.0,
                 feather,
+            }),
+        )
+    }
+
+    fn painted_mask(points: Vec<[f64; 2]>, radius: f64) -> Mask {
+        Mask::new(
+            "Painted",
+            MaskShape::Brush(MaskBrush {
+                strokes: vec![MaskStroke {
+                    path: BrushStroke { points, radius },
+                    ..MaskStroke::default()
+                }],
             }),
         )
     }
@@ -539,8 +553,11 @@ mod masks {
         subject.adjustments.contrast = 30.0;
         subject.adjustments.shadows = 50.0;
         subject.adjustments.dehaze = 20.0;
+        let mut painted = painted_mask(vec![[0.2, 0.7], [0.5, 0.6], [0.8, 0.8]], 0.1);
+        painted.adjustments.exposure = 0.7;
+        painted.adjustments.tint = -25.0;
         let s = Settings {
-            masks: vec![sky, subject],
+            masks: vec![sky, subject, painted],
             ..Settings::default()
         };
         // Full size (MHC) and the half-size path, whose pixels are quads.
@@ -554,6 +571,52 @@ mod masks {
                 );
             }
         }
+    }
+
+    #[test]
+    fn a_brush_adjusts_only_what_it_painted() {
+        let img = synthetic(240, 160, Orientation::Normal);
+        let mut painted = painted_mask(vec![[0.1, 0.5], [0.4, 0.5]], 0.08);
+        painted.adjustments.exposure = 2.0;
+        let plain = render_with(&img, &Settings::default(), None, 10_000);
+        let brushed = Settings {
+            masks: vec![painted],
+            ..Settings::default()
+        };
+        let brushed = render_with(&img, &brushed, None, 10_000);
+        let (rows, width) = (brushed.height, brushed.width);
+        let on_the_stroke = (rows / 2 - 4..rows / 2 + 4, width / 5..width * 3 / 10);
+        assert!(
+            mean(&brushed, on_the_stroke.0.clone(), on_the_stroke.1.clone())
+                > mean(&plain, on_the_stroke.0, on_the_stroke.1) + 10.0,
+            "the painted area is brighter"
+        );
+        let away = (0..rows / 5, width * 3 / 5..width);
+        assert_eq!(
+            mean(&brushed, away.0.clone(), away.1.clone()),
+            mean(&plain, away.0, away.1),
+            "elsewhere nothing changes"
+        );
+    }
+
+    #[test]
+    fn a_brush_selects_the_same_area_in_previews_and_exports() {
+        // The map belongs to the photo, not the render's size: the half-size
+        // path samples it at quad centres and lands on the same weights.
+        let img = synthetic(400, 300, Orientation::Rotate90);
+        let mut painted = painted_mask(vec![[0.3, 0.3], [0.7, 0.7]], 0.1);
+        painted.adjustments.exposure = 1.5;
+        let brushed = Settings {
+            masks: vec![painted],
+            ..Settings::default()
+        };
+        let full = render_with(&img, &brushed, None, 10_000);
+        let half = render_with(&img, &brushed, Some(200), 10_000);
+        let centre = |image: &OutputImage| {
+            let (y, x) = (image.height / 2, image.width / 2);
+            mean(image, y - 2..y + 2, x - 2..x + 2)
+        };
+        assert!((centre(&full) - centre(&half)).abs() < 3.0);
     }
 
     #[test]

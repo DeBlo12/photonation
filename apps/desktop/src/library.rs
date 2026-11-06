@@ -611,6 +611,8 @@ pub fn shortcuts(app: &mut PhotonationApp, ctx: &egui::Context) {
     if ctx.egui_wants_keyboard_input() || app.current.is_none() {
         return;
     }
+    // With a mask brush in hand, [ and ] size it instead of rating the photo.
+    crate::panels::mask_brush::size_shortcuts(app, ctx);
     let grid = app.view.library.grid && !app.view.library.survey;
     let survey = app.view.library.survey;
     let columns = app.view.library.grid_columns.max(1) as isize;

@@ -190,6 +190,31 @@ source and the develop stage including masks (`Develop::working_at`), averaged
 in the working space and converted to Oklab LCh. Texture, Clarity and
 sharpening don't take part.
 
+## 5b. Brush maps (`brush_map.rs`)
+
+A brush can hold 32 768 points, far too many to measure the distance to at every
+pixel of every render. `BrushMap` rasterizes the strokes once into a grid of
+`f32` weights, and `ShapeWeight::Brush` samples it bilinearly with edges clamped.
+Since the grid belongs to the photo, 2048 cells along its long edge whatever the
+render's size, previews and exports select exactly the same area, and the cost
+per pixel doesn't depend on how much was painted.
+
+- **Covers what's painted.** The grid holds the painting strokes' bounds on the
+  photo plus 8 cells, so a dab is a few hundred bytes and a whole 3:2 photo 11 MB.
+  Erasing strokes can only take away, so they don't widen it. The margin stays
+  empty, or past the photo's edge continues a stroke the photo cuts off, which is
+  why clamping reads the right value in both cases.
+- **Rasterizing.** Rows run in parallel. In each row, each stroke in turn measures
+  the squared distance from every cell to the segments near the row, then paints
+  or erases by its falloff (EDIT-MODEL.md, Brushes). Every cell's value is computed
+  on its own, so the result doesn't depend on the threads. Strokes fade over at
+  least 1.5 cells, so a hard edge interpolates smoothly. At 24 MP a cell is about
+  three pixels: a "hard" edge fades over a few pixels at full size.
+- **Caching.** `BrushMap::cached` keeps 256 MB of maps across renders, keyed by the
+  strokes' fingerprint and the photo's aspect ratio. A slider drag rasterizes
+  nothing, and the same `Arc` tells the GPU renderer and the overlay that they
+  already hold a map. Masks that aren't active never build one.
+
 ## 6. Spatial stages
 
 - **Noise reduction** (`denoise.rs`): each pixel goes to a square-root
@@ -277,7 +302,9 @@ The pipeline turns that into:
 Masks cost time at every pixel they are evaluated for: two masks covering the
 photo roughly double the full-size render (≈350 ms; ≈100 ms at 1600 px), about
 a quarter of it the Oklab round trip of local saturation. Renders without
-active masks run at the speed above.
+active masks run at the speed above. A brush adds its rasterizing once per change
+of its strokes (§5b); forty strokes crossing the
+photo take about 20 ms, on the worker while painting.
 
 The colour step's Oklab round trip runs only when a colour control is set; it
 takes a full-size render to ≈600 ms. Point colours ride on the same round
@@ -318,7 +345,10 @@ match the CPU's `f32` bands. Only the packed output is read back.
 
 Masks are evaluated per pixel in the develop pass exactly as on the CPU
 (`LocalAdjust::at`, then the masked steps of §5); they cost no measurable
-time there.
+time there. Brush maps (§5b) are rasterized on the CPU, as they are for a CPU
+render, and go up as one storage buffer, kept while the same maps are rendered, so
+only a change to the strokes uploads anything. The shader samples them with
+`BrushMap::at`'s arithmetic, reading neighbours by hand.
 
 Removal fills are blended in the same pass, after demosaicing, as the
 `Retouch` stage does (§3b): each removal's brush weight from its strokes'
@@ -341,8 +371,8 @@ on the CPU.
 
 **Not on the GPU**: 16-bit output (exports, which stay on the CPU), images
 larger than the device's largest texture, and fills larger than its
-largest storage buffer. The renderer returns `Unsupported` for those, and
-callers render them on the CPU.
+largest storage buffer, and brush maps too. The renderer returns `Unsupported`
+for those, and callers render them on the CPU.
 
 **Validation.** The CPU pipeline is the reference. The crate's tests render
 the same synthetic photos on both paths (Bayer at full size and half size,
@@ -350,7 +380,7 @@ X-Trans, linear DNG, clipped highlights under processes 1 and 2,
 straightened crops at several angles with masks, Texture and Clarity,
 overlapping removals, every orientation, crops, custom white balance, every
 global adjustment, masks of every shape, combination and local adjustment,
-groups and piled-up masks, Texture and Clarity in both directions, noise
+brushes that paint, build up and erase, groups and piled-up masks, Texture and Clarity in both directions, noise
 reduction at full and half size, other
 output spaces, the point colour overlay)
 and allow

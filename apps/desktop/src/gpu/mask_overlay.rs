@@ -11,8 +11,10 @@ use eframe::egui::{self, Color32, Rgba, pos2};
 use eframe::egui_wgpu::{self, CallbackResources, CallbackTrait, RenderState, ScreenDescriptor};
 use eframe::wgpu;
 use photonation_develop::{CombineMode, MAX_MASK_COMPONENTS};
+use photonation_pipeline::brush_map::{BrushMap, CELLS_PER_LONG_EDGE};
 use photonation_pipeline::masks::{MaskWeight, ShapeWeight};
 use std::num::NonZeroU64;
+use std::sync::Arc;
 
 const SHADER: &str = include_str!("mask_overlay.wgsl");
 /// Words in the shader's `Overlay` header: seven 16-byte rows.
@@ -25,8 +27,13 @@ const UNIFORM_WORDS: usize = HEADER_WORDS + MAX_MASK_COMPONENTS * COMPONENT_WORD
 /// GPU objects shared by every overlay draw, kept in egui's callback resources.
 struct OverlayPipeline {
     pipeline: wgpu::RenderPipeline,
+    layout: wgpu::BindGroupLayout,
     bind_group: wgpu::BindGroup,
     uniforms: wgpu::Buffer,
+    sampler: wgpu::Sampler,
+    /// The brush map in the bind group's texture. A mask has at most one
+    /// brush; while none is drawn, the last one just stays there unused.
+    brush: Option<Arc<BrushMap>>,
     /// The framebuffer encodes sRGB itself, so colours must be linear.
     linear_framebuffer: bool,
 }
@@ -48,25 +55,58 @@ pub fn install(render_state: &RenderState) {
     });
     let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("mask overlay"),
-        entries: &[wgpu::BindGroupLayoutEntry {
-            binding: 0,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Buffer {
-                ty: wgpu::BufferBindingType::Uniform,
-                has_dynamic_offset: false,
-                min_binding_size: NonZeroU64::new(uniform_size),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: NonZeroU64::new(uniform_size),
+                },
+                count: None,
             },
-            count: None,
-        }],
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+        ],
     });
-    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("mask overlay"),
-        layout: &layout,
-        entries: &[wgpu::BindGroupEntry {
-            binding: 0,
-            resource: uniforms.as_entire_binding(),
-        }],
+    // Bilinear with edges clamped, as `BrushMap::at` samples.
+    let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("mask overlay brush"),
+        address_mode_u: wgpu::AddressMode::ClampToEdge,
+        address_mode_v: wgpu::AddressMode::ClampToEdge,
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        ..wgpu::SamplerDescriptor::default()
     });
+    let nothing_painted = BrushMap {
+        origin: [0.0; 2],
+        width: 1,
+        height: 1,
+        weights: vec![0.0],
+    };
+    let bind_group = brush_bind_group(
+        device,
+        &render_state.queue,
+        &layout,
+        &uniforms,
+        &sampler,
+        &nothing_painted,
+    );
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("mask overlay"),
         bind_group_layouts: &[Some(&layout)],
@@ -103,10 +143,74 @@ pub fn install(render_state: &RenderState) {
         .callback_resources
         .insert(OverlayPipeline {
             pipeline,
+            layout,
             bind_group,
             uniforms,
+            sampler,
+            brush: None,
             linear_framebuffer: render_state.target_format.is_srgb(),
         });
+}
+
+/// A bind group whose texture holds `map`. Eight bits are plenty for a tint,
+/// and unlike 32-bit floats this format can be filtered on every device.
+fn brush_bind_group(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    layout: &wgpu::BindGroupLayout,
+    uniforms: &wgpu::Buffer,
+    sampler: &wgpu::Sampler,
+    map: &BrushMap,
+) -> wgpu::BindGroup {
+    let size = wgpu::Extent3d {
+        width: map.width as u32,
+        height: map.height as u32,
+        depth_or_array_layers: 1,
+    };
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("mask overlay brush"),
+        size,
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::R8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    let bytes: Vec<u8> = map
+        .weights
+        .iter()
+        .map(|weight| (weight * 255.0).round() as u8)
+        .collect();
+    queue.write_texture(
+        texture.as_image_copy(),
+        &bytes,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(map.width as u32),
+            rows_per_image: Some(map.height as u32),
+        },
+        size,
+    );
+    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("mask overlay"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniforms.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(&view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::Sampler(sampler),
+            },
+        ],
+    })
 }
 
 /// One overlay draw: a mask's weight over the photo, as a tint.
@@ -124,6 +228,18 @@ impl MaskOverlay {
     pub fn paint(self, painter: &egui::Painter) {
         let rect = self.frame.image_rect;
         painter.add(egui_wgpu::Callback::new_paint_callback(rect, self));
+    }
+
+    /// The mask's brush, which the shader reads from a texture. Sanitized
+    /// masks have at most one.
+    fn brush_map(&self) -> Option<&Arc<BrushMap>> {
+        self.weight
+            .components
+            .iter()
+            .find_map(|(shape, _)| match shape {
+                ShapeWeight::Brush(map) => Some(map),
+                _ => None,
+            })
     }
 
     /// The shader's `Overlay` uniform, as 32-bit words.
@@ -187,6 +303,12 @@ impl MaskOverlay {
 /// One entry of the shader's `components` array.
 fn component_words(shape: &ShapeWeight, mode: CombineMode) -> [u32; COMPONENT_WORDS] {
     let (kind, fade_start, a, b) = match *shape {
+        ShapeWeight::Brush(ref map) => (
+            2,
+            0.0,
+            [map.origin[0], map.origin[1], CELLS_PER_LONG_EDGE, 0.0],
+            [map.width as f32, map.height as f32, 0.0, 0.0],
+        ),
         ShapeWeight::Linear { start, ramp } => {
             (0, 0.0, [start[0], start[1], ramp[0], ramp[1]], [0.0; 4])
         }
@@ -218,13 +340,29 @@ fn component_words(shape: &ShapeWeight, mode: CombineMode) -> [u32; COMPONENT_WO
 impl CallbackTrait for MaskOverlay {
     fn prepare(
         &self,
-        _device: &wgpu::Device,
+        device: &wgpu::Device,
         queue: &wgpu::Queue,
         screen: &ScreenDescriptor,
         _encoder: &mut wgpu::CommandEncoder,
         resources: &mut CallbackResources,
     ) -> Vec<wgpu::CommandBuffer> {
-        if let Some(overlay) = resources.get::<OverlayPipeline>() {
+        if let Some(overlay) = resources.get_mut::<OverlayPipeline>() {
+            if let Some(map) = self.brush_map()
+                && !overlay
+                    .brush
+                    .as_ref()
+                    .is_some_and(|uploaded| Arc::ptr_eq(uploaded, map))
+            {
+                overlay.bind_group = brush_bind_group(
+                    device,
+                    queue,
+                    &overlay.layout,
+                    &overlay.uniforms,
+                    &overlay.sampler,
+                    map,
+                );
+                overlay.brush = Some(map.clone());
+            }
             let words = self.uniform_words(screen.pixels_per_point, overlay.linear_framebuffer);
             let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_ne_bytes()).collect();
             queue.write_buffer(&overlay.uniforms, 0, &bytes);
@@ -251,7 +389,8 @@ mod tests {
     use super::*;
     use eframe::egui::{Rect, vec2};
     use photonation_develop::{
-        LensCorrection, LinearGradient, Mask, MaskComponent, MaskShape, MaskSpace, RadialGradient,
+        BrushStroke, LensCorrection, LinearGradient, Mask, MaskBrush, MaskComponent, MaskShape,
+        MaskSpace, MaskStroke, RadialGradient,
     };
     use photonation_image::{CropFrame, NormRect};
     use photonation_pipeline::LensMap;
@@ -274,9 +413,23 @@ mod tests {
         assert_eq!(size as usize, UNIFORM_WORDS * 4, "uniform layout matches");
     }
 
+    /// A bilinear texture lookup at `uv`, clamped to the edge. Reads the
+    /// same weights the texture holds, before they round to 8 bits.
+    fn brush_twin(map: &BrushMap, uv: [f32; 2]) -> f32 {
+        let x = (uv[0] * map.width as f32 - 0.5).clamp(0.0, (map.width - 1) as f32);
+        let y = (uv[1] * map.height as f32 - 0.5).clamp(0.0, (map.height - 1) as f32);
+        let (x0, y0) = (x as usize, y as usize);
+        let (x1, y1) = ((x0 + 1).min(map.width - 1), (y0 + 1).min(map.height - 1));
+        let (fx, fy) = (x - x0 as f32, y - y0 as f32);
+        let at = |x: usize, y: usize| map.weights[y * map.width + x];
+        let top = at(x0, y0) + (at(x1, y0) - at(x0, y0)) * fx;
+        let bottom = at(x0, y1) + (at(x1, y1) - at(x0, y1)) * fx;
+        top + (bottom - top) * fy
+    }
+
     /// The shader's `weight`, transcribed, reading the packed uniform: checks
     /// that the packing and the pixel mapping reproduce the pipeline's weights.
-    fn shader_twin(words: &[u32], pixel_centre: [f32; 2]) -> f32 {
+    fn shader_twin(words: &[u32], map: Option<&Arc<BrushMap>>, pixel_centre: [f32; 2]) -> f32 {
         let f = |index: usize| f32::from_bits(words[index]);
         let corrected = [
             f(0) + pixel_centre[0] * f(2) + pixel_centre[1] * f(4),
@@ -306,6 +459,13 @@ mod tests {
             let offset = [point[0] - c(0), point[1] - c(1)];
             let w = if words[base + 8] == 0 {
                 1.0 - ramp(0.0, 1.0, offset[0] * c(2) + offset[1] * c(3))
+            } else if words[base + 8] == 2 {
+                // Hardware bilinear filtering of the texture.
+                let uv = [
+                    (offset[0] * c(2) + 0.5) / c(4),
+                    (offset[1] * c(2) + 0.5) / c(5),
+                ];
+                brush_twin(map.expect("a brush has a map"), uv)
             } else {
                 let x = offset[0] * c(4) + offset[1] * c(5);
                 let y = offset[0] * c(6) + offset[1] * c(7);
@@ -380,11 +540,31 @@ mod tests {
             rotation: 30.0,
             feather: 40.0,
         });
-        let mut masks = vec![Mask::new("Linear", linear), Mask::new("Radial", radial)];
+        let brush = MaskShape::Brush(MaskBrush {
+            strokes: vec![MaskStroke {
+                path: BrushStroke {
+                    points: vec![[0.2, 0.3], [0.4, 0.35], [0.5, 0.6], [0.8, 0.7]],
+                    radius: 0.09,
+                },
+                ..MaskStroke::default()
+            }],
+        });
+        let mut masks = vec![
+            Mask::new("Linear", linear.clone()),
+            Mask::new("Radial", radial.clone()),
+            Mask::new("Brush", brush.clone()),
+        ];
         for mode in CombineMode::ALL {
-            let mut combined = Mask::new("Combined", radial);
-            combined.components.push(MaskComponent::new(linear, mode));
+            let mut combined = Mask::new("Combined", radial.clone());
+            combined
+                .components
+                .push(MaskComponent::new(linear.clone(), mode));
             masks.push(combined);
+            let mut brushed = Mask::new("Brushed", linear.clone());
+            brushed
+                .components
+                .push(MaskComponent::new(brush.clone(), mode));
+            masks.push(brushed);
         }
         for mut mask in masks {
             for invert in [false, true] {
@@ -406,7 +586,7 @@ mod tests {
                     let screen = pos2(centre[0] / pixels_per_point, centre[1] / pixels_per_point);
                     let metric = frame.screen_to_metric(screen).map(|v| v as f32);
                     let expected = overlay.weight.at(metric);
-                    let got = shader_twin(&words, centre);
+                    let got = shader_twin(&words, overlay.brush_map(), centre);
                     assert!(
                         (got - expected).abs() < 1e-3,
                         "{mask:?} {pixel:?}: {got} vs {expected}"

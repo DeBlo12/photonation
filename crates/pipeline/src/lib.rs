@@ -14,6 +14,7 @@
 //! reference implementation any future GPU path is checked against.
 
 pub mod band;
+pub mod brush_map;
 mod camera;
 mod color;
 pub mod curve;

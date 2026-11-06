@@ -10,11 +10,13 @@ const MAX_COMPONENTS: u32 = 8u;
 
 // One shape of the mask: photonation_pipeline::masks::ShapeWeight.
 struct Component {
-    // Linear: start (xy), ramp (zw). Radial: centre (xy).
+    // Linear: start (xy), ramp (zw). Radial: centre (xy). Brush: the map's
+    // first cell's centre (xy), cells per metric unit (z).
     a: vec4<f32>,
     // Radial: axis_x (xy), axis_y (zw), each divided by its radius.
+    // Brush: the map's size in cells (xy).
     b: vec4<f32>,
-    // 0: linear gradient, 1: radial gradient.
+    // 0: linear gradient, 1: radial gradient, 2: brush.
     kind: u32,
     // How it combines with the shapes before it: 0 add, 1 subtract,
     // 2 intersect (photonation_develop::CombineMode).
@@ -48,6 +50,10 @@ struct Overlay {
 };
 
 @group(0) @binding(0) var<uniform> overlay: Overlay;
+// The mask's brush, if it has one (photonation_pipeline::brush_map::BrushMap),
+// filtered as BrushMap::at samples it.
+@group(0) @binding(1) var brush_map: texture_2d<f32>;
+@group(0) @binding(2) var brush_sampler: sampler;
 
 // One triangle covering the viewport, which egui sets to the image rect.
 @vertex
@@ -65,6 +71,10 @@ fn ramp(edge0: f32, edge1: f32, x: f32) -> f32 {
 fn shape_weight(component: Component, point: vec2<f32>) -> f32 {
     if component.kind == 0u {
         return 1.0 - ramp(0.0, 1.0, dot(point - component.a.xy, component.a.zw));
+    }
+    if component.kind == 2u {
+        let uv = ((point - component.a.xy) * component.a.z + vec2<f32>(0.5)) / component.b.xy;
+        return textureSampleLevel(brush_map, brush_sampler, uv, 0.0).r;
     }
     let offset = point - component.a.xy;
     let distance = length(vec2<f32>(dot(offset, component.b.xy), dot(offset, component.b.zw)));

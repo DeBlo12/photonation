@@ -12,10 +12,10 @@ changes to CI alone are not released.
 
 ### Added
 
-- A true full screen. **View › Full Screen Photo** (`F`), or the new button in the
-  toolbar, shows the photo alone on the whole screen, on black, with every panel
-  hidden. Zoom, Compare, the arrow keys, ratings and flags still work; `F` or `Esc`
-  leaves. On Windows and Linux, **View › Full Screen Window** (`F11`) makes the window
+- A true full screen. **View › Full Screen Photo** (⌃F on a Mac, `F` on Windows and
+  Linux), or the new button in the toolbar, shows the photo alone on the whole screen,
+  on black, with every panel hidden. Zoom, Compare, the arrow keys, ratings and flags
+  still work; the same key or `Esc` leaves. On Windows and Linux, **View › Full Screen Window** (`F11`) makes the window
   full screen with its panels, as macOS's own item does.
 
 ## [0.21.0] - 2026-11-06

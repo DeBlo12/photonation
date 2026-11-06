@@ -28,6 +28,7 @@ pub use history::History;
 pub use level::level_angle;
 pub use library::{Subfolder, scan_folder};
 pub use metadata::{MetadataOptions, MetadataPreset};
+pub use photonation_raw::supported_extensions as raw_extensions;
 pub use preview::GPU_RENDER_VARIABLE;
 pub use retouch::{
     MODEL_PATH_VARIABLE, ModelStatus, Retoucher, data_directory, default_model_path,

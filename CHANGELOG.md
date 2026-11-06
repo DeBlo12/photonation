@@ -8,6 +8,12 @@ changes to CI alone are not released.
 
 ## [Unreleased]
 
+### Added
+
+- **Open Photo…** opens one raw file, with the rest of its folder in the
+  filmstrip, alongside **Open Folder…**. The toolbar's **Open** button, the File
+  menu and the welcome screen offer both (⇧⌘O, or Ctrl+Shift+O).
+
 ## [0.19.0] - 2026-11-06
 
 ### Added

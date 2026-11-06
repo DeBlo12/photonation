@@ -54,6 +54,7 @@ cargo run --release -p photonation-desktop -- ~/Pictures/Raw
 ```
 
 Opens the editor on a folder (or pass a single raw file to open it directly).
+In the app, **Open** chooses a folder or a single photo.
 A folder that holds only folders shows an overview of the ones with raw photos.
 
 ```bash
@@ -93,6 +94,7 @@ on `PATH`. Shortcuts use Ctrl where the table below shows ⌘, and Alt for ⌥.
 | Key | Action |
 |---|---|
 | ⌘O | Open folder |
+| ⇧⌘O | Open photo |
 | ← / → | Previous / next photo |
 | ⌘Z / ⇧⌘Z | Undo / redo |
 | `\` | Compare with original (drag the divider) |
@@ -124,5 +126,6 @@ described in [SECURITY.md](SECURITY.md).
 Photonation is free software, licensed under the
 [GNU General Public License v3.0 or later](LICENSE). You may use, study, share
 and modify it; distributed copies and derivatives must stay under the GPL with
-their source available. Third-party components and their licences are listed in
+their source available. It comes with no warranty, to the extent permitted by
+law; see sections 15 and 16 of the licence. Third-party components and their licences are listed in
 [NOTICE](NOTICE).

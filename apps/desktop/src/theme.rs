@@ -241,6 +241,7 @@ pub const MENU_BAR_HEIGHT: f32 = 26.0;
 
 /// Shortcut labels for tooltips, in the platform's notation.
 pub const SHORTCUT_OPEN: &str = shortcut("⌘O", "Ctrl+O");
+pub const SHORTCUT_OPEN_PHOTO: &str = shortcut("⇧⌘O", "Ctrl+Shift+O");
 pub const SHORTCUT_EXPORT: &str = shortcut("⇧⌘E", "Ctrl+Shift+E");
 pub const SHORTCUT_FIT: &str = shortcut("⌘0", "Ctrl+0");
 pub const SHORTCUT_UNDO: &str = shortcut("⌘Z", "Ctrl+Z");

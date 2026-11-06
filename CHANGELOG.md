@@ -17,6 +17,11 @@ changes to CI alone are not released.
   other shape. Older versions can't read a photo's sidecar once a mask on it has
   a brush: they say so and open the photo without its edits, and editing it there
   would replace them.
+- Gradients can be drawn on the photo. After **+ Linear** or **+ Radial**, drag on
+  the photo to place the new shape: a linear gradient runs from full effect where
+  you press to none where you let go, and a radial one grows as a circle from its
+  centre. Its handles still adjust it, and it starts in the usual place if you
+  don't drag.
 
 ## [0.19.0] - 2026-11-06
 

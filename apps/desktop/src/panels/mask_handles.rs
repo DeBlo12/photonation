@@ -4,7 +4,8 @@
 //! On-canvas mask editing while the masks panel is open: the selected
 //! shape's lines or ellipse with draggable handles, hollow pins that select
 //! the selected mask's other shapes, and solid pins that select the other
-//! masks. A brush has no handles: `mask_brush.rs` paints it, and shares the
+//! masks. A gradient just added also waits to be placed by dragging on the
+//! photo. A brush has no handles: `mask_brush.rs` paints it, and shares the
 //! pins.
 
 use crate::app::MaskSelection;
@@ -36,6 +37,8 @@ enum Handle {
     /// An edge handle on the ellipse's (rotated) x or y axis.
     RadialEdgeX,
     RadialEdgeY,
+    /// No handle on the photo: placing a new radial sets both radii.
+    RadialRadius,
 }
 
 /// What a pin on the canvas selects.
@@ -48,11 +51,13 @@ enum Pin {
 }
 
 /// Handles pointer input on the canvas: drags on the selected shape's
-/// handles, clicks on pins. Returns whether a handle drag owns the pointer,
-/// so the viewer doesn't also pan.
+/// handles, a drag that places a gradient waiting for one (`to_draw`), clicks
+/// on pins. Returns whether a drag owns the pointer, so the viewer doesn't
+/// also pan.
 pub fn interact(
     masks: &mut [Mask],
     selection: &mut Option<MaskSelection>,
+    to_draw: &mut Option<MaskSelection>,
     ui: &Ui,
     response: &Response,
     frame: &PhotoFrame,
@@ -62,9 +67,14 @@ pub fn interact(
 
     if response.drag_started() {
         let press = ui.input(|i| i.pointer.press_origin());
-        active = selected_shape(masks, *selection)
+        let waiting = to_draw.is_some() && *to_draw == *selection;
+        active = selected_shape_mut(masks, *selection)
             .zip(press)
-            .and_then(|(shape, press)| handle_at(shape, frame, press));
+            .and_then(|(shape, press)| drag_target(shape, frame, press, waiting));
+        // Either way the new shape is now where the user wants it.
+        if active.is_some() {
+            *to_draw = None;
+        }
     }
     if !response.dragged() {
         active = None;
@@ -101,12 +111,52 @@ pub fn interact(
             .is_some_and(|shape| handle_at(shape, frame, pointer).is_some())
             || pin_at(masks, *selection, frame, pointer).is_some()
     });
+    let waiting_to_draw = to_draw.is_some()
+        && *to_draw == *selection
+        && response
+            .hover_pos()
+            .is_some_and(|pointer| frame.image_rect.contains(pointer));
     if active.is_some() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
     } else if hovering_handle {
         ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+    } else if waiting_to_draw {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
     }
     active.is_some()
+}
+
+/// What a drag from `press` moves: the handle under it, which is what the
+/// pointer is visibly on, or else a shape `waiting` to be placed.
+fn drag_target(
+    shape: &mut MaskShape,
+    frame: &PhotoFrame,
+    press: Pos2,
+    waiting: bool,
+) -> Option<Handle> {
+    handle_at(shape, frame, press).or_else(|| {
+        (waiting && frame.image_rect.contains(press))
+            .then(|| begin_drawing(shape, frame.to_position(press)))
+            .flatten()
+    })
+}
+
+/// Puts a shape's anchor at the press, and returns the handle the rest of the
+/// drag moves: a gradient runs from the press to the pointer, a radial grows
+/// from its centre.
+fn begin_drawing(shape: &mut MaskShape, press: [f64; 2]) -> Option<Handle> {
+    match shape {
+        MaskShape::Linear(linear) => {
+            linear.start = press;
+            linear.end = press;
+            Some(Handle::LinearEnd)
+        }
+        MaskShape::Radial(radial) => {
+            radial.center = press;
+            Some(Handle::RadialRadius)
+        }
+        MaskShape::Brush(_) => None,
+    }
 }
 
 /// Selects what the pin under `pointer` stands for. Returns whether there
@@ -326,6 +376,12 @@ fn drag(
         point[1] += moved[1];
     };
     match (shape, handle) {
+        (MaskShape::Radial(radial), Handle::RadialRadius) => {
+            let center = frame.space.to_metric(radial.center);
+            let point = frame.screen_to_metric(pointer);
+            let radius = (point[0] - center[0]).hypot(point[1] - center[1]);
+            radial.radius = [radius.max(MIN_RADIUS); 2];
+        }
         (MaskShape::Linear(linear), Handle::LinearStart) => linear.start = current,
         (MaskShape::Linear(linear), Handle::LinearEnd) => linear.end = current,
         (MaskShape::Linear(linear), Handle::LinearMiddle) => {
@@ -502,6 +558,95 @@ mod tests {
         };
         assert!((linear.start[0] - 0.6).abs() < 1e-6 && (linear.start[1] - 0.3).abs() < 1e-6);
         assert!((linear.end[0] - 0.6).abs() < 1e-6 && (linear.end[1] - 0.7).abs() < 1e-6);
+    }
+
+    #[test]
+    fn drawing_a_linear_gradient_runs_from_the_press_to_the_pointer() {
+        let mut shape = MaskShape::Linear(LinearGradient::default());
+        let press = frame().to_position(pos2(150.0, 100.0));
+        let handle = begin_drawing(&mut shape, press).expect("a gradient draws");
+        drag(
+            &mut shape,
+            handle,
+            pos2(150.0, 300.0),
+            Vec2::ZERO,
+            &frame(),
+            false,
+        );
+        let MaskShape::Linear(linear) = shape else {
+            panic!("linear")
+        };
+        assert_eq!(linear.start, press);
+        assert!((linear.end[0] - 0.25).abs() < 1e-6 && (linear.end[1] - 0.75).abs() < 1e-6);
+    }
+
+    #[test]
+    fn drawing_a_radial_gradient_grows_a_circle_from_the_press() {
+        let mut shape = MaskShape::Radial(RadialGradient {
+            feather: 30.0,
+            ..RadialGradient::default()
+        });
+        let handle = begin_drawing(&mut shape, [0.5, 0.5]).expect("a gradient draws");
+        // 60 points of a 600-point-wide photo, at an angle: 0.1 long edges.
+        drag(
+            &mut shape,
+            handle,
+            pos2(300.0 + 36.0, 200.0 + 48.0),
+            Vec2::ZERO,
+            &frame(),
+            false,
+        );
+        let MaskShape::Radial(radial) = shape else {
+            panic!("radial")
+        };
+        assert_eq!(radial.center, [0.5, 0.5]);
+        assert!((radial.radius[0] - 0.1).abs() < 1e-6, "{:?}", radial.radius);
+        assert_eq!(radial.radius[0], radial.radius[1], "round");
+        assert_eq!(radial.feather, 30.0, "the rest of the shape stays");
+        // A pointer back on the centre leaves a shape that can still be seen.
+        let mut shape = MaskShape::Radial(radial);
+        drag(
+            &mut shape,
+            handle,
+            pos2(300.0, 200.0),
+            Vec2::ZERO,
+            &frame(),
+            false,
+        );
+        let MaskShape::Radial(radial) = shape else {
+            panic!("radial")
+        };
+        assert_eq!(radial.radius, [MIN_RADIUS; 2]);
+    }
+
+    #[test]
+    fn a_drag_on_a_handle_moves_it_even_while_the_shape_waits_to_be_placed() {
+        let mut shape = MaskShape::Linear(LinearGradient::default());
+        let original = shape.clone();
+        let on_the_end_line = frame().to_screen(LinearGradient::default().end);
+        assert_eq!(
+            drag_target(&mut shape, &frame(), on_the_end_line, true),
+            Some(Handle::LinearEnd)
+        );
+        assert_eq!(shape, original, "not redrawn");
+
+        let elsewhere = pos2(50.0, 350.0);
+        assert_eq!(drag_target(&mut shape, &frame(), elsewhere, false), None);
+        assert_eq!(shape, original, "nothing waiting");
+        let outside = pos2(700.0, 350.0);
+        assert_eq!(drag_target(&mut shape, &frame(), outside, true), None);
+        assert_eq!(shape, original, "off the photo");
+        assert_eq!(
+            drag_target(&mut shape, &frame(), elsewhere, true),
+            Some(Handle::LinearEnd)
+        );
+        assert_ne!(shape, original, "placed");
+    }
+
+    #[test]
+    fn a_brush_is_not_drawn_like_a_gradient() {
+        let mut brush = MaskShape::Brush(MaskBrush::default());
+        assert_eq!(begin_drawing(&mut brush, [0.5, 0.5]), None);
     }
 
     #[test]

@@ -192,8 +192,14 @@ impl ColorAdjust {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn apply(&self, rgb: [f32; 3]) -> [f32; 3] {
+        self.oklab.to_rgb(self.apply_in_oklab(rgb))
+    }
+
+    /// The adjusted colour, still in Oklab, for a step that continues there.
+    #[inline(always)]
+    pub fn apply_in_oklab(&self, rgb: [f32; 3]) -> [f32; 3] {
         let mut lab = self.oklab.from_rgb(rgb.map(|v| v.max(0.0)));
         if let Some(bands) = &self.mixer {
             apply_mixer(bands, &mut lab);
@@ -209,7 +215,7 @@ impl ColorAdjust {
         if let Some(points) = &self.points {
             points.apply(&mut lab);
         }
-        self.oklab.to_rgb(lab)
+        lab
     }
 }
 

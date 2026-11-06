@@ -18,6 +18,14 @@ changes to CI alone are not released.
   a brush: they say so and open the photo without its edits, and editing it there
   would replace them.
 
+### Changed
+
+- Exports and other CPU renders with masks are faster: masks that can't reach a
+  row of the photo are skipped there, and local Saturation no longer makes a second
+  trip through Oklab where a colour control is set. With both, a few pixels may
+  land one output level from where they were (about 1 sample in 400 at 16 bits, 1
+  in 100 000 at 8 bits), which isn't visible.
+
 ## [0.20.0] - 2026-11-06
 
 ### Added

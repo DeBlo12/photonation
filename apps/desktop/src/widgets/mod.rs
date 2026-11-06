@@ -19,7 +19,7 @@ pub use brand_mark::paint_brand_mark;
 pub use curve_editor::{CurveChannel, curve_editor};
 pub use histogram::histogram;
 pub use icon::{Icon, paint_icon};
-pub use rating::{label_color, paint_badges, paint_stars, rating_control};
+pub use rating::{label_color, paint_badges, paint_stars, rating_control, rating_control_width};
 pub use section::{SectionAction, section};
 pub use segmented::segmented;
 pub use slider::{SliderStyle, Track, adjustment_slider};

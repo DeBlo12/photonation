@@ -1,0 +1,37 @@
+Installing Photonation
+======================
+
+Drag Photonation to the Applications folder, then open it from there.
+
+This build runs on Macs with Apple silicon (M1 or later) and macOS 11 or later.
+
+
+If macOS says it can't check or verify Photonation
+--------------------------------------------------
+
+This copy isn't notarized by Apple, so macOS blocks it the first time. You only
+have to approve it once.
+
+1. Open Photonation. When macOS blocks it, click Done or OK.
+2. Open System Settings, then Privacy & Security.
+3. Scroll down to Security, and click Open Anyway next to the Photonation
+   message. Confirm with your password if asked.
+
+On macOS 14 and earlier you can instead Control-click the app and choose Open.
+
+Or paste this into Terminal, then open the app as usual:
+
+    xattr -dr com.apple.quarantine /Applications/Photonation.app
+
+
+Uninstalling
+------------
+
+Move Photonation from Applications to the Trash. Your preferences and thumbnails
+are in ~/Library/Application Support/Photonation; delete that folder to remove
+them too. Your photos and the edits saved beside them stay where they are.
+
+
+Photonation is free software under the GNU GPL, version 3 or later, with
+ABSOLUTELY NO WARRANTY. The source code and licences:
+https://github.com/DeBlo12/photonation

@@ -12,7 +12,8 @@
 #   --skip-build  Package the binaries already in target/release.
 #
 # Without a signing identity the app is signed ad hoc, and macOS makes people
-# who download it approve it by hand (docs/DEVELOPMENT.md). For a release set:
+# who download it approve it by hand; the image then includes the steps
+# (first-launch.txt, docs/DEVELOPMENT.md). To avoid that, set:
 #   PHOTONATION_SIGN_IDENTITY   "Developer ID Application: <name> (<team>)"
 #   PHOTONATION_NOTARY_PROFILE  a `xcrun notarytool store-credentials` profile,
 #                               to notarize the disk image and staple the ticket
@@ -63,10 +64,28 @@ if [[ -e "$volume" ]]; then
     exit 1
 fi
 
+# What ships must be what the About window links to: the source at tag
+# v<version> (GPL section 6, and docs/DEVELOPMENT.md, "Releasing").
+release_tag="v$version"
+if [[ -n "$(git status --porcelain)" ]]; then
+    echo "warning: uncommitted changes; don't distribute this build" >&2
+elif [[ "$(git rev-parse HEAD)" != "$(git rev-parse --verify --quiet "$release_tag^{commit}" || true)" ]]; then
+    echo "warning: this isn't tag $release_tag; don't distribute this build" >&2
+fi
+
 if [[ "$skip_build" == false ]]; then
+    # Keep paths on this machine, with the user name in them, out of the
+    # binaries' panic messages. The last matching prefix wins.
     MACOSX_DEPLOYMENT_TARGET="$MINIMUM_MACOS" \
+        RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$HOME=~ --remap-path-prefix=$root=." \
         cargo build --release --locked -p photonation-desktop -p photonation-cli
 fi
+for binary in photonation-desktop photonation; do
+    if strings -a "target/release/$binary" | grep -q "$HOME"; then
+        echo "target/release/$binary names $HOME. Build without --skip-build." >&2
+        exit 1
+    fi
+done
 
 # The licence texts of every compiled-in crate (NOTICE, "Obligations when
 # distributing binaries").
@@ -99,6 +118,11 @@ sign "$app"
 codesign --verify --deep --strict "$app"
 
 ln -s /Applications "$stage/Applications"
+# An app that isn't notarized needs approving by hand; say how, in the image.
+readme_name="Read Me First.txt"
+if [[ -z "$notary_profile" ]]; then
+    cp packaging/macos/first-launch.txt "$stage/$readme_name"
+fi
 
 # A writable image first, so Finder can save the window layout into it.
 hdiutil create -quiet -fs HFS+ -volname "$volume_name" -srcfolder "$stage" \
@@ -110,8 +134,8 @@ trap 'hdiutil detach -quiet "$volume" 2>/dev/null || true' EXIT
 # Applications on the right. Finder may need permission to be automated, and
 # there may be no Finder at all on a build machine; the image works either way.
 arrange_window() {
-    osascript - "$volume_name" <<'APPLESCRIPT'
-on run {volumeName}
+    osascript - "$volume_name" "$readme_name" <<'APPLESCRIPT'
+on run {volumeName, readmeName}
     with timeout of 30 seconds
         tell application "Finder"
             tell disk volumeName
@@ -126,6 +150,9 @@ on run {volumeName}
                 set text size of viewOptions to 13
                 set position of item "Photonation.app" of container window to {170, 170}
                 set position of item "Applications" of container window to {490, 170}
+                if exists item readmeName of container window then
+                    set position of item readmeName of container window to {330, 320}
+                end if
                 update without registering applications
                 close
             end tell
@@ -161,4 +188,5 @@ if [[ -n "$notary_profile" ]]; then
     xcrun stapler staple "$final_image"
 fi
 
+(cd "$installer_directory" && shasum -a 256 "$(basename "$final_image")" >"$(basename "$final_image").sha256")
 echo "$final_image"

@@ -8,7 +8,7 @@ a floating inspector. The look is Photonation's brand (see *Look* below).
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
-│ ● ● ●  File  Edit  Library  View  Help                           │  menu bar
+│ ● ● ●  (macOS)    File  Edit  View  Library  Help (elsewhere)    │  menu row
 ├─────────────────────────────────────────────────────────────┤
 │ Open ▦  IMG_0001.CR3 ★★★☆☆  camera · exp  ↶ ↷ ⛶ ◎ ◐ Fit [Export] │  toolbar
 ├───────────────────────────────────────────┬─────────────────┤
@@ -36,8 +36,10 @@ it, and the inspector's outline pulses amber (`ViewState::tool_warning`).
 
 | File | Region |
 |---|---|
-| `panels/toolbar.rs` | Open, the grid button and filter chip, photo name, its stars, flag and label, exposure info, undo/redo, compare, zoom, export |
-| `panels/menu_bar.rs` | File, Edit, Library, View and Help menus; each item does what its button or shortcut does |
+| `panels/toolbar.rs` | Open, the grid button and filter chip, photo name, its stars, flag and label, exposure info, undo/redo, compare, zoom, export. As the window narrows the exposure info goes, then the name shortens, then the labels go (they stay in the Library menu); nothing reaches the controls on the right |
+| `menus.rs` | The menus as data, and what choosing an item does |
+| `native_menu.rs` | macOS only: the menus in the system menu bar, built with muda and kept up to date |
+| `panels/menu_bar.rs` | The row above the toolbar: the window buttons' room on macOS, the menus drawn with egui elsewhere |
 | `panels/settings.rs` | Settings window (graphics processor, export folder, export defaults) and About |
 | `panels/help.rs` | The Help window (? button, Help ▸ Photonation Help, F1): one page per feature, written from the pipeline, the panels and these documents |
 | `panels/viewer.rs` | Canvas: fit/zoom/pan, before/after divider, eyedroppers, status toast |
@@ -418,12 +420,31 @@ Everything is saved to `preferences.json` when the window closes, and the
 current export options are reset to the new defaults. Missing fields take
 their defaults, so older files load.
 
-**Menu bar** (`panels/menu_bar.rs`). File (Open Folder, Export, Export All
+**Menus** (`menus.rs`). File (Open Folder, Export, Export All
 Photos, Settings, Quit), Edit (Undo, Redo, Reset All Adjustments), View (Fit,
 Actual Pixels, Compare, Masks, Crop and Straighten, Remove Objects, previous
 and next photo) and Help (Photonation Help, Keyboard Shortcuts, About).
-Items show their shortcuts and are disabled when they cannot apply. On macOS
-the bar starts right of the window buttons.
+Items show their shortcuts and are disabled when they cannot apply.
+
+Each frame `menus::menus` builds the menus as data from the app's state, so an
+item's label, whether it's enabled and whether it's checked are decided in one
+place, and `PhotonationApp::perform` does what a chosen item says. While a dialog
+is open every item but Quit is disabled.
+
+Windows and Linux draw that data in the window (`panels/menu_bar.rs`). On macOS
+`native_menu.rs` puts it in the system menu bar, arranged as Mac apps are: an
+application menu with About, Settings and Quit, and a Window menu. Installed when
+the app starts, it replaces winit's default menu bar. A choice arrives through
+muda's event handler, which wakes the app, and is performed at the start of the
+next frame. At the end of each frame the bar is compared with the data: items
+change in place, so an open menu stays open, and only a different list of items
+(presets imported, say) builds a new bar.
+
+Only ⌘ shortcuts are macOS key equivalents, because those act before the focused
+view sees the key. Plain keys and ⌘A would then fire while someone types in a
+field, so the app's own shortcut handling keeps them, and the menu shows them in
+the item's text, such as "Grid (G)". Hovering a preset in a native menu doesn't
+preview it, as macOS doesn't tell the app which item is highlighted through muda.
 
 ## Help (`panels/help.rs`)
 

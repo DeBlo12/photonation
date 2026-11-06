@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*", "apps/*"]
 
 [workspace.package]
-version = "0.17.1"
+version = "0.18.0"
 edition = "2024"
 license = "GPL-3.0-or-later"
 rust-version = "1.95"
@@ -58,6 +58,8 @@ wgpu = { version = "30.0", default-features = false, features = ["std", "wgsl", 
 pollster = "1.0"
 
 # desktop app
+# The macOS menu bar (Apache-2.0 OR MIT).
+muda = { version = "0.21", default-features = false }
 eframe = "0.37"
 rfd = "0.17"
 # Moving rejected photos to the Recycle Bin / Trash (MIT)

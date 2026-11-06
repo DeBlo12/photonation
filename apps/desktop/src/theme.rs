@@ -60,7 +60,6 @@ pub const FILMSTRIP_RESTING_HEIGHT: f32 = 26.0;
 /// Room for the macOS traffic lights in the transparent title bar. Other
 /// platforms keep their native title bar above the toolbar.
 pub const MENU_BAR_HEIGHT: f32 = 26.0;
-pub const TRAFFIC_LIGHT_INSET: f32 = if cfg!(target_os = "macos") { 78.0 } else { 0.0 };
 
 /// Shortcut labels for tooltips, in the platform's notation.
 pub const SHORTCUT_OPEN: &str = shortcut("⌘O", "Ctrl+O");

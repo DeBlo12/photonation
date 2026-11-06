@@ -7,6 +7,7 @@
 //! The state and actions are in `crate::presets`.
 
 use crate::app::PhotonationApp;
+use crate::menus::{Action, Entry, Item};
 use crate::presets::PresetRef;
 use crate::theme;
 use eframe::egui::{self, Align, Align2, Layout, RichText, Sense, Ui, pos2, vec2};
@@ -221,25 +222,50 @@ fn preset_row(ui: &mut Ui, name: &str) -> egui::Response {
 
 /// The Edit menu's Apply Preset submenu: one submenu per group. Resting
 /// on a preset shows it on the photo.
-pub fn apply_menu(app: &mut PhotonationApp, ui: &mut Ui) {
-    let mut chosen = None;
-    for (group, members) in listing(app) {
-        ui.menu_button(group, |ui| {
-            for (preset, _) in members {
-                let item = ui.button(&preset.name);
-                if item.hovered() {
-                    app.preview_preset(&preset);
-                }
-                if item.clicked() {
-                    chosen = Some(preset);
-                    ui.close();
-                }
-            }
-        });
+pub fn apply_entries(app: &PhotonationApp) -> Vec<Entry> {
+    app.view
+        .presets
+        .groups()
+        .into_iter()
+        .map(|(group, members)| Entry::Submenu {
+            entries: members
+                .into_iter()
+                .map(|member| {
+                    let name = member_name(member).to_string();
+                    Entry::Item(Item {
+                        label: name.clone(),
+                        shortcut: "",
+                        action: Action::ApplyPreset {
+                            group: group.clone(),
+                            name,
+                        },
+                        enabled: true,
+                        checked: None,
+                    })
+                })
+                .collect(),
+            title: group,
+            enabled: true,
+        })
+        .collect()
+}
+
+fn member_name(member: PresetRef<'_>) -> &str {
+    match member {
+        PresetRef::BuiltIn(preset) => &preset.name,
+        PresetRef::User(stored) => &stored.preset.name,
     }
-    if let Some(preset) = chosen {
-        app.apply_preset(&preset);
-    }
+}
+
+/// The preset a menu item names, if it is still there.
+pub fn find(app: &PhotonationApp, group: &str, name: &str) -> Option<Preset> {
+    listing(app)
+        .into_iter()
+        .find(|(listed_group, _)| listed_group == group)?
+        .1
+        .into_iter()
+        .map(|(preset, _)| preset)
+        .find(|preset| preset.name == name)
 }
 
 /// The open dialogs, if any.

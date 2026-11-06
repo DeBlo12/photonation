@@ -322,7 +322,7 @@ impl PhotonationApp {
 
     /// Moves a user preset's file to the system's bin.
     pub fn delete_preset(&mut self, stored: &StoredPresetFile) {
-        match trash::delete(&stored.path) {
+        match crate::library::trash_context().delete(&stored.path) {
             Ok(()) => {
                 self.load_presets();
                 self.notify(format!(

@@ -19,7 +19,8 @@
 - Crop and straighten tool (aspect ratios, angle, drag to turn)
 - Lightroom XMP import: global develop settings and crops open with the photo
 - Object removal: painted removals filled by content-aware fill (PatchMatch)
-  or a neural inpainting model (LaMa / MI-GAN via tract), in the background
+  or a neural inpainting model (LaMa / MI-GAN via tract), in the background;
+  fills are kept on disk, so reopening a photo doesn't compute them again
 - Desktop editor (toolbar, viewer with zoom/compare, filmstrip, adjustment cards, export sheet)
   in the Photonation brand (Ink and Paper surfaces, Photon amber, Inter and Sora, the iris on the welcome screen)
 - CLI: info, export, edit
@@ -57,8 +58,8 @@ In this order:
    bounds miss a band, and fold local saturation into the colour step's Oklab
    round trip, to speed up masked renders.
 2. **Better removals**: one-click people selection (segmentation), dust
-   spot and wire/fence detection, full-resolution tiled fills, a disk cache
-   for fills. See [RETOUCH.md](RETOUCH.md).
+   spot and wire/fence detection, full-resolution tiled fills. See
+   [RETOUCH.md](RETOUCH.md).
 
 ## Priority
 

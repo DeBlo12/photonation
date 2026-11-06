@@ -9,6 +9,7 @@
 //! the embedded preview of unedited photos and render edited ones.
 //! Documented in docs/ENGINE.md.
 
+use crate::disk_cache::{mark_used, trim_directory, write_whole};
 use crate::service::{EventSink, isolate_panics, render_rgb8};
 use crate::{Decoder, Event, Histogram, RenderedImage, Retoucher};
 use photonation_develop::Settings;
@@ -223,10 +224,7 @@ impl ThumbnailCache {
         let image = image::load_from_memory_with_format(&bytes, image::ImageFormat::Jpeg)
             .ok()?
             .to_rgb8();
-        // Mark it used, so trimming keeps it.
-        if let Ok(file) = std::fs::File::options().append(true).open(&entry) {
-            file.set_modified(std::time::SystemTime::now()).ok();
-        }
+        mark_used(&entry);
         Some(rendered(
             image.width() as usize,
             image.height() as usize,
@@ -251,50 +249,14 @@ impl ThumbnailCache {
         {
             return;
         }
-        let Some(directory) = entry.parent() else {
-            return;
-        };
-        if std::fs::create_dir_all(directory).is_err() {
-            return;
-        }
-        // Written beside it and renamed, so a reader never sees half a file.
-        let partial = entry.with_extension(format!("{:?}.partial", std::thread::current().id()));
-        if std::fs::write(&partial, &jpeg).is_ok() && std::fs::rename(&partial, &entry).is_err() {
-            std::fs::remove_file(&partial).ok();
-        }
+        write_whole(&entry, &jpeg);
     }
 
     /// Deletes the least recently used files while the cache is larger
     /// than `max_bytes`, down to `trimmed_bytes`.
     pub fn trim(&self, max_bytes: u64, trimmed_bytes: u64) {
-        let Some(directory) = &self.directory else {
-            return;
-        };
-        let Ok(entries) = std::fs::read_dir(directory) else {
-            return;
-        };
-        let mut files: Vec<(std::time::SystemTime, u64, PathBuf)> = entries
-            .filter_map(Result::ok)
-            .filter_map(|entry| {
-                let metadata = entry.metadata().ok()?;
-                metadata.is_file().then(|| {
-                    let used = metadata.modified().unwrap_or(std::time::UNIX_EPOCH);
-                    (used, metadata.len(), entry.path())
-                })
-            })
-            .collect();
-        let mut total: u64 = files.iter().map(|(_, size, _)| size).sum();
-        if total <= max_bytes {
-            return;
-        }
-        files.sort();
-        for (_, size, path) in files {
-            if total <= trimmed_bytes {
-                break;
-            }
-            if std::fs::remove_file(path).is_ok() {
-                total -= size;
-            }
+        if let Some(directory) = &self.directory {
+            trim_directory(directory, max_bytes, trimmed_bytes);
         }
     }
 

@@ -210,14 +210,14 @@ impl RenderService {
     /// `notify` is called (from worker threads) whenever an event is ready.
     /// Previews render on the GPU where possible (see [`crate::GPU_RENDER_VARIABLE`]).
     pub fn new(notify: impl Fn() + Send + Sync + 'static) -> RenderService {
-        let retoucher = Arc::new(Retoucher::new(default_model_path()));
+        let retoucher = Arc::new(Retoucher::installed());
         RenderService::start(Arc::new(RawDecoder), retoucher, disk_cache(), true, notify)
     }
 
     /// Like [`RenderService::new`], but previews render on the CPU and no
     /// GPU device is opened.
     pub fn on_cpu(notify: impl Fn() + Send + Sync + 'static) -> RenderService {
-        let retoucher = Arc::new(Retoucher::new(default_model_path()));
+        let retoucher = Arc::new(Retoucher::installed());
         RenderService::start(Arc::new(RawDecoder), retoucher, disk_cache(), false, notify)
     }
 

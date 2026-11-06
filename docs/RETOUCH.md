@@ -162,10 +162,29 @@ again, so no restart is needed. Without a model (or in a build without the
 loads, cached fills are dropped and the app renders again so they are
 redone with it. Model licences are listed in [NOTICE](../NOTICE).
 
+## Caching fills
+
+Fills stay in memory for the 8 most recent photos (`FillCache`) and on disk, so
+reopening a photo, even after a restart, doesn't compute them again. Exports from
+the desktop app and the CLI use the same files.
+
+**On disk.** One file per fill in `fills` under the data directory: a small header
+(magic, sensor rectangle, size) and the samples as they are, `f32` little-endian, so
+a fill comes back to the bit. Files are written whole and renamed into place. A file
+that is damaged, or larger than a canvas can be, just means computing the fill again.
+When the folder grows past 2 GB the least recently used files go, down to 1.5 GB.
+These are pixels from the photos, in the same place and with the same care as the
+thumbnails.
+
+**The name** is a hash of everything a fill depends on, so nothing stale is found:
+the photo's path, size and modification time, the removal chain's fingerprint, the
+crate version, and when the chain uses a generative removal, the model's name, size
+and modification time. A fill made without a model, which used the fallback, is thus
+not used once there is one. The hash holds within a build only, which the crate
+version covers: an upgrade starts the cache again, and the old files age out.
+
 ## Limits and next steps
 
-- Fills live in memory (8 photos); reopening a photo recomputes them.
-  A disk cache keyed by file and chain fingerprint would make that instant.
 - Canvases are capped at 1536 px; removals larger than that in the photo
   are refined at that resolution and scaled up. Tiled refinement at full
   resolution would remove the cap.

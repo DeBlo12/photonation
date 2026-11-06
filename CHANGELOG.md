@@ -10,6 +10,9 @@ changes to CI alone are not released.
 
 ### Added
 
+- Removal fills are kept on disk, so reopening a photo, even after a restart, shows
+  them at once instead of computing them again. The cache stays under 2 GB, in the
+  `fills` folder next to the thumbnails.
 - A brush for masks. **+ Brush** paints a mask straight on the photo, with Size,
   Feather and Flow, and the adjustments follow the stroke as you paint. Erase, or
   hold Option (Alt on Windows and Linux), to take away from it; `[` and `]` change

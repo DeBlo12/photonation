@@ -7,6 +7,7 @@
 //! about a UI toolkit; results arrive as [`Event`]s.
 
 mod decoder;
+mod disk_cache;
 mod export;
 mod histogram;
 mod history;

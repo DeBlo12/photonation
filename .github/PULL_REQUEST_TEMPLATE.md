@@ -9,7 +9,7 @@
 ## Checklist
 
 - [ ] `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings` and `cargo test --workspace` pass
-- [ ] The matching document in `docs/` is updated
+- [ ] The matching document in `docs/` and any other affected Markdown file, including `README.md`, are updated
 - [ ] User-visible changes are noted in `CHANGELOG.md` under *Unreleased*
 - [ ] Changes to how existing edits render use a new process version (docs/EDIT-MODEL.md)
 - [ ] New dependencies pass `cargo deny check`

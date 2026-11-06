@@ -21,7 +21,7 @@
 - Object removal: painted removals filled by content-aware fill (PatchMatch)
   or a neural inpainting model (LaMa / MI-GAN via tract), in the background
 - Desktop editor (toolbar, viewer with zoom/compare, filmstrip, adjustment cards, export sheet)
-  in the Photonation brand (Ink surfaces, Photon amber, Inter and Sora, the iris on the welcome screen)
+  in the Photonation brand (Ink and Paper surfaces, Photon amber, Inter and Sora, the iris on the welcome screen)
 - CLI: info, export, edit
 - GPU previews (wgpu compute) for every global adjustment, masks, Texture
   and Clarity, checked against the CPU pipeline
@@ -41,6 +41,12 @@
 - Lens corrections from the bundled Lensfun database (distortion,
   vignetting, chromatic aberration) with manual distortion and vignetting,
   on CPU and GPU; Lightroom's lens corrections import
+- macOS menus in the system menu bar; a macOS disk image, with a workflow that
+  checks it on clean machines
+- Folder overview: a folder that holds only folders shows the ones with raw
+  photos, each with a cover and a count
+- Light and dark modes that follow the system or a choice in Settings; Liquid
+  Glass on macOS 26 and later
 
 ## Next
 
@@ -93,6 +99,7 @@ After Next, in this order:
   (ratings, flags and labels are per folder today).
 - **More raw formats**: contribute missing cameras upstream to rawler or add a
   second decoder behind `photonation-raw`.
-- **Packaging**: signed macOS app bundle (with `assets/icon/photonation.icns`);
-  a code-signed Windows installer built in CI (an unsigned one builds locally
+- **Packaging**: published macOS builds, signed with a Developer ID and
+  notarized (the installer script can do both; images are signed ad hoc until
+  then); a code-signed Windows installer built in CI (an unsigned one builds locally
   today); Linux builds.

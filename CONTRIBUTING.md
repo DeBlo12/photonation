@@ -26,9 +26,9 @@ architecture, conventions and how to add a control.
 ## Pull requests
 
 1. Branch from `main` (`feature/short-name`, `fix/short-name`).
-2. Keep changes focused; update the matching document in `docs/` and add an
-   entry to [CHANGELOG.md](CHANGELOG.md) under *Unreleased* for user-visible
-   changes.
+2. Keep changes focused; update the matching document in `docs/`, any other
+   Markdown file the change affects (including `README.md`), and add an entry
+   to [CHANGELOG.md](CHANGELOG.md) under *Unreleased* for user-visible changes.
 3. Before pushing, run:
 
    ```bash

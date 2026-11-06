@@ -93,19 +93,13 @@ pub fn install(render_state: &RenderState) {
         min_filter: wgpu::FilterMode::Linear,
         ..wgpu::SamplerDescriptor::default()
     });
-    let nothing_painted = BrushMap {
-        origin: [0.0; 2],
-        width: 1,
-        height: 1,
-        weights: vec![0.0],
-    };
     let bind_group = brush_bind_group(
         device,
         &render_state.queue,
         &layout,
         &uniforms,
         &sampler,
-        &nothing_painted,
+        &BrushMap::empty(),
     );
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("mask overlay"),

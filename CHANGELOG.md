@@ -8,6 +8,8 @@ changes to CI alone are not released.
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-11-06
+
 ### Added
 
 - A brush for masks. **+ Brush** paints a mask straight on the photo, with Size,
@@ -22,6 +24,14 @@ changes to CI alone are not released.
   you press to none where you let go, and a radial one grows as a circle from its
   centre. Its handles still adjust it, and it starts in the usual place if you
   don't drag.
+
+### Changed
+
+- Exports and other CPU renders with masks are faster: masks that can't reach a
+  row of the photo are skipped there, and local Saturation no longer makes a second
+  trip through Oklab where a colour control is set. With both, a few pixels may
+  land one output level from where they were (about 1 sample in 400 at 16 bits, 1
+  in 100 000 at 8 bits), which isn't visible.
 
 ### Fixed
 
@@ -472,7 +482,8 @@ changes to CI alone are not released.
 
 - Licensed under GPL-3.0-or-later.
 
-[Unreleased]: https://github.com/DeBlo12/photonation/compare/v0.20.0...HEAD
+[Unreleased]: https://github.com/DeBlo12/photonation/compare/v0.21.0...HEAD
+[0.21.0]: https://github.com/DeBlo12/photonation/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/DeBlo12/photonation/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/DeBlo12/photonation/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/DeBlo12/photonation/compare/v0.17.1...v0.18.0

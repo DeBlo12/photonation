@@ -44,6 +44,10 @@ pub struct BrushMap {
     pub height: usize,
     /// `width × height` weights, row by row.
     pub weights: Vec<f32>,
+    /// Metric `[left, top, right, bottom]` beyond which [`BrushMap::at`] reads
+    /// nothing. Infinite on a side where a weight touches the map's edge, as
+    /// clamping continues it from there.
+    painted: [f32; 4],
 }
 
 /// A stroke ready to rasterize, in metric units.
@@ -139,12 +143,7 @@ impl BrushMap {
             .filter_map(|stroke| PreparedStroke::new(stroke, space))
             .collect();
         let Some((columns, rows)) = painted_cells(&strokes, space) else {
-            return BrushMap {
-                origin: [0.0; 2],
-                width: 1,
-                height: 1,
-                weights: vec![0.0],
-            };
+            return BrushMap::empty();
         };
         let (width, height) = ((columns.1 - columns.0) as usize, (rows.1 - rows.0) as usize);
         let origin = [columns.0, rows.0].map(|cell| (cell as f32 + 0.5) / CELLS_PER_LONG_EDGE);
@@ -158,12 +157,37 @@ impl BrushMap {
                 }
             },
         );
+        let painted = painted_area(&weights, width, height, origin);
         BrushMap {
             origin,
             width,
             height,
             weights,
+            painted,
         }
+    }
+
+    /// A map that selects nothing.
+    pub fn empty() -> BrushMap {
+        BrushMap {
+            origin: [0.0; 2],
+            width: 1,
+            height: 1,
+            weights: vec![0.0],
+            painted: [
+                f32::INFINITY,
+                f32::INFINITY,
+                f32::NEG_INFINITY,
+                f32::NEG_INFINITY,
+            ],
+        }
+    }
+
+    /// Whether [`BrushMap::at`] reads nothing anywhere in a metric area
+    /// `[left, top, right, bottom]`.
+    pub fn selects_nothing_in(&self, area: [f32; 4]) -> bool {
+        let [left, top, right, bottom] = self.painted;
+        area[2] < left || area[0] > right || area[3] < top || area[1] > bottom
     }
 
     /// The map of `brush`, from a small cache shared by every render: a
@@ -221,6 +245,45 @@ impl BrushMap {
 struct CachedMap {
     key: (u64, [u64; 2]),
     map: Arc<BrushMap>,
+}
+
+/// What [`BrushMap::painted`] says for these weights: one cell past the last
+/// weight on each side, since sampling interpolates towards it.
+fn painted_area(weights: &[f32], width: usize, height: usize, origin: [f32; 2]) -> [f32; 4] {
+    let mut cells: Option<[usize; 4]> = None;
+    for (row, row_weights) in weights.chunks_exact(width).enumerate() {
+        let is_painted = |weight: &f32| *weight > 0.0;
+        if let Some(first) = row_weights.iter().position(is_painted) {
+            let last = row_weights.iter().rposition(is_painted).unwrap_or(first);
+            let cells = cells.get_or_insert([first, row, last, row]);
+            cells[0] = cells[0].min(first);
+            cells[2] = cells[2].max(last);
+            cells[3] = row;
+        }
+    }
+    let Some([first_x, first_y, last_x, last_y]) = cells else {
+        return BrushMap::empty().painted;
+    };
+    let low = |cell: usize, origin: f32| {
+        if cell == 0 {
+            f32::NEG_INFINITY
+        } else {
+            origin + (cell - 1) as f32 / CELLS_PER_LONG_EDGE
+        }
+    };
+    let high = |cell: usize, end: usize, origin: f32| {
+        if cell + 1 == end {
+            f32::INFINITY
+        } else {
+            origin + (cell + 1) as f32 / CELLS_PER_LONG_EDGE
+        }
+    };
+    [
+        low(first_x, origin[0]),
+        low(first_y, origin[1]),
+        high(last_x, width, origin[0]),
+        high(last_y, height, origin[1]),
+    ]
 }
 
 /// A range of grid columns or rows: first, and one past the last.
@@ -457,6 +520,37 @@ mod tests {
         }
         let off_the_photo = map(vec![stroke(&[[-0.9, -0.9]], 0.01, 0.0)]);
         assert_eq!(off_the_photo.at([0.5, 0.5]), 0.0);
+    }
+
+    #[test]
+    fn the_painted_area_holds_everything_sampling_can_read() {
+        let map = map(vec![stroke(&[[0.3, 0.4], [0.5, 0.45]], 0.05, 50.0)]);
+        // A grid of areas, each small enough to find every weight in it.
+        for row in 0..100 {
+            for column in 0..100 {
+                let (x, y) = (column as f32 / 100.0, row as f32 / 100.0);
+                let area = [x, y, x + 0.01, y + 0.01];
+                if map.selects_nothing_in(area) {
+                    for step in 0..=4 {
+                        let t = step as f32 / 4.0;
+                        let point = [x + 0.01 * t, y + 0.01 * (1.0 - t)];
+                        assert_eq!(map.at(point), 0.0, "{point:?}");
+                    }
+                }
+            }
+        }
+        assert!(map.selects_nothing_in([0.6, 0.0, 1.0, 1.0]), "right of it");
+        assert!(map.selects_nothing_in([0.0, 0.6, 1.0, 1.0]), "below it");
+        assert!(!map.selects_nothing_in([0.0, 0.0, 1.0, 1.0]), "on it");
+        assert!(BrushMap::empty().selects_nothing_in([0.0, 0.0, 1.0, 1.0]));
+    }
+
+    #[test]
+    fn a_stroke_the_photo_cuts_off_reaches_past_the_edge() {
+        let map = map(vec![stroke(&[[-0.5, 0.5], [1.5, 0.5]], 0.25, 50.0)]);
+        assert_eq!(map.at([3.0, 0.5]), 1.0, "clamping continues it");
+        assert!(!map.selects_nothing_in([2.9, 0.45, 3.0, 0.55]));
+        assert!(map.selects_nothing_in([2.9, 0.9, 3.0, 1.0]));
     }
 
     #[test]

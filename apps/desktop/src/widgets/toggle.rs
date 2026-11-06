@@ -15,7 +15,7 @@ pub fn toggle(ui: &mut Ui, on: &mut bool) -> Response {
         response.mark_changed();
     }
     let t = ui.ctx().animate_bool(response.id, *on);
-    let track = theme::CONTROL.lerp_to_gamma(theme::ACCENT, t);
+    let track = theme::palette().track.lerp_to_gamma(theme::ACCENT, t);
     let painter = ui.painter();
     painter.rect_filled(rect, rect.height() / 2.0, track);
     let radius = rect.height() / 2.0 - 2.0;

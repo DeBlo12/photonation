@@ -10,6 +10,9 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod app;
+mod folders;
+#[cfg(target_os = "macos")]
+mod glass;
 mod gpu;
 mod library;
 mod menus;
@@ -32,6 +35,9 @@ fn main() -> eframe::Result {
         .with_fullsize_content_view(true)
         .with_title_shown(false)
         .with_titlebar_shown(false);
+    // The glass panes show through it (glass.rs).
+    #[cfg(target_os = "macos")]
+    let viewport = viewport.with_transparent(glass::supported());
     // A screenshot run must not take the keyboard or mouse from whoever is
     // working at the computer: its window opens unfocused and lets the
     // pointer through.

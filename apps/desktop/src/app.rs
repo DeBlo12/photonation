@@ -154,6 +154,10 @@ impl RemovalBrush {
 
 /// Transient view state (not saved with the photo).
 pub struct ViewState {
+    /// Where the inspector is this frame, if shown.
+    pub inspector_rect: Option<egui::Rect>,
+    /// Where the filmstrip is this frame, if shown.
+    pub filmstrip_rect: Option<egui::Rect>,
     pub expanded: HashSet<AdjustmentGroup>,
     pub disabled: HashSet<AdjustmentGroup>,
     pub mixer_band: usize,
@@ -218,6 +222,8 @@ pub struct ViewState {
 impl Default for ViewState {
     fn default() -> Self {
         ViewState {
+            inspector_rect: None,
+            filmstrip_rect: None,
             expanded: [
                 AdjustmentGroup::WhiteBalance,
                 AdjustmentGroup::Light,
@@ -344,9 +350,18 @@ impl ViewState {
     }
 }
 
+/// The open photo as the panels found it: what differs from this once they
+/// have drawn is an edit.
+#[derive(Default)]
+struct PhotoBeforePanels {
+    settings: Settings,
+    disabled: HashSet<AdjustmentGroup>,
+}
+
 pub struct PhotonationApp {
     pub engine: RenderService,
     pub folder: Option<PathBuf>,
+    pub folders: crate::folders::FolderBrowser,
     pub photos: Vec<Photo>,
     pub current: Option<usize>,
     pub settings: Settings,
@@ -366,6 +381,7 @@ pub struct PhotonationApp {
     /// The crop the "before" preview was requested with, if any.
     before_requested: Option<(Option<NormRect>, f32)>,
     pending_save: Option<Instant>,
+    photo_before_panels: PhotoBeforePanels,
     /// Latest message for the user and when it was posted.
     pub status: Option<(String, Instant)>,
     /// The status message is about the photo shown and goes when it does.
@@ -373,6 +389,8 @@ pub struct PhotonationApp {
     pub export_progress: Option<(usize, usize)>,
     thumbnails_by_path: HashMap<PathBuf, usize>,
     screenshot: Option<crate::screenshot::Screenshot>,
+    #[cfg(target_os = "macos")]
+    glass: Option<crate::glass::GlassPanes>,
     #[cfg(target_os = "macos")]
     native_menus: Option<crate::native_menu::NativeMenus>,
     /// The graphics adapter in use, e.g. "AMD Radeon Pro 5500M (discrete GPU, Metal)".
@@ -401,6 +419,18 @@ impl PhotonationApp {
         app.screenshot = crate::screenshot::Screenshot::from_env();
         #[cfg(target_os = "macos")]
         {
+            app.glass = crate::glass::GlassPanes::install();
+            if let Some(glass) = &app.glass {
+                theme::use_glass();
+                if let Some(forced_theme) = crate::screenshot::forced_theme() {
+                    crate::glass::force_appearance(forced_theme);
+                }
+                if let Some(screenshot) = &mut app.screenshot
+                    && let Some(region) = glass.front_for_capture()
+                {
+                    screenshot.capture_screen_region(region);
+                }
+            }
             let menus = crate::menus::menus(&app, true);
             app.native_menus = Some(crate::native_menu::NativeMenus::install(
                 &cc.egui_ctx,
@@ -457,9 +487,13 @@ impl PhotonationApp {
     /// `new` starts from.
     fn with_engine(ctx: &egui::Context, engine: RenderService) -> PhotonationApp {
         theme::install(ctx);
+        if let Some(forced_theme) = crate::screenshot::forced_theme() {
+            ctx.set_theme(forced_theme);
+        }
         PhotonationApp {
             engine,
             folder: None,
+            folders: Default::default(),
             photos: Vec::new(),
             current: None,
             settings: Settings::default(),
@@ -475,11 +509,14 @@ impl PhotonationApp {
             pending_color_pick: None,
             before_requested: None,
             pending_save: None,
+            photo_before_panels: Default::default(),
             status: None,
             status_is_about_photo: false,
             export_progress: None,
             thumbnails_by_path: HashMap::new(),
             screenshot: None,
+            #[cfg(target_os = "macos")]
+            glass: None,
             #[cfg(target_os = "macos")]
             native_menus: None,
             gpu: None,
@@ -516,11 +553,10 @@ impl PhotonationApp {
                     photo.library = loaded.library;
                     self.engine.request_thumbnail(photo.path.clone(), settings);
                 }
-                if self.photos.is_empty() {
-                    self.notify("No supported raw files in this folder");
-                }
+                self.folders.folder_opened(&folder);
+                self.engine.scan_subfolders(folder.clone());
                 self.folder = Some(folder);
-                self.current = None;
+                self.close_photo();
                 self.select(0);
             }
             Err(e) => self.notify(format!("Could not open folder: {e}")),
@@ -552,11 +588,7 @@ impl PhotonationApp {
             }
         };
         self.history = History::new(self.settings.clone());
-        self.info = None;
-        self.preview = None;
-        self.before = None;
-        self.histogram = None;
-        self.before_requested = None;
+        self.forget_rendered_photo();
         self.view.zoom = Zoom::Fit;
         self.view.pan = egui::Vec2::ZERO;
         self.view.disabled.clear();
@@ -568,7 +600,30 @@ impl PhotonationApp {
         self.view.selected_removal = None;
         self.view.painting = None;
         self.filling_removals = false;
+        self.remember_photo_before_panels();
         self.refresh();
+    }
+
+    /// Saves and closes the current photo, leaving none open: nothing of it
+    /// stays behind to undo or to show.
+    pub fn close_photo(&mut self) {
+        self.save_now();
+        if self.status_is_about_photo {
+            self.status = None;
+        }
+        self.current = None;
+        self.settings = Settings::default();
+        self.history = History::default();
+        self.forget_rendered_photo();
+        self.remember_photo_before_panels();
+    }
+
+    fn forget_rendered_photo(&mut self) {
+        self.info = None;
+        self.preview = None;
+        self.before = None;
+        self.histogram = None;
+        self.before_requested = None;
     }
 
     pub fn notify(&mut self, message: impl Into<String>) {
@@ -578,6 +633,33 @@ impl PhotonationApp {
 
     pub fn current_path(&self) -> Option<&PathBuf> {
         self.current.map(|i| &self.photos[i].path)
+    }
+
+    /// Taken before the panels draw and again whenever a photo opens or
+    /// closes, which panels can do midway through a frame: a photo's own
+    /// settings replacing the last one's are not an edit of it.
+    fn remember_photo_before_panels(&mut self) {
+        self.photo_before_panels = PhotoBeforePanels {
+            settings: self.settings.clone(),
+            disabled: self.view.disabled.clone(),
+        };
+    }
+
+    /// Acts on what the panels changed since `remember_photo_before_panels`.
+    fn notice_panel_edits(&mut self) {
+        let before = &self.photo_before_panels;
+        if self.settings.removals != before.settings.removals {
+            self.filling_removals = self.settings.removals.iter().any(|r| r.is_active());
+        }
+        let settings_changed = self.settings != before.settings;
+        let disabled_changed = self.view.disabled != before.disabled;
+        let only_hidden_crop_changed =
+            self.view.cropping && panels::crop::only_crop_differs(&self.settings, &before.settings);
+        if disabled_changed || (settings_changed && !only_hidden_crop_changed) {
+            self.edited();
+        } else if settings_changed {
+            self.mark_unsaved();
+        }
     }
 
     /// Call after any change to `settings`: re-render and save the sidecar.
@@ -725,7 +807,7 @@ impl PhotonationApp {
         }
     }
 
-    fn handle_events(&mut self, ctx: &egui::Context) {
+    pub(crate) fn handle_events(&mut self, ctx: &egui::Context) {
         let events: Vec<Event> = self.engine.poll().collect();
         for event in events {
             match event {
@@ -781,17 +863,17 @@ impl PhotonationApp {
                         if photo.thumbnail_rendered && !rendered {
                             continue;
                         }
-                        let color_image =
-                            egui::ColorImage::from_rgb([image.width, image.height], &image.rgb);
-                        let texture = ctx.load_texture(
-                            format!("thumb-{index}"),
-                            color_image,
-                            TextureOptions::LINEAR,
-                        );
-                        photo.thumbnail = Some(texture);
+                        let name = format!("thumb-{index}");
+                        photo.thumbnail = Some(thumbnail_texture(ctx, name, &image));
                         photo.thumbnail_rendered = rendered;
+                    } else {
+                        self.folders.cover_arrived(ctx, &path, &image, rendered);
                     }
                 }
+                Event::SubfolderFound { parent, subfolder } => {
+                    self.subfolder_found(&parent, subfolder);
+                }
+                Event::SubfoldersScanned { parent } => self.subfolders_scanned(&parent),
                 Event::CaptureTime { path, captured } => {
                     if let Some(&index) = self.thumbnails_by_path.get(&path) {
                         self.photos[index].captured = Some(captured);
@@ -1055,6 +1137,16 @@ impl PhotonationApp {
     }
 }
 
+/// A thumbnail or folder cover as a texture.
+pub fn thumbnail_texture(
+    ctx: &egui::Context,
+    name: String,
+    image: &photonation_engine::RenderedImage,
+) -> egui::TextureHandle {
+    let color_image = egui::ColorImage::from_rgb([image.width, image.height], &image.rgb);
+    ctx.load_texture(name, color_image, TextureOptions::LINEAR)
+}
+
 /// Tells the user a photo opened with its Lightroom edits, and which of
 /// them Photonation could not bring along.
 fn lightroom_notice(not_imported: &[&str]) -> String {
@@ -1122,35 +1214,47 @@ impl PhotonationApp {
 }
 
 impl eframe::App for PhotonationApp {
+    /// See-through wherever nothing is painted, for the glass panes. A window
+    /// without glass is opaque and ignores the alpha.
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        [0.0; 4]
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        theme::follow_mode(&ctx);
+        self.view.inspector_rect = None;
+        self.view.filmstrip_rect = None;
         self.handle_events(&ctx);
+        self.apply_folder_request();
         self.arrange_photos();
         #[cfg(target_os = "macos")]
         self.perform_native_menu_choices(&ctx);
         crate::library::shortcuts(self, &ctx);
         self.shortcuts(&ctx);
 
-        let settings_before = self.settings.clone();
-        let disabled_before = self.view.disabled.clone();
+        self.remember_photo_before_panels();
         // The panels set it again while the pointer stays on a preset.
         let preset_hover_before = self.view.presets.hover.take();
         let cropping_before = self.view.cropping;
 
         panels::menu_bar::show(self, ui);
         panels::toolbar::show(self, ui);
-        if self.view.library.survey {
+        if self.showing_folder_overview() {
+            panels::folders::show(self, ui);
+        } else if self.view.library.survey {
             panels::library_bar::show(self, ui);
             panels::survey::show(self, ui);
         } else if self.view.library.grid {
             panels::library_bar::show(self, ui);
             panels::grid::show(self, ui);
         } else {
-            if !self.photos.is_empty() {
-                panels::filmstrip::show(self, ui);
-            }
+            // The inspector takes the full height; the filmstrip runs beside it.
             if self.current.is_some() {
                 panels::adjustments::show(self, ui);
+            }
+            if !self.photos.is_empty() {
+                panels::filmstrip::show(self, ui);
             }
             panels::viewer::show(self, ui);
         }
@@ -1183,18 +1287,7 @@ impl eframe::App for PhotonationApp {
             self.refresh();
         }
 
-        if self.settings.removals != settings_before.removals {
-            self.filling_removals = self.settings.removals.iter().any(|r| r.is_active());
-        }
-        if self.view.disabled != disabled_before
-            || (self.settings != settings_before
-                && !(self.view.cropping
-                    && panels::crop::only_crop_differs(&self.settings, &settings_before)))
-        {
-            self.edited();
-        } else if self.settings != settings_before {
-            self.mark_unsaved();
-        }
+        self.notice_panel_edits();
         if self.view.cropping != cropping_before {
             self.refresh();
         }
@@ -1202,9 +1295,11 @@ impl eframe::App for PhotonationApp {
         if !ctx.input(|i| i.pointer.any_down()) {
             self.history.commit(&self.settings);
         }
-        // The grid and survey views draw no preview.
-        let library_view = self.view.library.grid || self.view.library.survey;
+        // The folder overview, grid and survey views draw no preview.
+        let overview = self.showing_folder_overview();
+        let library_view = overview || self.view.library.grid || self.view.library.survey;
         let settled = (library_view || (!self.is_rendering() && self.preview.is_some()))
+            && (!overview || self.folders.settled())
             && (!self.view.library.survey || self.survey_images.len() >= 2)
             && self
                 .photos
@@ -1212,6 +1307,10 @@ impl eframe::App for PhotonationApp {
                 .all(|p| p.thumbnail.is_some() || p.unsupported);
         #[cfg(target_os = "macos")]
         self.update_native_menus();
+        #[cfg(target_os = "macos")]
+        if let Some(glass) = &mut self.glass {
+            glass.place(self.view.inspector_rect, self.view.filmstrip_rect);
+        }
         if let Some(screenshot) = &mut self.screenshot {
             screenshot.update(&ctx, settled);
         }
@@ -1234,8 +1333,160 @@ impl eframe::App for PhotonationApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use photonation_develop::{lightroom_xmp_path, sidecar_path};
+    use std::path::Path;
 
     const GPU_LIMIT: usize = 8192;
+
+    /// One whole frame of the window, as eframe runs it.
+    fn window_frame(app: &mut PhotonationApp, ctx: &egui::Context, events: Vec<egui::Event>) {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1000.0, 700.0),
+            )),
+            events,
+            ..Default::default()
+        };
+        let mut output = ctx.run_ui(input, |ui| {
+            eframe::App::ui(app, ui, &mut eframe::Frame::_new_kittest());
+        });
+        output.textures_delta.clear();
+    }
+
+    /// Clicks the grid's second photo, well inside its cell.
+    fn click_second_photo_in_grid(app: &mut PhotonationApp, ctx: &egui::Context) {
+        let on_the_cell = egui::pos2(300.0, 200.0);
+        let button = |pressed| egui::Event::PointerButton {
+            pos: on_the_cell,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        app.view.library.grid = true;
+        window_frame(app, ctx, Vec::new());
+        window_frame(app, ctx, vec![egui::Event::PointerMoved(on_the_cell)]);
+        window_frame(app, ctx, vec![button(true)]);
+        window_frame(app, ctx, vec![button(false)]);
+        assert_eq!(app.current, Some(1), "the click lands on the second photo");
+    }
+
+    /// A frame after any save the last ones scheduled would have happened.
+    fn window_frame_after_the_debounce(app: &mut PhotonationApp, ctx: &egui::Context) {
+        std::thread::sleep(SIDECAR_DEBOUNCE + Duration::from_millis(50));
+        window_frame(app, ctx, Vec::new());
+    }
+
+    fn write_lightroom_edits(photo: &Path) {
+        std::fs::write(
+            lightroom_xmp_path(photo),
+            r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+               <rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+                crs:ProcessVersion="15.4" crs:Exposure2012="+0.70"/></rdf:RDF></x:xmpmeta>"#,
+        )
+        .expect("write xmp");
+    }
+
+    /// A folder with these (unreadable) raw files.
+    fn folder_of(names: &[&str]) -> tempfile::TempDir {
+        let folder = tempfile::tempdir().expect("temporary folder");
+        for name in names {
+            std::fs::write(folder.path().join(name), b"not a raw").expect("write photo");
+        }
+        folder
+    }
+
+    #[test]
+    fn viewing_a_photo_with_lightroom_edits_leaves_no_sidecar() {
+        let folder = folder_of(&["a.CR3", "b.CR3"]);
+        let viewed = folder.path().join("b.CR3");
+        write_lightroom_edits(&viewed);
+        let ctx = egui::Context::default();
+        let mut app = PhotonationApp::empty(&ctx);
+        app.open_folder(folder.path().to_path_buf());
+
+        click_second_photo_in_grid(&mut app, &ctx);
+        let generation_when_opened = app.generation;
+        assert_ne!(app.settings, Settings::default(), "Lightroom's edits show");
+        assert!(app.pending_save.is_none(), "viewing is not an edit");
+
+        window_frame_after_the_debounce(&mut app, &ctx);
+        assert!(!sidecar_path(&viewed).exists());
+        assert_eq!(app.generation, generation_when_opened, "no second render");
+    }
+
+    #[test]
+    fn viewing_a_photo_whose_sidecar_cannot_be_read_leaves_it_alone() {
+        let folder = folder_of(&["a.CR3", "b.CR3"]);
+        // Settings to leave behind, so the unreadable photo's defaults differ.
+        write_lightroom_edits(&folder.path().join("a.CR3"));
+        let sidecar = sidecar_path(&folder.path().join("b.CR3"));
+        std::fs::write(&sidecar, "not a sidecar").expect("write sidecar");
+        let ctx = egui::Context::default();
+        let mut app = PhotonationApp::empty(&ctx);
+        app.open_folder(folder.path().to_path_buf());
+
+        click_second_photo_in_grid(&mut app, &ctx);
+        window_frame_after_the_debounce(&mut app, &ctx);
+        assert_eq!(
+            std::fs::read_to_string(&sidecar).expect("the sidecar is still there"),
+            "not a sidecar"
+        );
+    }
+
+    #[test]
+    fn panels_switched_off_on_the_last_photo_are_not_an_edit_of_the_next() {
+        let folder = folder_of(&["a.CR3", "b.CR3"]);
+        let ctx = egui::Context::default();
+        let mut app = PhotonationApp::empty(&ctx);
+        app.open_folder(folder.path().to_path_buf());
+        app.view.disabled.insert(AdjustmentGroup::Light);
+
+        click_second_photo_in_grid(&mut app, &ctx);
+        assert!(app.view.disabled.is_empty());
+        assert!(app.pending_save.is_none());
+    }
+
+    #[test]
+    fn opening_a_folder_while_the_panels_draw_is_not_an_edit() {
+        let first = folder_of(&["a.CR3"]);
+        let second = folder_of(&["b.CR3"]);
+        write_lightroom_edits(&second.path().join("b.CR3"));
+        let mut app = PhotonationApp::empty(&egui::Context::default());
+        app.open_folder(first.path().to_path_buf());
+
+        app.remember_photo_before_panels();
+        app.open_folder(second.path().to_path_buf());
+        app.notice_panel_edits();
+        assert_ne!(app.settings, Settings::default());
+        assert!(app.pending_save.is_none());
+    }
+
+    #[test]
+    fn closing_the_photo_while_the_panels_draw_is_not_an_edit() {
+        let folder = folder_of(&["a.CR3"]);
+        write_lightroom_edits(&folder.path().join("a.CR3"));
+        let mut app = PhotonationApp::empty(&egui::Context::default());
+        app.open_folder(folder.path().to_path_buf());
+
+        app.remember_photo_before_panels();
+        app.close_photo();
+        app.notice_panel_edits();
+        assert!(app.pending_save.is_none());
+    }
+
+    #[test]
+    fn an_edit_is_still_noticed_on_a_photo_opened_while_the_panels_draw() {
+        let folder = folder_of(&["a.CR3", "b.CR3"]);
+        let mut app = PhotonationApp::empty(&egui::Context::default());
+        app.open_folder(folder.path().to_path_buf());
+
+        app.remember_photo_before_panels();
+        app.select(1);
+        app.settings.exposure = 1.0;
+        app.notice_panel_edits();
+        assert!(app.pending_save.is_some());
+    }
 
     #[test]
     fn lightroom_notices_list_what_was_left_out() {

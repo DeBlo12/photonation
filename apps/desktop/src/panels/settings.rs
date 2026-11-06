@@ -23,7 +23,7 @@ pub fn show(app: &mut PhotonationApp, ctx: &egui::Context) {
         ui.label(
             RichText::new("Settings")
                 .font(theme::title(17.0))
-                .color(theme::TEXT),
+                .color(theme::palette().text),
         );
         ui.add_space(10.0);
         widgets::segmented(ui, &TABS, &mut app.view.settings_tab);
@@ -109,7 +109,7 @@ fn general(app: &mut PhotonationApp, ui: &mut Ui) {
         let choose = ui.button("Choose…");
         let clear = preferences.export_folder.is_some() && ui.button("Clear").clicked();
         ui.add(
-            egui::Label::new(RichText::new(folder).color(theme::TEXT))
+            egui::Label::new(RichText::new(folder).color(theme::palette().text))
                 .truncate()
                 .sense(Sense::hover()),
         );
@@ -165,17 +165,25 @@ fn heading(ui: &mut Ui, text: &str) {
     ui.label(
         RichText::new(text)
             .font(theme::title(14.0))
-            .color(theme::TEXT),
+            .color(theme::palette().text),
     );
     ui.add_space(2.0);
 }
 
 fn note(ui: &mut Ui, text: &str) {
-    ui.label(RichText::new(text).size(11.5).color(theme::TEXT_TERTIARY));
+    ui.label(
+        RichText::new(text)
+            .size(11.5)
+            .color(theme::palette().text_tertiary),
+    );
 }
 
 fn attention(ui: &mut Ui, text: &str) {
-    ui.label(RichText::new(text).size(11.5).color(theme::ACCENT));
+    ui.label(
+        RichText::new(text)
+            .size(11.5)
+            .color(theme::palette().accent_strong),
+    );
 }
 
 /// Help ▸ About Photonation.
@@ -185,16 +193,16 @@ pub fn about(app: &mut PhotonationApp, ctx: &egui::Context) {
         ui.set_width(300.0);
         ui.vertical_centered(|ui| {
             let (rect, _) = ui.allocate_exact_size(egui::vec2(72.0, 72.0), Sense::hover());
-            paint_brand_mark(ui.painter(), rect.center(), 68.0, theme::CARD);
+            paint_brand_mark(ui.painter(), rect.center(), 68.0, theme::palette().card);
             ui.add_space(6.0);
             ui.label(
                 RichText::new("photonation")
                     .font(theme::display(24.0))
-                    .color(theme::TEXT),
+                    .color(theme::palette().text),
             );
             ui.label(
                 RichText::new(format!("Version {}", env!("CARGO_PKG_VERSION")))
-                    .color(theme::TEXT_SECONDARY),
+                    .color(theme::palette().text_secondary),
             );
             ui.add_space(8.0);
             // The "Appropriate Legal Notices" of GPLv3 section 0: copyright,
@@ -207,7 +215,7 @@ pub fn about(app: &mut PhotonationApp, ctx: &egui::Context) {
                      ABSOLUTELY NO WARRANTY, to the extent permitted by law.",
                 )
                 .size(12.0)
-                .color(theme::TEXT_SECONDARY),
+                .color(theme::palette().text_secondary),
             );
             ui.add_space(4.0);
             ui.horizontal(|ui| {
@@ -240,7 +248,7 @@ pub fn about(app: &mut PhotonationApp, ctx: &egui::Context) {
                      used unchanged under CC BY-SA 3.0.",
                 )
                 .size(12.0)
-                .color(theme::TEXT_SECONDARY),
+                .color(theme::palette().text_secondary),
             );
             ui.hyperlink_to(
                 RichText::new("lensfun.github.io").size(12.0),

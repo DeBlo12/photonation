@@ -8,6 +8,36 @@ changes to CI alone are not released.
 
 ## [Unreleased]
 
+### Added
+
+- Opening a folder that holds only folders, such as one per month, now shows
+  an overview of the ones with raw photos, with a cover and how many photos
+  each holds, instead of saying there are no raw files. Click one to open it;
+  the path in the toolbar leads back up. A folder with photos of its own too
+  opens on them, with a button that shows the folders inside.
+- A light mode. The app now follows macOS or Windows between dark and light,
+  also when the system switches while it runs. Light mode uses warm Paper
+  surfaces with a neutral mid-grey behind the photo, so the surfaces do not
+  skew how it looks.
+- On macOS 26 and later the window is Liquid Glass, with the inspector and the
+  filmstrip as glass panes on it, so the desktop and other windows show through.
+  Only the photo is solid, with a small border.
+
+### Changed
+
+- The inspector now runs the full height of the window, with the filmstrip
+  beside it.
+
+- Faint text in dark mode is a little brighter, so it stays readable on
+  controls.
+
+### Fixed
+
+- Clicking a photo in the filmstrip or grid, or opening a folder, no longer
+  counts as editing the photo that opens. Merely looking at a photo with
+  Lightroom edits wrote a Photonation sidecar that then took over from the
+  XMP, and looking at one whose sidecar could not be read deleted that sidecar.
+
 ## [0.18.0] - 2026-11-04
 
 ### Added

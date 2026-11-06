@@ -173,9 +173,9 @@ pub fn paint(
         match pin {
             Pin::Mask(index) => {
                 let fill = if masks[index].enabled {
-                    theme::CARD
+                    theme::PIN_FILL
                 } else {
-                    theme::CARD.gamma_multiply(0.5)
+                    theme::PIN_FILL.gamma_multiply(0.5)
                 };
                 painter.circle_filled(position, PIN_RADIUS + 1.5, theme::HANDLE_SHADOW);
                 painter.circle(position, PIN_RADIUS, fill, Stroke::new(1.5, theme::KNOB));

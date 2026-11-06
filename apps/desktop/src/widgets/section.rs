@@ -39,9 +39,9 @@ pub fn section(
         let (sin, cos) = angle.sin_cos();
         let rotate = |x: f32, y: f32| chevron_center + vec2(x * cos - y * sin, x * sin + y * cos);
         let chevron_color = if header_response.hovered() {
-            theme::TEXT
+            theme::palette().text
         } else {
-            theme::TEXT_SECONDARY
+            theme::palette().text_secondary
         };
         painter.line(
             vec![rotate(-2.0, -4.0), rotate(2.5, 0.0), rotate(-2.0, 4.0)],
@@ -49,9 +49,9 @@ pub fn section(
         );
 
         let title_color = if *enabled {
-            theme::TEXT
+            theme::palette().text
         } else {
-            theme::TEXT_TERTIARY
+            theme::palette().text_tertiary
         };
         let title_rect = painter.text(
             pos2(header.left() + 18.0, header.center().y),
@@ -64,7 +64,7 @@ pub fn section(
             painter.circle_filled(
                 pos2(title_rect.right() + 7.0, header.center().y),
                 3.0,
-                theme::ACCENT,
+                theme::palette().accent_strong,
             );
         }
 
@@ -85,9 +85,9 @@ pub fn section(
                 .atom_ui(&mut controls);
             if let Some(rect) = reset.rect(icon_id) {
                 let color = if reset.hovered() {
-                    theme::TEXT
+                    theme::palette().text
                 } else {
-                    theme::TEXT_SECONDARY
+                    theme::palette().text_secondary
                 };
                 paint_icon(controls.painter(), rect, Icon::Rotate, color);
             }

@@ -124,7 +124,7 @@ pub fn paint_badges(painter: &Painter, image: Rect, info: LibraryInfo, scale: f3
             star,
             info.rating,
             false,
-            theme::TEXT,
+            theme::ON_PHOTO,
         );
     }
     let flag_rect = Rect::from_center_size(
@@ -161,9 +161,9 @@ pub fn rating_control(ui: &mut Ui, info: LibraryInfo, with_labels: bool) -> Opti
         .map(|pointer| (((pointer.x - rect.left()) / star).floor() as u8 + 1).min(MAX_RATING));
     let shown = hovered.unwrap_or(info.rating);
     let color = if hovered.is_some() {
-        theme::ACCENT
+        theme::palette().accent_strong
     } else {
-        theme::TEXT
+        theme::palette().text
     };
     paint_stars(
         ui.painter(),
@@ -188,7 +188,7 @@ pub fn rating_control(ui: &mut Ui, info: LibraryInfo, with_labels: bool) -> Opti
         (
             Flag::Pick,
             Icon::Pick,
-            theme::ACCENT,
+            theme::palette().accent_strong,
             "Pick (P)\nMarks a keeper. U removes the flag.",
         ),
         (
@@ -202,15 +202,18 @@ pub fn rating_control(ui: &mut Ui, info: LibraryInfo, with_labels: bool) -> Opti
         let on = info.flag == flag;
         let (rect, response) = ui.allocate_exact_size(vec2(FLAG_WIDTH, 24.0), Sense::click());
         if on {
-            ui.painter()
-                .rect_filled(rect.shrink(1.0), theme::CONTROL_RADIUS, theme::CONTROL);
+            ui.painter().rect_filled(
+                rect.shrink(1.0),
+                theme::CONTROL_RADIUS,
+                theme::palette().control,
+            );
         }
         let icon_color = if on {
             color
         } else if response.hovered() {
-            theme::TEXT
+            theme::palette().text
         } else {
-            theme::TEXT_TERTIARY
+            theme::palette().text_tertiary
         };
         paint_icon(ui.painter(), rect.shrink(4.0), icon, icon_color);
         if hover_tip(response, tip).clicked() {
@@ -236,8 +239,11 @@ pub fn rating_control(ui: &mut Ui, info: LibraryInfo, with_labels: bool) -> Opti
             },
         );
         if on {
-            ui.painter()
-                .circle_stroke(rect.center(), radius + 1.5, Stroke::new(1.0, theme::TEXT));
+            ui.painter().circle_stroke(
+                rect.center(),
+                radius + 1.5,
+                Stroke::new(1.0, theme::palette().text),
+            );
         }
         let tip = match label_key(label) {
             Some(key) => format!("{} label ({key})\nClick again to remove it.", label.name()),

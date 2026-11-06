@@ -15,10 +15,11 @@ pub fn histogram(ui: &mut Ui, histogram: Option<&Histogram>) {
     painter.rect_filled(
         rect,
         CornerRadius::same(theme::CONTROL_RADIUS),
-        theme::WINDOW,
+        theme::palette().window,
     );
     let Some(h) = histogram else { return };
     let peak = h.peak() as f32;
+    let [text_red, text_green, text_blue, _] = theme::palette().text.to_array();
     let area = rect.shrink2(vec2(4.0, 6.0));
     for (bins, color) in [
         (&h.red, Color32::from_rgba_unmultiplied(255, 70, 70, 90)),
@@ -26,7 +27,7 @@ pub fn histogram(ui: &mut Ui, histogram: Option<&Histogram>) {
         (&h.blue, Color32::from_rgba_unmultiplied(70, 130, 255, 90)),
         (
             &h.luminance,
-            Color32::from_rgba_unmultiplied(220, 220, 225, 60),
+            Color32::from_rgba_unmultiplied(text_red, text_green, text_blue, 60),
         ),
     ] {
         painter.add(area_mesh(area, bins, peak, color));

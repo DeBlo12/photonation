@@ -74,6 +74,12 @@ After Next, in this order:
    like Lightroom's on high-contrast scenes. Highlight reconstruction could
    then use the neighbourhood too, taking a clipped area's colour from its
    edges instead of holding it to process 1's.
+3. **Violet accent (idea, not decided)**: a possible addition to Photon amber,
+   which stays the accent for now. The fill is `#8B6CFF` with Ink text. Text
+   and icons in the accent colour need `#A08AFF` on dark surfaces and `#5B3FD9`
+   on light ones. The fill stands out better on white than amber does (3.7:1
+   against 1.8:1), but it sits near the purple colour label, which would need
+   to move towards magenta.
 
 ## Platform
 

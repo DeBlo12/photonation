@@ -27,7 +27,7 @@ pub fn show(app: &mut PhotonationApp, ctx: &egui::Context) {
         ui.label(
             RichText::new("Export")
                 .font(theme::title(17.0))
-                .color(theme::TEXT),
+                .color(theme::palette().text),
         );
         ui.add_space(10.0);
         format_controls(ui, &mut app.view.export_options);
@@ -56,7 +56,7 @@ pub fn show(app: &mut PhotonationApp, ctx: &egui::Context) {
             ui.label(
                 RichText::new(format!("To {} (change in Settings)", folder.display()))
                     .size(11.0)
-                    .color(theme::TEXT_TERTIARY),
+                    .color(theme::palette().text_tertiary),
             );
             ui.add_space(4.0);
         }
@@ -142,7 +142,7 @@ pub fn format_controls(ui: &mut egui::Ui, options: &mut ExportOptions) {
                     .speed(16)
                     .suffix(" px"),
             );
-            ui.label(RichText::new("long edge").color(theme::TEXT_SECONDARY));
+            ui.label(RichText::new("long edge").color(theme::palette().text_secondary));
         });
     }
 
@@ -170,7 +170,7 @@ pub fn file_name_field(ui: &mut egui::Ui, options: &mut ExportOptions) {
             "{NAME_TOKEN} original name · {NUMBER_TOKEN} number in the batch"
         ))
         .size(11.0)
-        .color(theme::TEXT_TERTIARY),
+        .color(theme::palette().text_tertiary),
     );
 }
 
@@ -186,7 +186,7 @@ fn file_name_preview(ui: &mut egui::Ui, app: &PhotonationApp, batch: &[usize]) {
         ui.label(
             RichText::new(format!("{stem}.{}", options.format.extension()))
                 .size(12.0)
-                .color(theme::TEXT_SECONDARY),
+                .color(theme::palette().text_secondary),
         );
     }
 }
@@ -229,7 +229,11 @@ pub fn metadata(ui: &mut egui::Ui, options: &mut photonation_engine::MetadataOpt
 }
 
 pub fn label(ui: &mut egui::Ui, text: &str) {
-    ui.label(RichText::new(text).size(12.0).color(theme::TEXT_SECONDARY));
+    ui.label(
+        RichText::new(text)
+            .size(12.0)
+            .color(theme::palette().text_secondary),
+    );
 }
 
 /// Exports to the folder set in Settings, or asks for one (starting in

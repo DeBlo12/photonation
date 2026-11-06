@@ -25,7 +25,7 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
     egui::CentralPanel::no_frame()
         .frame(
             egui::Frame::NONE
-                .fill(theme::WINDOW)
+                .fill(theme::window_fill())
                 .inner_margin(egui::Margin::same(16)),
         )
         .show(ui, |ui| {
@@ -111,7 +111,7 @@ fn paint_photo(app: &PhotonationApp, ui: &egui::Ui, index: usize, room: Rect, cu
         .map(|preview| &preview.texture)
         .or(photo.thumbnail.as_ref());
     let Some(texture) = texture else {
-        ui.painter().rect_filled(room, 4.0, theme::CARD);
+        ui.painter().rect_filled(room, 4.0, theme::palette().card);
         return;
     };
     let aspect = texture.aspect_ratio();
@@ -134,7 +134,7 @@ fn paint_photo(app: &PhotonationApp, ui: &egui::Ui, index: usize, room: Rect, cu
         painter.rect_stroke(
             image.expand(3.0),
             CornerRadius::same(4),
-            Stroke::new(2.0, theme::ACCENT),
+            Stroke::new(2.0, theme::palette().accent_strong),
             StrokeKind::Outside,
         );
     }
@@ -151,14 +151,19 @@ fn footer(app: &PhotonationApp, ui: &egui::Ui, index: usize, cell: Rect, current
         &photo.name,
         theme::body(12.0),
         if current {
-            theme::TEXT
+            theme::palette().text
         } else {
-            theme::TEXT_SECONDARY
+            theme::palette().text_secondary
         },
     );
     let flag_rect = Rect::from_center_size(pos2(cell.right() - 9.0, y), vec2(14.0, 14.0));
     match photo.library.flag {
-        Flag::Pick => paint_icon(painter, flag_rect, Icon::Pick, theme::ACCENT),
+        Flag::Pick => paint_icon(
+            painter,
+            flag_rect,
+            Icon::Pick,
+            theme::palette().accent_strong,
+        ),
         Flag::Reject => paint_icon(painter, flag_rect, Icon::Reject, theme::REJECT),
         Flag::None => {}
     }
@@ -170,7 +175,7 @@ fn footer(app: &PhotonationApp, ui: &egui::Ui, index: usize, cell: Rect, current
         star,
         photo.library.rating,
         true,
-        theme::TEXT_SECONDARY,
+        theme::palette().text_secondary,
     );
 }
 
@@ -186,6 +191,6 @@ fn close_button(ui: &egui::Ui, room: Rect, index: usize) -> bool {
         11.0,
         Color32::from_black_alpha(if response.hovered() { 200 } else { 140 }),
     );
-    paint_icon(painter, rect.shrink(5.0), Icon::Reject, theme::TEXT);
+    paint_icon(painter, rect.shrink(5.0), Icon::Reject, theme::ON_PHOTO);
     crate::panels::hover_tip(response, "Remove from the survey").clicked()
 }

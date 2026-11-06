@@ -4,12 +4,13 @@
 //! The window's regions: toolbar (top), filmstrip (bottom), adjustments,
 //! masks, crop or remove sidebar (right), viewer (centre) and the export
 //! sheet; or, in place of the editor, the library bar with the grid or the
-//! survey view.
+//! survey view, or the overview of a folder's subfolders.
 
 pub mod adjustments;
 pub mod crop;
 pub mod export;
 pub mod filmstrip;
+pub mod folders;
 pub mod grid;
 pub mod help;
 pub mod library_bar;
@@ -32,13 +33,16 @@ use eframe::egui::{self, Atom, Button, IdSalt, Response, RichText, Ui};
 
 /// Brand icons in toolbar buttons, in points.
 pub const ICON_SIZE: f32 = 18.0;
+/// The smallest a toolbar button comes out, in points.
+pub const TOOL_BUTTON_SIZE: egui::Vec2 = egui::vec2(30.0, 26.0);
 
 /// Borderless toolbar button with an optional "on" state.
 pub fn tool_button(ui: &mut Ui, label: &str, active: bool, tooltip: &str) -> Response {
-    let text =
-        RichText::new(label)
-            .size(13.0)
-            .color(if active { theme::ACCENT } else { theme::TEXT });
+    let text = RichText::new(label).size(13.0).color(if active {
+        theme::palette().accent_strong
+    } else {
+        theme::palette().text
+    });
     let fill = if active {
         theme::ACCENT_SOFT
     } else {
@@ -48,7 +52,7 @@ pub fn tool_button(ui: &mut Ui, label: &str, active: bool, tooltip: &str) -> Res
         Button::new(text)
             .fill(fill)
             .corner_radius(theme::CONTROL_RADIUS)
-            .min_size(egui::vec2(30.0, 26.0)),
+            .min_size(TOOL_BUTTON_SIZE),
     );
     hover_tip(response, tooltip)
 }
@@ -61,7 +65,11 @@ pub fn icon_button(
     active: bool,
     tooltip: &str,
 ) -> Response {
-    let color = if active { theme::ACCENT } else { theme::TEXT };
+    let color = if active {
+        theme::palette().accent_strong
+    } else {
+        theme::palette().text
+    };
     let fill = if active {
         theme::ACCENT_SOFT
     } else {
@@ -97,13 +105,13 @@ pub fn hover_tip(response: Response, tip: &str) -> Response {
         ui.label(
             RichText::new(name)
                 .font(theme::title(12.5))
-                .color(theme::TEXT),
+                .color(theme::palette().text),
         );
         if !detail.is_empty() {
             ui.label(
                 RichText::new(detail)
                     .font(theme::body(12.0))
-                    .color(theme::TEXT_SECONDARY),
+                    .color(theme::palette().text_secondary),
             );
         }
     };

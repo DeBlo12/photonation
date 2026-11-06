@@ -40,7 +40,7 @@ impl CurveChannel {
 
     pub fn color(self) -> Color32 {
         match self {
-            CurveChannel::Rgb => theme::TEXT,
+            CurveChannel::Rgb => theme::palette().text,
             CurveChannel::Red => Color32::from_rgb(255, 90, 90),
             CurveChannel::Green => Color32::from_rgb(90, 220, 110),
             CurveChannel::Blue => Color32::from_rgb(90, 150, 255),
@@ -85,7 +85,7 @@ pub fn curve_editor(
     painter.rect_filled(
         rect,
         CornerRadius::same(theme::CONTROL_RADIUS),
-        theme::WINDOW,
+        theme::palette().window,
     );
     if let Some(bins) = histogram {
         // Scaled to this channel's own peak, without the clipped end bins
@@ -102,7 +102,7 @@ pub fn curve_editor(
     }
     for i in 1..4 {
         let t = i as f32 / 4.0;
-        let grid = Stroke::new(1.0, theme::SEPARATOR);
+        let grid = Stroke::new(1.0, theme::palette().separator);
         painter.line_segment(
             [
                 pos2(area.left() + t * area.width(), area.top()),
@@ -120,7 +120,7 @@ pub fn curve_editor(
     }
     painter.line_segment(
         [to_screen([0.0, 0.0]), to_screen([1.0, 1.0])],
-        Stroke::new(1.0, theme::TEXT_TERTIARY),
+        Stroke::new(1.0, theme::palette().text_tertiary),
     );
 
     let draw_function = |f: &dyn Fn(f32) -> f32| {
@@ -204,7 +204,7 @@ pub fn curve_editor(
                 } else {
                     HANDLE_RADIUS
                 },
-                theme::WINDOW,
+                theme::palette().window,
             );
             painter.circle_stroke(center, HANDLE_RADIUS, Stroke::new(1.6, color));
         }
@@ -274,7 +274,7 @@ mod tests {
             };
             let (curve, mut rect) = (&mut self.curve, Rect::NOTHING);
             let mut output = self.ctx.run_ui(input, |ui| {
-                rect = curve_editor(ui, Some(curve), None, None, theme::TEXT).rect;
+                rect = curve_editor(ui, Some(curve), None, None, theme::palette().text).rect;
             });
             output.textures_delta.clear();
             self.area = rect.shrink(6.0);

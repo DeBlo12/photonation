@@ -114,11 +114,15 @@ fn header(
     let masks = &settings.masks;
     let mut action = None;
     ui.horizontal(|ui| {
-        ui.label(RichText::new("Masks").size(14.0).color(theme::TEXT));
+        ui.label(
+            RichText::new("Masks")
+                .size(14.0)
+                .color(theme::palette().text),
+        );
         ui.label(
             RichText::new(format!("{} / {MAX_MASKS}", masks.len()))
                 .size(11.0)
-                .color(theme::TEXT_TERTIARY),
+                .color(theme::palette().text_tertiary),
         );
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             if tool_button(ui, "Done", false, "Back to the adjustments (M)").clicked() {
@@ -367,7 +371,7 @@ fn paint_group_guides(ui: &Ui, masks: &[Mask], rows: &[(ListRow, Rect)]) {
         ui.painter().vline(
             x,
             rect.top() - gap..=rect.bottom(),
-            Stroke::new(1.0, theme::SEPARATOR),
+            Stroke::new(1.0, theme::palette().separator),
         );
     }
 }
@@ -444,11 +448,11 @@ fn layer_row(
             rect,
             radius,
             theme::ACCENT_SOFT,
-            Stroke::new(1.0, theme::ACCENT),
+            Stroke::new(1.0, theme::palette().accent_strong),
             StrokeKind::Inside,
         );
     } else if response.hovered() || response.dragged() {
-        painter.rect_filled(rect, radius, theme::CONTROL);
+        painter.rect_filled(rect, radius, theme::palette().control);
     }
 
     let thumb = Rect::from_min_size(
@@ -462,7 +466,7 @@ fn layer_row(
             painter.image(photo, thumb, uv, Color32::WHITE.gamma_multiply(visible));
         }
         None => {
-            painter.rect_filled(thumb, 3.0, theme::CONTROL);
+            painter.rect_filled(thumb, 3.0, theme::palette().control);
         }
     }
     if let Some(tint) = picture.tint {
@@ -472,16 +476,16 @@ fn layer_row(
     painter.rect_stroke(
         thumb,
         3.0,
-        Stroke::new(1.0, theme::SEPARATOR),
+        Stroke::new(1.0, theme::palette().separator),
         StrokeKind::Outside,
     );
 
     let text_left = thumb.right() + 10.0;
     let text_width = rect.right() - widgets::TOGGLE_SIZE.x - 14.0 - text_left;
     let text_color = if picture.shown {
-        theme::TEXT
+        theme::palette().text
     } else {
-        theme::TEXT_TERTIARY
+        theme::palette().text_tertiary
     };
     let name = single_line(
         painter,
@@ -494,7 +498,7 @@ fn layer_row(
         painter,
         summary(mask),
         theme::body(11.0),
-        theme::TEXT_SECONDARY,
+        theme::palette().text_secondary,
         text_width,
     );
     painter.galley(
@@ -505,7 +509,7 @@ fn layer_row(
     painter.galley(
         pos2(text_left, rect.center().y + 1.0),
         details,
-        theme::TEXT_SECONDARY,
+        theme::palette().text_secondary,
     );
 
     // A child Ui, unlike `ui.put`, leaves the list's cursor below the row.
@@ -541,7 +545,11 @@ fn single_line(
 /// shape's options.
 fn shapes(mask: &mut Mask, selected: &mut usize, ui: &mut Ui) {
     ui.horizontal(|ui| {
-        ui.label(RichText::new("Shapes").size(13.0).color(theme::TEXT));
+        ui.label(
+            RichText::new("Shapes")
+                .size(13.0)
+                .color(theme::palette().text),
+        );
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             ui.add_enabled_ui(mask.components.len() < MAX_MASK_COMPONENTS, |ui| {
                 for shape in new_shapes().into_iter().rev() {
@@ -574,7 +582,7 @@ fn shapes(mask: &mut Mask, selected: &mut usize, ui: &mut Ui) {
                     ui.painter(),
                     rect,
                     shape_icon(&component.shape),
-                    theme::TEXT,
+                    theme::palette().text,
                 );
             }
             if row.response.clicked() {
@@ -694,7 +702,11 @@ fn layer_settings(mask: &mut Mask, show_overlay: &mut bool, ui: &mut Ui) {
 
 /// The local sliders, Reset and Delete Mask. Returns whether to delete.
 fn adjustments(mask: &mut Mask, ui: &mut Ui) -> bool {
-    ui.label(RichText::new("Adjustments").size(13.0).color(theme::TEXT));
+    ui.label(
+        RichText::new("Adjustments")
+            .size(13.0)
+            .color(theme::palette().text),
+    );
     for control in LOCAL_CONTROLS {
         control_slider(ui, &mut mask.adjustments, control, &style_for(control.id));
     }
@@ -802,11 +814,19 @@ fn remove_component(mask: &mut Mask, selected: &mut usize, index: usize) {
 }
 
 fn label(ui: &mut Ui, text: &str) {
-    ui.label(RichText::new(text).size(12.0).color(theme::TEXT_SECONDARY));
+    ui.label(
+        RichText::new(text)
+            .size(12.0)
+            .color(theme::palette().text_secondary),
+    );
 }
 
 pub(crate) fn hint(ui: &mut Ui, text: &str) {
-    ui.label(RichText::new(text).size(11.0).color(theme::TEXT_TERTIARY));
+    ui.label(
+        RichText::new(text)
+            .size(11.0)
+            .color(theme::palette().text_tertiary),
+    );
 }
 
 #[cfg(test)]

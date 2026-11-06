@@ -26,7 +26,7 @@ pub use export::{
 pub use histogram::Histogram;
 pub use history::History;
 pub use level::level_angle;
-pub use library::scan_folder;
+pub use library::{Subfolder, scan_folder};
 pub use metadata::{MetadataOptions, MetadataPreset};
 pub use preview::GPU_RENDER_VARIABLE;
 pub use retouch::{

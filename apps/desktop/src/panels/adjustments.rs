@@ -46,7 +46,11 @@ pub fn show(app: &mut PhotonationApp, ui: &mut Ui) {
         .show_separator_line(false)
         .frame(
             egui::Frame::NONE
-                .fill(theme::WINDOW)
+                .fill(if theme::glass() {
+                    egui::Color32::TRANSPARENT
+                } else {
+                    theme::palette().window
+                })
                 .inner_margin(egui::Margin {
                     left: 0,
                     right: 10,
@@ -60,6 +64,7 @@ pub fn show(app: &mut PhotonationApp, ui: &mut Ui) {
                 inspector(app, ui);
             });
             tool_warning(app, ui, frame.response.rect);
+            app.view.inspector_rect = Some(frame.response.rect);
         });
 }
 
@@ -75,7 +80,12 @@ fn tool_warning(app: &mut PhotonationApp, ui: &Ui, rect: egui::Rect) {
         return;
     }
     let pulse = 0.5 + 0.5 * (t * 2.0 * std::f32::consts::TAU).cos();
-    let stroke = egui::Stroke::new(2.0, theme::ACCENT.gamma_multiply(pulse * (1.0 - t)));
+    let stroke = egui::Stroke::new(
+        2.0,
+        theme::palette()
+            .accent_strong
+            .gamma_multiply(pulse * (1.0 - t)),
+    );
     ui.painter().rect_stroke(
         rect,
         theme::INSPECTOR_RADIUS,
@@ -156,11 +166,11 @@ fn process_notice(settings: &mut Settings, ui: &mut Ui) {
         );
         ui.label(
             RichText::new(format!(
-                "Process {} recovers detail in bright highlights that one                  colour channel clipped. Updating can brighten blown areas.",
+                "Process {} recovers detail in bright highlights that one colour channel clipped. Updating can brighten blown areas.",
                 ProcessVersion::LATEST.number()
             ))
             .size(11.5)
-            .color(theme::TEXT_SECONDARY),
+            .color(theme::palette().text_secondary),
         );
         ui.add_space(4.0);
         if ui
@@ -239,7 +249,7 @@ fn detail(ui: &mut Ui, settings: &mut Settings) {
     ui.label(
         RichText::new("Noise Reduction")
             .size(12.0)
-            .color(theme::TEXT_SECONDARY),
+            .color(theme::palette().text_secondary),
     );
     control_sliders(ui, settings, NOISE_CONTROLS);
 }
@@ -259,8 +269,12 @@ fn lens(ui: &mut Ui, settings: &mut Settings, camera: Option<&CameraInfo>) {
             Some(profile) => profile.lens.clone(),
             None => "No profile for this camera and lens".to_owned(),
         };
-        ui.label(RichText::new(note).size(11.5).color(theme::TEXT_SECONDARY))
-            .on_hover_text("Lens profiles come from the Lensfun database.");
+        ui.label(
+            RichText::new(note)
+                .size(11.5)
+                .color(theme::palette().text_secondary),
+        )
+        .on_hover_text("Lens profiles come from the Lensfun database.");
     }
     if settings.lens.profile {
         control_sliders(ui, settings, LENS_PROFILE_CONTROLS);
@@ -269,7 +283,7 @@ fn lens(ui: &mut Ui, settings: &mut Settings, camera: Option<&CameraInfo>) {
     ui.label(
         RichText::new("Manual")
             .size(12.0)
-            .color(theme::TEXT_SECONDARY),
+            .color(theme::palette().text_secondary),
     );
     control_sliders(ui, settings, LENS_MANUAL_CONTROLS);
 }
@@ -428,7 +442,13 @@ fn curves(
         None => {
             let parametric = Parametric::new(&settings.tone_curve.parametric);
             let bins = histogram.map(|h| CurveChannel::Rgb.bins(h));
-            widgets::curve_editor(ui, None, Some(&|v| parametric.eval(v)), bins, theme::TEXT);
+            widgets::curve_editor(
+                ui,
+                None,
+                Some(&|v| parametric.eval(v)),
+                bins,
+                theme::palette().text,
+            );
             control_sliders(ui, settings, PARAMETRIC_CURVE_CONTROLS);
         }
         Some(channel) => {
@@ -444,7 +464,7 @@ fn curves(
             ui.label(
                 RichText::new("Click to add · drag to move · double-click to remove")
                     .size(11.0)
-                    .color(theme::TEXT_TERTIARY),
+                    .color(theme::palette().text_tertiary),
             );
         }
     }
@@ -495,14 +515,14 @@ fn mixer_bands(ui: &mut Ui, settings: &mut Settings, view: &mut ViewState) {
                 painter.circle_stroke(
                     rect.center(),
                     diameter / 2.0 - 0.5,
-                    egui::Stroke::new(2.0, theme::KNOB),
+                    egui::Stroke::new(2.0, theme::palette().text),
                 );
             }
             if settings.color_mixer.bands()[index] != Default::default() {
                 painter.circle_filled(
                     rect.center_bottom() + egui::vec2(0.0, 3.0),
                     2.0,
-                    theme::ACCENT,
+                    theme::palette().accent_strong,
                 );
             }
             if response
@@ -557,7 +577,7 @@ fn color_grading(ui: &mut Ui, settings: &mut Settings, view: &mut ViewState) {
                 wheel.hue, wheel.saturation
             ))
             .size(11.5)
-            .color(theme::TEXT_SECONDARY),
+            .color(theme::palette().text_secondary),
         );
     });
     let luminance = &GRADING_CONTROLS[view.grading_wheel][2];

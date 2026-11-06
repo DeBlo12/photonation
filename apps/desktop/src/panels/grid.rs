@@ -14,7 +14,7 @@ use eframe::egui::{
     self, Color32, CornerRadius, Rect, RichText, Sense, Stroke, StrokeKind, pos2, vec2,
 };
 
-const GAP: f32 = 10.0;
+pub const GAP: f32 = 10.0;
 /// Space around the thumbnail inside its cell.
 const CELL_PADDING: f32 = 8.0;
 const PLACEHOLDER_ASPECT: f32 = 1.5;
@@ -23,7 +23,7 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
     egui::CentralPanel::no_frame()
         .frame(
             egui::Frame::NONE
-                .fill(theme::WINDOW)
+                .fill(theme::window_fill())
                 .inner_margin(egui::Margin::symmetric(16, 8)),
         )
         .show(ui, |ui| {
@@ -33,9 +33,7 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
                 return;
             }
             let width = ui.available_width();
-            let wanted = app.view.library.grid_size;
-            let columns = (((width + GAP) / (wanted + GAP)).floor() as usize).max(1);
-            let cell = (width - GAP * (columns - 1) as f32) / columns as f32;
+            let (columns, cell) = columns_of(width, app.view.library.grid_size);
             let row_height = cell + GAP;
             let rows = shown.len().div_ceil(columns);
             let library = &mut app.view.library;
@@ -111,6 +109,15 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
         });
 }
 
+/// How many cells about `wanted` wide fit in `width`, and their exact width.
+pub fn columns_of(width: f32, wanted: f32) -> (usize, f32) {
+    let columns = (((width + GAP) / (wanted + GAP)).floor() as usize).max(1);
+    (
+        columns,
+        (width - GAP * (columns - 1) as f32) / columns as f32,
+    )
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Marked {
     None,
@@ -129,10 +136,10 @@ fn cell_ui(
     let painter = ui.painter();
     let radius = CornerRadius::same(theme::CARD_RADIUS);
     let background = match marked {
-        Marked::Current => theme::CONTROL,
-        Marked::Selected => theme::CARD,
-        Marked::None if response.hovered() => theme::CARD,
-        Marked::None => theme::SIDEBAR,
+        Marked::Current => theme::palette().control,
+        Marked::Selected => theme::palette().card,
+        Marked::None if response.hovered() => theme::palette().card,
+        Marked::None => theme::palette().sidebar,
     };
     painter.rect_filled(cell, radius, background);
     match marked {
@@ -140,7 +147,7 @@ fn cell_ui(
             painter.rect_stroke(
                 cell,
                 radius,
-                Stroke::new(2.0, theme::ACCENT),
+                Stroke::new(2.0, theme::palette().accent_strong),
                 StrokeKind::Inside,
             );
         }
@@ -148,7 +155,7 @@ fn cell_ui(
             painter.rect_stroke(
                 cell,
                 radius,
-                Stroke::new(1.5, theme::TEXT_SECONDARY),
+                Stroke::new(1.5, theme::palette().text_secondary),
                 StrokeKind::Inside,
             );
         }
@@ -176,14 +183,14 @@ fn cell_ui(
             );
         }
         None => {
-            painter.rect_filled(image, corner, theme::CARD);
+            painter.rect_filled(image, corner, theme::palette().card);
             if photo.unsupported {
                 painter.text(
                     image.center(),
                     egui::Align2::CENTER_CENTER,
                     "Unsupported",
                     theme::body(11.0),
-                    theme::TEXT_TERTIARY,
+                    theme::palette().text_tertiary,
                 );
             }
         }
@@ -212,7 +219,7 @@ fn nothing_shown(app: &mut PhotonationApp, ui: &mut egui::Ui) {
         ui.label(
             RichText::new("No photos match the filter")
                 .size(15.0)
-                .color(theme::TEXT_SECONDARY),
+                .color(theme::palette().text_secondary),
         );
         ui.add_space(8.0);
         if tool_button(

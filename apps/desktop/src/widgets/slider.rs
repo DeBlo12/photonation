@@ -88,9 +88,9 @@ pub fn adjustment_slider(
     let painter = ui.painter_at(rect.expand(2.0));
     let active = response.hovered() || response.dragged();
     let label_color = if active {
-        theme::TEXT
+        theme::palette().text
     } else {
-        theme::TEXT_SECONDARY
+        theme::palette().text_secondary
     };
     painter.text(
         pos2(rect.left(), rect.top() + 9.0),
@@ -100,9 +100,9 @@ pub fn adjustment_slider(
         label_color,
     );
     let value_color = if (*value - default).abs() > f32::EPSILON {
-        theme::TEXT
+        theme::palette().text
     } else {
-        theme::TEXT_TERTIARY
+        theme::palette().text_tertiary
     };
     painter.text(
         pos2(rect.right(), rect.top() + 9.0),
@@ -115,7 +115,7 @@ pub fn adjustment_slider(
     let radius = CornerRadius::same((TRACK_HEIGHT / 2.0) as u8);
     match &style.track {
         Track::Plain => {
-            painter.rect_filled(track_rect, radius, theme::TRACK);
+            painter.rect_filled(track_rect, radius, theme::palette().track);
             let (a, b) = (to_x(default.clamp(min, max)), to_x(*value));
             let fill = Rect::from_min_max(
                 pos2(a.min(b), track_rect.top()),
@@ -132,7 +132,7 @@ pub fn adjustment_slider(
             pos2(tick_x, track_rect.top() - 3.0),
             pos2(tick_x, track_rect.bottom() + 3.0),
         ],
-        Stroke::new(1.0, theme::TEXT_TERTIARY),
+        Stroke::new(1.0, theme::palette().text_tertiary),
     );
 
     let knob = pos2(to_x(*value), track_rect.center().y);
@@ -141,7 +141,7 @@ pub fn adjustment_slider(
         KNOB_RADIUS + 0.5,
         Color32::from_black_alpha(90),
     );
-    painter.circle_filled(
+    painter.circle(
         knob,
         if active {
             KNOB_RADIUS + 0.5
@@ -149,6 +149,7 @@ pub fn adjustment_slider(
             KNOB_RADIUS
         },
         theme::KNOB,
+        Stroke::new(1.0, theme::palette().knob_edge),
     );
     response
 }

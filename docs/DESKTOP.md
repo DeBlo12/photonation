@@ -17,9 +17,9 @@ a floating inspector. The look is Photonation's brand (see *Look* below).
 │                 viewer                    │ ▾ Light         │  adjustments
 │        (fit / zoom / pan / compare)       │   sliders…      │  sidebar
 │                                           │ ▸ Curves …      │
-├───────────────────────────────────────────┴─────────────────┤
-│ ▫ ▫ ▫ …                                                      │  filmstrip (resting)
-└─────────────────────────────────────────────────────────────┘
+├───────────────────────────────────────────┤                 │
+│ ▫ ▫ ▫ …   filmstrip (resting)             │                 │
+└───────────────────────────────────────────┴─────────────────┘
 ```
 
 While masking (◎ or `M`) the sidebar shows the masks panel instead of the
@@ -36,9 +36,10 @@ it, and the inspector's outline pulses amber (`ViewState::tool_warning`).
 
 | File | Region |
 |---|---|
-| `panels/toolbar.rs` | Open, the grid button and filter chip, photo name, its stars, flag and label, exposure info, undo/redo, compare, zoom, export. As the window narrows the exposure info goes, then the name shortens, then the labels go (they stay in the Library menu); nothing reaches the controls on the right |
+| `panels/toolbar.rs` | Open, the grid button and filter chip, the path to the open folder (see *Folders* below), photo name, its stars, flag and label, exposure info, undo/redo, compare, zoom, export. As the window narrows the exposure info goes, then the name shortens, then the labels go (they stay in the Library menu); nothing reaches the controls on the right |
 | `menus.rs` | The menus as data, and what choosing an item does |
 | `native_menu.rs` | macOS only: the menus in the system menu bar, built with muda and kept up to date |
+| `glass.rs` | macOS 26 and later: the Liquid Glass views behind the inspector and the filmstrip |
 | `panels/menu_bar.rs` | The row above the toolbar: the window buttons' room on macOS, the menus drawn with egui elsewhere |
 | `panels/settings.rs` | Settings window (graphics processor, export folder, export defaults) and About |
 | `panels/help.rs` | The Help window (? button, Help ▸ Photonation Help, F1): one page per feature, written from the pipeline, the panels and these documents |
@@ -50,6 +51,8 @@ it, and the inspector's outline pulses amber (`ViewState::tool_warning`).
 | `panels/library_bar.rs` | The bar above the grid and survey: views, count, filter, sort, auto-advance, thumbnail size; the move-rejects-to-bin dialog |
 | `panels/grid.rs` | The grid of the shown photos (multi-select, follows the current photo) |
 | `panels/survey.rs` | 2–8 photos side by side, each with its stars and flag |
+| `folders.rs` | Moving between the folder opened and the folders below it: the root, the cards, the requests |
+| `panels/folders.rs` | The folder overview and the toolbar's breadcrumb |
 | `widgets/rating.rs` | Stars, flag and label badges, and the toolbar's rating control |
 | `panels/masks.rs` | Masks panel: layer list, the selected mask's shapes, settings and local adjustments |
 | `panels/masks/groups.rs` | Mask groups in the layer list: rows, drop targets, group edits, the group row and card |
@@ -68,17 +71,42 @@ it, and the inspector's outline pulses amber (`ViewState::tool_warning`).
 
 ## Look (`theme.rs`)
 
-Photomator's arrangement in the Photonation brand:
+Photomator's arrangement in the Photonation brand, dark or light as the system
+is:
 
-- **Surfaces** are near-neutral greys leaning slightly toward the brand's Ink
-  (`#0E1322`), so the window reads as Photonation without tinting how a photo
-  is judged. The toolbar, viewer and filmstrip share the window colour; the
+- **Modes**: egui resolves the mode from the system, also when it changes while
+  the app runs, and `theme::follow_mode` picks it up at the start of each frame.
+  `theme::palette()` returns the colours that differ between the modes; the
+  constants in `theme.rs` are those that do not, such as the brand colours and
+  whatever is drawn on the photo (`ON_PHOTO`, `KNOB`, `PIN_FILL`).
+- **Surfaces**: in dark mode, near-neutral greys leaning slightly toward the
+  brand's Ink (`#0E1322`), with Paper (`#F6F5F1`) text. In light mode, warm
+  Paper with Ink text. The toolbar and filmstrip share the window colour; the
   adjustments, masks, crop and Remove panels sit in a rounded inspector that
   floats over it.
+- **Viewer**: `Palette::viewer` is behind the photo. It is the window colour in
+  dark mode and a neutral mid-grey (`#777777`) in light mode, so warm surfaces do
+  not skew how a photo is judged. On glass it is only the photo's border. The
+  welcome screen keeps the window colour.
+- **Glass** (`glass.rs`, macOS 26 and later): the window is Liquid Glass over the
+  macOS desktop, with the inspector and the filmstrip as glass panes on it. egui
+  draws everything into one Metal layer, so an `NSGlassEffectView` covers the
+  window behind that layer and each pane gets another, moved each frame to the
+  rectangle the panel reports (`ViewState::inspector_rect`, `filmstrip_rect`).
+  The window is transparent and egui leaves those areas see-through, so the glass
+  bends what is behind the window. The views are siblings below winit's view,
+  because winit expects its view to stay the window's content view. Text sits on
+  `Palette::glass_card` (`theme::window_fill` for the bars and library views), the
+  lightest veil that keeps it readable with a black window behind in light mode
+  or a white one in dark mode. Only the photo is solid: it has a border of
+  `Palette::viewer`, `theme::PHOTO_BORDER` wide. The viewer draws nothing else and
+  stops above the filmstrip. Other platforms and older macOS have opaque panes.
 - **Photon amber** (`#FFB224`) means "on": active tools, switches, slider
   fills from the default, the modified dot on a card, selections and the
   primary button. Text and icons on an amber fill are Ink (`ON_ACCENT`),
-  because Paper on amber fails contrast. Text is Paper (`#F6F5F1`).
+  because Paper on amber fails contrast. Amber is unreadable on Paper, so text,
+  icons and thin marks on a surface use `Palette::accent_strong` (`#885100` in
+  light mode); on the photo they stay amber.
 - **Type**: Inter for the interface (regular; semibold for card and sheet
   titles), Sora semibold for the wordmark. Both are variable fonts bundled
   from `assets/fonts` and instanced by weight; egui's own fonts stay behind
@@ -87,7 +115,8 @@ Photomator's arrangement in the Photonation brand:
   themselves and, after a first line, say what they do. They show on
   disabled tools too, so the welcome screen explains tools that need a photo.
 - **Welcome screen**: the iris from the app icon, drawn as vectors, over the
-  wordmark and an amber Open Folder… button.
+  wordmark and an amber Open Folder… button. It shows only while no folder is
+  open; a folder without photos of its own shows the folder overview instead.
 
 ## Per-frame control flow (`app.rs: PhotonationApp::ui`)
 
@@ -95,17 +124,24 @@ Photomator's arrangement in the Photonation brand:
    (ignoring stale generations), apply eyedropper results (see below), record photo info,
    show errors as a toast.
 2. **Keyboard shortcuts.**
-3. **Snapshot** the settings and the disabled panels.
-4. **Draw** the toolbar, filmstrip, sidebar (adjustment cards or the masks
-   panel), viewer and, if open, the export sheet. Widgets edit `app.settings` directly. The viewer asks for a preview
+3. **Snapshot** the settings and the disabled panels
+   (`remember_photo_before_panels`). A photo opening or closing takes the
+   snapshot again, because panels can do that while they draw (a click in the
+   filmstrip or grid, Open, moving rejects to the bin): one photo's settings
+   replacing another's are not an edit, and must not write a sidecar next to
+   a photo that was only looked at.
+4. **Draw** the toolbar, sidebar (adjustment cards or the masks panel),
+   filmstrip, viewer and, if open, the export sheet, then move the glass views
+   to where the panes ended up. Widgets edit `app.settings` directly. The viewer asks for a preview
    at the resolution it needs (`request_previews`), which sends a request only
    when the edit generation or the size changed.
    Then drop a mask or mask group selection that undo or a deletion made
    invalid (`MaskSelection::validated`, `GroupView::validate`).
-5. **Edited?** If the settings or switches differ from the snapshot, bump the
-   generation (triggering a new preview) and schedule a sidecar save. While
-   the crop tool is open, a change to the crop alone only schedules the save:
-   the tool shows the whole photo, so there is nothing new to render.
+5. **Edited?** (`notice_panel_edits`) If the settings or switches differ from
+   the snapshot, bump the generation (triggering a new preview) and schedule a
+   sidecar save. While the crop tool is open, a change to the crop alone only
+   schedules the save: the tool shows the whole photo, so there is nothing new
+   to render.
 6. **Commit history** when no pointer button is down (one undo step per drag).
 7. **Save the sidecar** 400 ms after the last edit, once the pointer is released.
 
@@ -146,7 +182,8 @@ half a second after the pointer leaves, and opens for 1.2 s whenever the photo
 changes, to show where in the folder the new one is (`FilmstripReveal`). Only
 the resting strip is reserved in the layout. The open strip floats over the
 bottom of the viewer, so the photo neither moves nor re-renders as the strip
-opens and closes.
+opens and closes. The viewer stops drawing at the strip's top edge, so the
+strip's glass never has the photo in front of it.
 
 It scrolls sideways, resting or open: a two-finger swipe, or the mouse wheel
 while the pointer is anywhere on it, margins included (the strip's area claims
@@ -170,6 +207,48 @@ over it, and while it is dragged; otherwise it stays out of the way.
 Dragging the thumb crosses a long folder quickly, with a bubble above it
 naming the photo under the middle of the strip and its capture date; a
 click on the track jumps there. It draws only when the photos don't fit.
+
+## Folders (`folders.rs`, `panels/folders.rs`)
+
+`open_folder` lists the folder's own raw files at once and asks the engine to
+look through the folders inside it (see ENGINE.md), whose cards then arrive one
+by one. What the window shows depends on what the folder holds:
+
+| The folder holds | The window shows |
+|---|---|
+| Only raw files | The editor, as ever; no breadcrumb at the top of the folder opened |
+| Only folders with raw files | The overview |
+| Both | The editor, and a "3 subfolders" button in the toolbar that opens the overview |
+| Neither, at any depth | The overview saying so, with an Open Folder… button |
+
+**Overview.** A card per subfolder, in name order, with its cover, name and
+photo count at any depth. A click opens the folder, which may lead to another
+overview. It takes the place of the editor, grid and survey
+(`showing_folder_overview`, checked first in the per-frame draw) and draws only
+the rows in view. Covers come through `request_thumbnail` like any thumbnail,
+with the photo's own settings; `handle_events` gives one that belongs to no
+photo of the folder to `FolderBrowser::cover_arrived`.
+
+**No photo stays open behind it.** In a folder with both, `ShowSubfolders`
+remembers the current photo and closes it (`close_photo`), so the toolbar, menus
+and keys that need a photo go quiet by the rules they already have, and a rating
+key can't change a photo nobody can see. `ShowPhotos` selects it again. Opening a
+folder with no photos of its own closes the photo the same way.
+
+**Breadcrumb** (`breadcrumb`). The toolbar shows the way from the folder the user
+chose (`FolderBrowser::root`) to the open one, and goes no higher. A folder
+inside the root keeps it, so moving rejects to the bin, which reopens the folder,
+doesn't lose the way back; any other folder becomes the new root. The photo's
+name and stars come first: with less room the breadcrumb drops folders from the
+top (`…` leads to the nearest one dropped), then shows only `‹`, which goes up
+one folder. Everything on it that can be clicked has a control's background
+(`crumb_button`), and the open folder's own name is plain text. A plain folder
+of photos shows nothing.
+
+**Moves wait for the next frame.** Panels call `FolderBrowser::request`, and
+`apply_folder_request` carries it out before anything is drawn, so a frame
+draws one folder from top to bottom. Like the grid, a move waits while an
+editing tool is open (`tool_blocks_library`).
 
 ## Library (`library.rs`)
 
@@ -498,6 +577,11 @@ state and are not saved.
 
 `PHOTONATION_SCREENSHOT=out.png photonation-desktop <folder or photo>` saves the window
 once the preview and thumbnails are ready, then quits.
+`PHOTONATION_SCREENSHOT_THEME=light` (or `=dark`) overrides the system's mode;
+`PHOTONATION_SCREENSHOT_FILMSTRIP=1` keeps the filmstrip open. With glass panes
+the window comes to the front, without the keyboard, and macOS's `screencapture`
+takes that part of the screen, since the glass and what shows through it are not
+in what the app draws;
 `PHOTONATION_SCREENSHOT_PANELS="Curves,Color Grading"` picks the open cards;
 `PHOTONATION_SCREENSHOT_POINT_COLOR=1` opens the Point Color tab (`=range` also
 shows the first point colour's range); `PHOTONATION_SCREENSHOT_MASKS=1` opens

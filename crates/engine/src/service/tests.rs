@@ -628,3 +628,41 @@ fn removals_are_filled_in_the_background_then_rendered() {
         "the fill is cached, not recomputed"
     );
 }
+
+#[test]
+fn subfolders_are_reported_then_the_end_of_the_scan() {
+    let root = tempfile::tempdir().expect("temporary folder");
+    for file in ["b/2.CR3", "a/1.CR3", "empty/notes.txt"] {
+        let path = root.path().join(file);
+        std::fs::create_dir_all(path.parent().expect("parent")).expect("create folder");
+        std::fs::write(path, b"not a raw").expect("write file");
+    }
+    let h = harness(FakeDecoder::default());
+    h.service.scan_subfolders(root.path().to_path_buf());
+    let events = h.events_until(|event| matches!(event, Event::SubfoldersScanned { .. }));
+    let found: Vec<&Path> = events
+        .iter()
+        .filter_map(|event| match event {
+            Event::SubfolderFound { parent, subfolder } => {
+                assert_eq!(parent, root.path());
+                Some(subfolder.path.as_path())
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(found, [root.path().join("a"), root.path().join("b")]);
+}
+
+#[test]
+fn the_folder_asked_for_last_is_the_one_scanned_to_the_end() {
+    let (first, last) = (
+        tempfile::tempdir().expect("temporary folder"),
+        tempfile::tempdir().expect("temporary folder"),
+    );
+    let h = harness(FakeDecoder::default());
+    h.service.scan_subfolders(first.path().to_path_buf());
+    h.service.scan_subfolders(last.path().to_path_buf());
+    h.events_until(
+        |event| matches!(event, Event::SubfoldersScanned { parent } if parent == last.path()),
+    );
+}

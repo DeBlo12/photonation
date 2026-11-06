@@ -68,14 +68,22 @@ fn card(ui: &mut Ui, content: impl FnOnce(&mut Ui)) {
 
 fn header(app: &mut PhotonationApp, ui: &mut Ui) {
     ui.horizontal(|ui| {
-        ui.label(RichText::new("Remove").size(14.0).color(theme::TEXT));
+        ui.label(
+            RichText::new("Remove")
+                .size(14.0)
+                .color(theme::palette().text),
+        );
         ui.label(
             RichText::new(format!("{} / {MAX_REMOVALS}", app.settings.removals.len()))
                 .size(11.0)
-                .color(theme::TEXT_TERTIARY),
+                .color(theme::palette().text_tertiary),
         );
         if app.filling_removals {
-            ui.add(egui::Spinner::new().size(12.0).color(theme::TEXT_SECONDARY));
+            ui.add(
+                egui::Spinner::new()
+                    .size(12.0)
+                    .color(theme::palette().text_secondary),
+            );
         }
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             if tool_button(ui, "Done", false, "Back to the adjustments (Q)").clicked() {
@@ -233,7 +241,7 @@ fn removal_list(app: &mut PhotonationApp, ui: &mut Ui) {
                 if selected {
                     theme::ACCENT_SOFT
                 } else {
-                    theme::CONTROL
+                    theme::palette().control
                 },
             );
         }
@@ -245,12 +253,12 @@ fn removal_list(app: &mut PhotonationApp, ui: &mut Ui) {
         row.label(
             RichText::new(format!("Removal {}", index + 1))
                 .size(12.5)
-                .color(theme::TEXT),
+                .color(theme::palette().text),
         );
         row.label(
             RichText::new(summary(removal))
                 .size(11.0)
-                .color(theme::TEXT_TERTIARY),
+                .color(theme::palette().text_tertiary),
         );
         row.with_layout(Layout::right_to_left(Align::Center), |row| {
             if tool_button(row, "×", false, "Delete this removal").clicked() {

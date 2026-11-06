@@ -15,6 +15,7 @@ WebAssembly build.
 | L1 | `photonation-raw` | Raw decoding (adapter over rawler) → `SensorImage` |
 | L1 | `photonation-export` | JPEG/PNG/TIFF encoders with ICC profiles (moxcms) and EXIF/XMP metadata |
 | L1 | `photonation-retouch` | Inpainting for removals: content-aware fill (PatchMatch) and, with feature `onnx`, neural models via tract. See [RETOUCH.md](RETOUCH.md) |
+| L1 | `photonation-lens` | Lens profiles from the embedded Lensfun database (CC BY-SA 3.0): finds a shot's camera and lens and interpolates its calibrations |
 | L2 | `photonation-pipeline` | The develop pipeline: `SensorImage` + `Settings` → `OutputImage`; `render_plan` describes a render as data |
 | L3 | `photonation-gpu` | The pipeline as wgpu compute shaders, run from a `RenderPlan` and checked against the CPU |
 | L4 | `photonation-engine` | Session services: background preview/thumbnail/export workers, history, histogram |
@@ -35,6 +36,7 @@ apps/desktop ──┐        apps/cli
        develop ─▶ image ─▶ color
           ▲
    pipeline ─▶ retouch      (inpainting; no photo types)
+   pipeline ─▶ lens         (lens profiles; no photo types)
 ```
 
 ## Data model

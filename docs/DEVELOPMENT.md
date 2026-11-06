@@ -113,9 +113,12 @@ and the About window links to the source at tag `v<version>`. For each
 release:
 
 1. Bump `version` in `Cargo.toml` and move *Unreleased* in the changelog
-   under the new version; merge to `main`.
+   under the new version. Check that every Markdown file still matches,
+   including `README.md` and `docs/ROADMAP.md`, so the tag holds them too. Merge
+   to `main`.
 2. Tag the merge commit and push the tag before publishing any binary:
-   `git tag -a v0.18.0 -m "Photonation 0.18.0"` and `git push origin v0.18.0`.
+   `git tag -a v<version> -m "Photonation <version>"` and
+   `git push origin v<version>`.
 3. Build the installers from that tag and attach them to the GitHub release.
    Tags can't be moved or deleted, so get the merge right first. The macOS script
    warns when a build isn't that tag, or has uncommitted changes.
@@ -165,8 +168,9 @@ using a Unicode symbol, which depends on the platform's fonts.
   `points_per_image_pixel`); single letters only for coordinates and tight
   maths kernels.
 - **Docs travel with code**: behaviour and control flow are described in
-  `docs/*.md`; update the matching document in the same change. Code comments
-  explain *why*, not what.
+  `docs/*.md`; update the matching document in the same change, along with any
+  other Markdown file it affects, including `README.md`. Code comments explain
+  *why*, not what.
 - **No panics on user data**: decoding and rendering return errors; `unwrap` is
   linted.
 - **Pipeline invariants are tested**: band-size invariance, neutral stays

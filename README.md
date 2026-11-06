@@ -19,6 +19,13 @@ a Lightroom-style develop module with a Photomator-inspired interface.
   (shadows/midtones/highlights/global with blending and balance), sharpening,
   luminance and colour noise reduction, lens corrections (distortion,
   vignetting and chromatic aberration from the bundled Lensfun database).
+- **Local edits and geometry**: masks (linear and radial gradients combined per
+  mask, with local adjustments), crop and straighten (draw a level line, or let
+  Auto find it), and object removal by content-aware fill or a neural inpainting
+  model.
+- **Culling and presets**: star ratings, pick and reject flags, colour labels,
+  filter and sort, grid and survey views; presets and copying settings between
+  photos. Lightroom edits (from XMP) and `.xmp` presets import.
 - **Non-destructive**: originals are never touched; edits live in a JSON sidecar
   next to each photo (`IMG_0001.CR3.photonation.json`), with undo/redo.
 - **Fast and lean**: a band-parallel pipeline renders a 24 MP raw to full-size
@@ -28,13 +35,16 @@ a Lightroom-style develop module with a Photomator-inspired interface.
   Adobe RGB or ProPhoto RGB with embedded ICC profiles and EXIF/XMP metadata
   (camera, lens, capture time, creator and copyright; GPS only if chosen).
 - **Desktop app** (macOS first; egui, so the same UI can later run in the browser
-  via WebAssembly) and a **CLI** for batch export.
+  via WebAssembly) and a **CLI** for batch export. The app follows the system
+  between light and dark, or stays in the one chosen in Settings. On macOS it
+  uses the system menu bar, and on macOS 26 and later the window is Liquid Glass.
 
 > Status: early. The core pipeline, CLI and desktop editor work; see
 > [docs/ROADMAP.md](docs/ROADMAP.md) for what's next.
 
 ## Quick start
 
+There are no prebuilt downloads yet, so Photonation is built from source.
 Requires Rust 1.95+ (the pinned toolchain in `rust-toolchain.toml` installs
 automatically with rustup). On macOS the Xcode licence must be accepted
 once (`sudo xcodebuild -license`).
@@ -44,6 +54,7 @@ cargo run --release -p photonation-desktop -- ~/Pictures/Raw
 ```
 
 Opens the editor on a folder (or pass a single raw file to open it directly).
+A folder that holds only folders shows an overview of the ones with raw photos.
 
 ```bash
 cargo run --release -p photonation-cli -- export ~/Pictures/Raw -o ~/Pictures/Export --long-edge 2048
@@ -87,6 +98,7 @@ on `PATH`. Shortcuts use Ctrl where the table below shows ⌘, and Alt for ⌥.
 | `\` | Compare with original (drag the divider) |
 | ⌘0, double-click | Fit / actual pixels |
 | ⇧⌘E | Export |
+| ⌘, | Settings |
 | Double-click a slider | Reset it; hold ⌥ while dragging for fine control |
 
 ## Documentation

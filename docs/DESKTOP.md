@@ -1,7 +1,7 @@
 # Desktop editor
 
 Crate: `apps/desktop` (binary `photonation-desktop`), built on eframe/egui. The layout
-follows Photomator: dark and image-first, with the controls in quiet cards on
+follows Photomator: image-first, dark or light, with the controls in quiet cards on
 a floating inspector. The look is Photonation's brand (see *Look* below).
 
 ## Layout
@@ -549,8 +549,8 @@ Shortcuts opens the last one.
   opened, so F1 from the export sheet or Settings shows it above their
   backdrop. Esc closes it; `shortcuts` takes the key before the crop tool and
   the sheets see it.
-- **Look.** Ink surfaces (the window in the inspector's colour, the page
-  list in the main window's), Paper text in Inter, the selected page in amber with Ink text, the
+- **Look.** The mode's surfaces (the window in the inspector's colour, the page
+  list in the main window's), text in Inter, the selected page in amber with Ink text, the
   toolbar's stroke icons beside the pages of its tools, pipeline steps in
   amber discs and shortcuts as key caps.
 - **Text.** Written from the code and `docs/*.md`; menu paths use › because

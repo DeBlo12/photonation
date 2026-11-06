@@ -36,6 +36,7 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
         .frame(egui::Frame::NONE)
         .show(ui, |ui| {
             let canvas = ui.max_rect();
+            let photo_only = app.view.full_screen.is_some();
             toast(app, ui, canvas);
             // Nothing is drawn under the open filmstrip, which may be glass:
             // the photo's background stays solid and stops at the strip.
@@ -51,6 +52,7 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
                 visible,
                 0.0,
                 match (app.current.is_some(), theme::glass()) {
+                    _ if photo_only => Color32::BLACK,
                     (false, _) => theme::window_fill(),
                     // On glass only the photo's own border is solid.
                     (true, true) => Color32::TRANSPARENT,
@@ -62,7 +64,7 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
                 return;
             }
             let pixels_per_point = ui.ctx().pixels_per_point();
-            let available = canvas.shrink(MARGIN);
+            let available = canvas.shrink(if photo_only { 0.0 } else { MARGIN });
             let interacting = ui.ctx().input(|i| i.pointer.any_down());
             let viewer_long_edge =
                 (available.width().max(available.height()) * pixels_per_point) as usize;
@@ -191,13 +193,16 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
             } else {
                 image_rect
             };
-            painter.rect_filled(
-                backing.translate(vec2(0.0, 6.0)).expand(4.0),
-                4.0,
-                Color32::from_black_alpha(60),
-            );
-            if theme::glass() {
-                painter.rect_filled(backing, 2.0, theme::palette().viewer);
+            // Nothing but the photo in full screen.
+            if !photo_only {
+                painter.rect_filled(
+                    backing.translate(vec2(0.0, 6.0)).expand(4.0),
+                    4.0,
+                    Color32::from_black_alpha(60),
+                );
+                if theme::glass() {
+                    painter.rect_filled(backing, 2.0, theme::palette().viewer);
+                }
             }
             if let Some(preview) = &app.preview {
                 paint(&painter, preview, image_rect, image_rect);

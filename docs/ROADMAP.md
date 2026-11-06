@@ -15,7 +15,9 @@
 - JSON sidecars, process versions, undo/redo
 - Masks: linear and radial gradients, drawn on the photo, and a brush, combined
   per mask (add, subtract, intersect), with invert, amount and eight local
-  adjustments; layer panel with live thumbnails, reordering and a GPU overlay
+  adjustments; layer panel with live thumbnails, reordering and a GPU overlay;
+  masks a row can't reach cost it nothing on the CPU, and local saturation shares
+  the colour step's trip through Oklab
 - Crop and straighten tool (aspect ratios, angle, drag to turn)
 - Lightroom XMP import: global develop settings and crops open with the photo
 - Object removal: painted removals filled by content-aware fill (PatchMatch)
@@ -48,15 +50,15 @@
   photos, each with a cover and a count
 - Light and dark modes that follow the system or a choice in Settings; Liquid
   Glass on macOS 26 and later
+- Full screen: the photo alone on the whole screen (`F`), and the window alone
+  (`F11` or the system's own)
 - Opening a single photo as well as a folder
 
 ## Next
 
 In this order:
 
-1. **More masks**: later AI subject and sky masks. Skip masks whose
-   bounds miss a band, and fold local saturation into the colour step's Oklab
-   round trip, to speed up masked renders.
+1. **More masks**: later AI subject and sky masks.
 2. **Better removals**: one-click people selection (segmentation), dust
    spot and wire/fence detection, full-resolution tiled fills. See
    [RETOUCH.md](RETOUCH.md).

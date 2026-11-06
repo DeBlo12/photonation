@@ -7,7 +7,9 @@
 //! `PHOTONATION_SCREENSHOT_PANELS=Curves,Color Grading` chooses which
 //! adjustment cards are open; `PHOTONATION_SCREENSHOT_MASKS=1` opens the
 //! masks panel with the first mask selected (`=group`: the first mask
-//! group); `PHOTONATION_SCREENSHOT_CROP=1`
+//! group); `PHOTONATION_SCREENSHOT_COMPARE=1` splits the photo for Compare;
+//! `PHOTONATION_SCREENSHOT_FULL_SCREEN=1` hides the panels as full screen does,
+//! leaving the window as it is; `PHOTONATION_SCREENSHOT_CROP=1`
 //! opens the crop tool; `PHOTONATION_SCREENSHOT_POINT_COLOR=1` opens the
 //! Color Mixer's Point Color tab (`=range` also shows the first point
 //! colour's range); `PHOTONATION_SCREENSHOT_SIDEBAR=280` starts the sidebar
@@ -106,6 +108,9 @@ impl Screenshot {
         }
         if std::env::var_os("PHOTONATION_SCREENSHOT_CROP").is_some() {
             view.cropping = true;
+        }
+        if std::env::var_os("PHOTONATION_SCREENSHOT_FULL_SCREEN").is_some() {
+            view.full_screen = Some(crate::app::PhotoFullScreen::default());
         }
         if std::env::var_os("PHOTONATION_SCREENSHOT_COMPARE").is_some() {
             view.compare = true;

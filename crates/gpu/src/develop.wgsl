@@ -687,6 +687,7 @@ fn apply_point_colors(lab: vec3<f32>) -> vec3<f32> {
     return vec3<f32>(lch.x, lch.y * cos(angle), lch.y * sin(angle));
 }
 
+// The colour step's result, still in Oklab (pipeline `apply_in_oklab`).
 fn apply_color(rgb: vec3<f32>) -> vec3<f32> {
     var lab = to_oklab(max(rgb, vec3<f32>(0.0)));
     if develop.color_flags.y != 0u {
@@ -703,16 +704,28 @@ fn apply_color(rgb: vec3<f32>) -> vec3<f32> {
     if develop.color_flags.w != 0u || develop.color.z != 0.0 {
         lab = apply_point_colors(lab);
     }
-    return from_oklab(lab);
+    return lab;
+}
+
+fn scale_chroma(lab: vec3<f32>, amount: f32) -> vec3<f32> {
+    let gain = max(1.0 + amount, 0.0);
+    return vec3<f32>(lab.x, lab.y * gain, lab.z * gain);
 }
 
 // Local Saturation: scales Oklab chroma.
 fn saturate(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
-    var lab = to_oklab(max(rgb, vec3<f32>(0.0)));
-    let gain = max(1.0 + amount, 0.0);
-    lab.y *= gain;
-    lab.z *= gain;
-    return from_oklab(lab);
+    return from_oklab(scale_chroma(to_oklab(max(rgb, vec3<f32>(0.0))), amount));
+}
+
+// The colour step, then local Saturation, in one trip through Oklab unless
+// the step left a channel negative (pipeline `color_and_saturate`).
+fn color_and_saturate(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
+    let lab = apply_color(rgb);
+    let adjusted = from_oklab(lab);
+    if adjusted.x >= 0.0 && adjusted.y >= 0.0 && adjusted.z >= 0.0 {
+        return from_oklab(scale_chroma(lab, amount));
+    }
+    return saturate(adjusted, amount);
 }
 
 fn pull_toward(out: vec3<f32>, luminance: f32, t: f32) -> vec3<f32> {
@@ -822,15 +835,18 @@ fn develop_pixel(camera_in: vec3<f32>, pixel: vec2<u32>) -> vec3<f32> {
         rgb = local_contrast(rgb, local.light.w);
     }
     rgb = vec3<f32>(tone(0u, rgb.x), tone(1u, rgb.y), tone(2u, rgb.z));
-    if develop.color_flags.x != 0u {
-        rgb = apply_color(rgb);
-    }
+    // Like the global slider, local Dehaze restores washed-out colour.
+    var saturation = 0.0;
     if masked {
-        // Like the global slider, local Dehaze restores washed-out colour.
-        let saturation = local.tone.w + develop.local_scales.w * local.tone.z;
-        if saturation != 0.0 {
-            rgb = saturate(rgb, saturation);
-        }
+        saturation = local.tone.w + develop.local_scales.w * local.tone.z;
+    }
+    let has_color = develop.color_flags.x != 0u;
+    if has_color && saturation != 0.0 {
+        rgb = color_and_saturate(rgb, saturation);
+    } else if has_color {
+        rgb = from_oklab(apply_color(rgb));
+    } else if saturation != 0.0 {
+        rgb = saturate(rgb, saturation);
     }
     return to_output_gamut(rgb);
 }

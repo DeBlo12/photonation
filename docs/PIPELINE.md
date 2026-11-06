@@ -133,6 +133,13 @@ marked *local*. Without active masks the stage runs a separately compiled copy
 with every local step removed, so unmasked renders cost what they did before
 masks existed.
 
+Each row first leaves out the masks whose bounds miss it
+(`LocalAdjust::masks_on_row`, `MaskWeight::selects_nothing_in`): a radial or
+brush by its box, a linear gradient where the whole row is past its end line, and
+combined shapes by how they combine. An inverted mask is never left out. A row
+with no masks left, or a pixel where none has any weight, runs the unmasked copy.
+None of this changes the result: what's left out would have added nothing.
+
 Each pixel, in this order:
 
 0. **Highlight reconstruction** (process V2, §3c), then the **vignetting**
@@ -175,7 +182,11 @@ Each pixel, in this order:
      colour, the rest turns grey (the editor's "Visualize range").
 
    *Local* saturation (plus a little for local dehaze, like the global slider)
-   then scales Oklab chroma.
+   then scales Oklab chroma, in the colour step's own trip through Oklab
+   (`color_and_saturate`) unless that step left a channel negative: going back
+   into Oklab clips it, which the result has to keep. Skipping the way back in
+   skips its rounding too, so about 1 sample in 400 of a 16-bit export moves by one
+   level, and 1 in 100 000 of an 8-bit one, compared with two trips.
 6. **Output primaries**: Rec.2020 → output space (with Bradford when the output
    white differs, e.g. ProPhoto's D50). Out-of-gamut colours are pulled toward
    their luminance instead of clipping channels independently, which preserves
@@ -302,9 +313,11 @@ The pipeline turns that into:
 Masks cost time at every pixel they are evaluated for: two masks covering the
 photo roughly double the full-size render (≈350 ms; ≈100 ms at 1600 px), about
 a quarter of it the Oklab round trip of local saturation. Renders without
-active masks run at the speed above. A brush adds its rasterizing once per change
-of its strokes (§5b); forty strokes crossing the
-photo take about 20 ms, on the worker while painting.
+active masks run at the speed above. Masks only cost time on the rows they can
+reach and the pixels they touch (§5): five masks of varied sizes, one inverted,
+render a 24 MP photo in ≈340 ms on the M1 Pro. A brush adds its rasterizing once per
+change of its strokes (§5b); forty strokes crossing the photo take about 20 ms, on
+the worker while painting.
 
 The colour step's Oklab round trip runs only when a colour control is set; it
 takes a full-size render to ≈600 ms. Point colours ride on the same round
@@ -343,9 +356,9 @@ The raw mosaic is uploaded once per photo as a 16-bit texture and kept while
 the photo is edited; intermediates are `rgba32float` textures, so values
 match the CPU's `f32` bands. Only the packed output is read back.
 
-Masks are evaluated per pixel in the develop pass exactly as on the CPU
-(`LocalAdjust::at`, then the masked steps of §5); they cost no measurable
-time there. Brush maps (§5b) are rasterized on the CPU, as they are for a CPU
+Masks are evaluated per pixel in the develop pass as on the CPU (the sum of
+`LocalAdjust::at`, then the masked steps of §5), but every mask at every pixel:
+they cost no measurable time there, so §5's row culling stays on the CPU. Brush maps (§5b) are rasterized on the CPU, as they are for a CPU
 render, and go up as one storage buffer, kept while the same maps are rendered, so
 only a change to the strokes uploads anything. The shader samples them with
 `BrushMap::at`'s arithmetic, reading neighbours by hand.

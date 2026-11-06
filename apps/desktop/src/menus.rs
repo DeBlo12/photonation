@@ -61,6 +61,7 @@ pub enum SystemItem {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Action {
     OpenFolder,
+    OpenPhoto,
     Export,
     ExportBatch,
     Settings,
@@ -239,13 +240,18 @@ fn window() -> Menu {
     }
 }
 
+/// Also the labels of the buttons that do the same.
+pub const OPEN_FOLDER: &str = "Open Folder…";
+pub const OPEN_PHOTO: &str = "Open Photo…";
+
 fn file(app: &PhotonationApp, native: bool) -> Vec<Entry> {
     let (batch, kind) = app.export_batch();
     let mut entries = vec![
+        item(OPEN_FOLDER, theme::SHORTCUT_OPEN, Action::OpenFolder, true),
         item(
-            "Open Folder…",
-            theme::SHORTCUT_OPEN,
-            Action::OpenFolder,
+            OPEN_PHOTO,
+            theme::SHORTCUT_OPEN_PHOTO,
+            Action::OpenPhoto,
             true,
         ),
         Entry::Separator,
@@ -594,6 +600,7 @@ impl PhotonationApp {
     pub fn perform(&mut self, action: &Action, ctx: &egui::Context) {
         match action {
             Action::OpenFolder => self.pick_folder(),
+            Action::OpenPhoto => self.pick_photo(),
             Action::Export => {
                 self.view.export_all = false;
                 self.view.show_export = true;
@@ -687,6 +694,27 @@ mod tests {
             .iter()
             .find(|menu| menu.title == title)
             .expect("the menu")
+    }
+
+    #[test]
+    fn the_file_menu_opens_a_folder_or_a_photo_at_any_time() {
+        let ctx = egui::Context::default();
+        let app = PhotonationApp::empty(&ctx);
+        for native in [false, true] {
+            let menus = menus(&app, native);
+            let file = &titled(&menus, "File").entries;
+            for (label, action) in [
+                (OPEN_FOLDER, Action::OpenFolder),
+                (OPEN_PHOTO, Action::OpenPhoto),
+            ] {
+                let item = all_items(file)
+                    .into_iter()
+                    .find(|item| item.label == label)
+                    .expect("the item");
+                assert_eq!(item.action, action);
+                assert!(item.enabled, "{label} needs nothing open");
+            }
+        }
     }
 
     fn all_items(entries: &[Entry]) -> Vec<&Item> {

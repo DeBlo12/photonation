@@ -121,7 +121,7 @@ is:
   themselves and, after a first line, say what they do. They show on
   disabled tools too, so the welcome screen explains tools that need a photo.
 - **Welcome screen**: the iris from the app icon, drawn as vectors, over the
-  wordmark and an amber Open Folder… button. It shows only while no folder is
+  wordmark, an amber Open Folder… button and an Open Photo… button. It shows only while no folder is
   open; a folder without photos of its own shows the folder overview instead.
 
 ## Per-frame control flow (`app.rs: PhotonationApp::ui`)
@@ -505,7 +505,13 @@ Everything is saved to `preferences.json` when the window closes, and the
 current export options are reset to the new defaults. Missing fields take
 their defaults, so older files load.
 
-**Menus** (`menus.rs`). File (Open Folder, Export, Export All
+**Opening.** Open Folder and Open Photo are separate choices, because one
+file dialog can't offer both; the toolbar's Open button lists them, as the File
+menu does. `open_photo` opens the photo's folder and selects it, so the filmstrip
+and grid behave as for any folder. The command line (`photonation-desktop <folder
+or photo>`) takes the same paths.
+
+**Menus** (`menus.rs`). File (Open Folder, Open Photo, Export, Export All
 Photos, Settings, Quit), Edit (Undo, Redo, Reset All Adjustments), View (Fit,
 Actual Pixels, Compare, Masks, Crop and Straighten, Remove Objects, previous
 and next photo) and Help (Photonation Help, Keyboard Shortcuts, About).

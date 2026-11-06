@@ -7,6 +7,7 @@
 
 use crate::app::PhotonationApp;
 use crate::folders::{FolderCard, FolderRequest};
+use crate::menus;
 use crate::panels::grid::{GAP, columns_of};
 use crate::panels::{TOOL_BUTTON_SIZE, hover_tip, tool_button};
 use crate::theme;
@@ -103,7 +104,7 @@ fn nothing_found(app: &mut PhotonationApp, ui: &mut egui::Ui) {
                 .color(theme::palette().text_secondary),
         );
         ui.add_space(12.0);
-        if ui.add(theme::primary_button("Open Folder…")).clicked() {
+        if ui.add(theme::primary_button(menus::OPEN_FOLDER)).clicked() {
             app.pick_folder();
         }
     });

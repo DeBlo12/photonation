@@ -47,6 +47,7 @@
   photos, each with a cover and a count
 - Light and dark modes that follow the system or a choice in Settings; Liquid
   Glass on macOS 26 and later
+- Opening a single photo as well as a folder
 
 ## Next
 

@@ -8,6 +8,8 @@ changes to CI alone are not released.
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-11-06
+
 ### Added
 
 - Opening a folder that holds only folders, such as one per month, now shows
@@ -440,7 +442,8 @@ changes to CI alone are not released.
 
 - Licensed under GPL-3.0-or-later.
 
-[Unreleased]: https://github.com/DeBlo12/photonation/compare/v0.18.0...HEAD
+[Unreleased]: https://github.com/DeBlo12/photonation/compare/v0.19.0...HEAD
+[0.19.0]: https://github.com/DeBlo12/photonation/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/DeBlo12/photonation/compare/v0.17.1...v0.18.0
 [0.17.1]: https://github.com/DeBlo12/photonation/compare/v0.17.0...v0.17.1
 [0.17.0]: https://github.com/DeBlo12/photonation/compare/v0.16.0...v0.17.0

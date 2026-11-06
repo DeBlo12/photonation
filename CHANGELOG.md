@@ -8,6 +8,14 @@ changes to CI alone are not released.
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-11-06
+
+### Added
+
+- Removal fills are kept on disk, so reopening a photo, even after a restart, shows
+  them at once instead of computing them again. The cache stays under 2 GB, in the
+  `fills` folder next to the thumbnails.
+
 ## [0.22.0] - 2026-11-06
 
 ### Added
@@ -22,9 +30,6 @@ changes to CI alone are not released.
 
 ### Added
 
-- Removal fills are kept on disk, so reopening a photo, even after a restart, shows
-  them at once instead of computing them again. The cache stays under 2 GB, in the
-  `fills` folder next to the thumbnails.
 - A brush for masks. **+ Brush** paints a mask straight on the photo, with Size,
   Feather and Flow, and the adjustments follow the stroke as you paint. Erase, or
   hold Option (Alt on Windows and Linux), to take away from it; `[` and `]` change
@@ -495,7 +500,8 @@ changes to CI alone are not released.
 
 - Licensed under GPL-3.0-or-later.
 
-[Unreleased]: https://github.com/DeBlo12/photonation/compare/v0.22.0...HEAD
+[Unreleased]: https://github.com/DeBlo12/photonation/compare/v0.23.0...HEAD
+[0.23.0]: https://github.com/DeBlo12/photonation/compare/v0.22.0...v0.23.0
 [0.22.0]: https://github.com/DeBlo12/photonation/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/DeBlo12/photonation/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/DeBlo12/photonation/compare/v0.19.0...v0.20.0

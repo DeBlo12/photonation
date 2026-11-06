@@ -49,7 +49,7 @@ and models stay in `~/Library/Application Support/Photonation`.
 - **Command-line tool.** The bundle includes the CLI. To put it on `PATH`:
   `sudo ln -s /Applications/Photonation.app/Contents/MacOS/photonation /usr/local/bin/photonation`.
 - **Opening photos.** The app declares no file types, so Finder doesn't offer it
-  for raw files; open a folder from the app.
+  for raw files; open a folder or a photo from the app.
 - **Checksum.** The `.sha256` file beside the image is for people to verify their
   download.
 

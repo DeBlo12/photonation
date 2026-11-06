@@ -17,7 +17,7 @@ use photonation_engine::{
 };
 use photonation_image::NormRect;
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 /// Wait this long after the last edit before writing the sidecar.
@@ -495,16 +495,10 @@ impl PhotonationApp {
         }
         // `Photonation <folder>` or `Photonation <photo>` (opens its folder).
         if let Some(target) = std::env::args().nth(1).map(PathBuf::from) {
-            let folder = if target.is_dir() {
-                Some(target.clone())
+            if target.is_dir() {
+                app.open_folder(target);
             } else {
-                target.parent().map(PathBuf::from)
-            };
-            if let Some(folder) = folder {
-                app.open_folder(folder);
-                if let Some(index) = app.photos.iter().position(|p| p.path == target) {
-                    app.select(index);
-                }
+                app.open_photo(&target);
             }
         }
         if let Some(screenshot) = &app.screenshot {
@@ -601,6 +595,20 @@ impl PhotonationApp {
                 self.select(0);
             }
             Err(e) => self.notify(format!("Could not open folder: {e}")),
+        }
+    }
+
+    /// Opens the folder a photo is in, on that photo, so the filmstrip and the
+    /// grid work as they do for any folder.
+    pub fn open_photo(&mut self, photo: &Path) {
+        // A bare file name on the command line has an empty parent.
+        let photo = std::path::absolute(photo).unwrap_or_else(|_| photo.to_path_buf());
+        let Some(folder) = photo.parent() else {
+            return;
+        };
+        self.open_folder(folder.to_path_buf());
+        if let Some(index) = self.photos.iter().position(|p| p.path == photo) {
+            self.select(index);
         }
     }
 
@@ -1080,6 +1088,7 @@ impl PhotonationApp {
             removals,
             leave_crop,
             export,
+            open_photo,
             open,
             reset_zoom,
             settings,
@@ -1112,6 +1121,8 @@ impl PhotonationApp {
                 removals,
                 leave_crop,
                 i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::E),
+                // Before ⌘O, which also matches with Shift held.
+                i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::O),
                 i.consume_key(Modifiers::COMMAND, Key::O),
                 i.consume_key(Modifiers::COMMAND, Key::Num0),
                 i.consume_key(Modifiers::COMMAND, Key::Comma),
@@ -1147,6 +1158,9 @@ impl PhotonationApp {
         if export && self.current.is_some() {
             self.view.show_export = true;
         }
+        if open_photo {
+            self.pick_photo();
+        }
         if open {
             self.pick_folder();
         }
@@ -1176,6 +1190,20 @@ impl PhotonationApp {
             .pick_folder()
         {
             self.open_folder(folder);
+        }
+    }
+
+    pub fn pick_photo(&mut self) {
+        // Linux's dialogs match extensions by case, and cameras write capitals.
+        let extensions: Vec<String> = photonation_engine::raw_extensions()
+            .flat_map(|extension| [extension.to_ascii_uppercase(), extension])
+            .collect();
+        if let Some(photo) = rfd::FileDialog::new()
+            .set_title("Open a raw photo")
+            .add_filter("Raw photos", &extensions)
+            .pick_file()
+        {
+            self.open_photo(&photo);
         }
     }
 }
@@ -1607,6 +1635,31 @@ mod tests {
             std::fs::write(folder.path().join(name), b"not a raw").expect("write photo");
         }
         folder
+    }
+
+    #[test]
+    fn opening_a_photo_opens_its_folder_on_that_photo() {
+        let folder = folder_of(&["a.CR3", "b.CR3", "c.CR3"]);
+        let ctx = egui::Context::default();
+        let mut app = PhotonationApp::empty(&ctx);
+
+        app.open_photo(&folder.path().join("b.CR3"));
+
+        assert_eq!(app.photos.len(), 3, "the rest of its folder is there too");
+        let current = app.current.expect("a photo is open");
+        assert_eq!(app.photos[current].path, folder.path().join("b.CR3"));
+    }
+
+    #[test]
+    fn opening_a_file_that_is_not_a_photo_still_opens_its_folder() {
+        let folder = folder_of(&["a.CR3", "notes.txt"]);
+        let ctx = egui::Context::default();
+        let mut app = PhotonationApp::empty(&ctx);
+
+        app.open_photo(&folder.path().join("notes.txt"));
+
+        assert_eq!(app.photos.len(), 1);
+        assert_eq!(app.current, Some(0));
     }
 
     #[test]

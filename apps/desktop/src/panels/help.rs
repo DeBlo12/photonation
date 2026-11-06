@@ -641,14 +641,23 @@ fn content(page: Page) -> Content {
                    are never changed."
                 .into(),
             blocks: vec![
-                Block::Heading("Open a folder"),
+                Block::Heading("Open a folder or a photo"),
                 term(
-                    "Open",
+                    "Open Folder",
                     format!(
-                        "({}) or File › Open Folder… chooses a folder. Photonation lists \
-                         its raw photos (Bayer cameras, Fujifilm X-Trans and linear DNG such \
-                         as Apple ProRAW) in the filmstrip and shows the first one.",
+                        "({}, in the Open button and the File menu) chooses a folder. \
+                         Photonation lists its raw photos (Bayer cameras, Fujifilm X-Trans and \
+                         linear DNG such as Apple ProRAW) in the filmstrip and shows the first \
+                         one.",
                         theme::SHORTCUT_OPEN
+                    ),
+                ),
+                term(
+                    "Open Photo",
+                    format!(
+                        "({}, in the same places) chooses one raw file. It opens on that photo, \
+                         with the rest of its folder in the filmstrip.",
+                        theme::SHORTCUT_OPEN_PHOTO
                     ),
                 ),
                 term(
@@ -1791,6 +1800,7 @@ fn content(page: Page) -> Content {
             blocks: vec![
                 Block::Heading("Photos"),
                 keys(&[theme::SHORTCUT_OPEN], "Open a folder"),
+                keys(&[theme::SHORTCUT_OPEN_PHOTO], "Open a photo"),
                 keys(&["←", "→"], "Previous or next photo"),
                 keys(&["G"], "Grid"),
                 keys(&["N"], "Survey the selected photos"),

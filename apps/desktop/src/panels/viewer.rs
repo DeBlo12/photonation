@@ -8,6 +8,7 @@
 
 use crate::app::{PhotonationApp, Preview, ViewState, Zoom};
 use crate::gpu::mask_overlay::MaskOverlay;
+use crate::menus;
 use crate::panels::mask_thumbnails::tint_strength;
 use crate::panels::{crop, mask_brush, mask_handles, removal_brush};
 use crate::photo_frame::PhotoFrame;
@@ -375,16 +376,24 @@ fn empty_state(app: &mut PhotonationApp, ui: &mut egui::Ui, canvas: Rect) {
     painter.text(
         canvas.center() + vec2(0.0, 40.0),
         Align2::CENTER_CENTER,
-        "Open a folder of raw photos to start editing",
+        "Open a folder of raw photos, or one photo, to start editing",
         theme::body(14.0),
         theme::palette().text_secondary,
     );
-    let button_rect = Rect::from_center_size(canvas.center() + vec2(0.0, 84.0), vec2(160.0, 34.0));
+    let button_at = |offset: f32| {
+        Rect::from_center_size(canvas.center() + vec2(offset, 84.0), vec2(150.0, 34.0))
+    };
     if ui
-        .put(button_rect, theme::primary_button("Open Folder…"))
+        .put(button_at(-80.0), theme::primary_button(menus::OPEN_FOLDER))
         .clicked()
     {
         app.pick_folder();
+    }
+    if ui
+        .put(button_at(80.0), egui::Button::new(menus::OPEN_PHOTO))
+        .clicked()
+    {
+        app.pick_photo();
     }
 }
 

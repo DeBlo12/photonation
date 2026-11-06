@@ -136,6 +136,7 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
                     mask_handles::interact(
                         &mut app.settings.masks,
                         &mut app.view.selected_mask,
+                        &mut app.view.shape_to_draw,
                         ui,
                         &response,
                         &frame,

@@ -389,6 +389,19 @@ amber rings mark the selected mask's other shapes; solid pins mark the other
 masks. Clicking either selects it. A drag that starts on a handle edits the
 shape instead of panning.
 
+**Drawing a gradient.** Adding a gradient, as a new mask or a further shape, puts
+it in its usual place, so it works at once, and makes it
+`ViewState::shape_to_draw`. Until something is dragged, the next drag on the photo
+places it: a linear gradient starts at the press and ends at the pointer, and a
+radial one centres on the press with both radii reaching the pointer
+(`begin_drawing`, then the drag moves `Handle::LinearEnd` or
+`Handle::RadialRadius` like any handle). A drag that starts on one of the shape's
+handles moves that handle instead, since that's what the pointer is on, and it too
+ends the wait. Selecting anything else or closing the panel also ends it, for
+good, so coming back to the shape doesn't make a drag redraw it. Placing is a second undo step after adding, so undo goes
+back to the usual place first. Clicks still select pins. Brushes don't take part;
+they paint.
+
 **Brush** (`panels/mask_brush.rs`). While the selected shape is a brush, the canvas
 paints instead of showing handles, with the brush's outline, an inner ring where
 the feather starts and a plus or minus under the pointer. A drag paints a stroke,

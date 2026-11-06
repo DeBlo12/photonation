@@ -47,6 +47,8 @@
   photos, each with a cover and a count
 - Light and dark modes that follow the system or a choice in Settings; Liquid
   Glass on macOS 26 and later
+- Full screen: the photo alone on the whole screen (`F`), and the window alone
+  (`F11` or the system's own)
 - Opening a single photo as well as a folder
 
 ## Next

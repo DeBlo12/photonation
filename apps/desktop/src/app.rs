@@ -128,6 +128,16 @@ impl Eyedropper {
 pub const MIXER_TABS: [&str; 2] = ["Mixer", "Point Color"];
 pub const POINT_COLOR_TAB: usize = 1;
 
+/// The photo alone on the whole screen.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PhotoFullScreen {
+    /// The window was already full screen, so it stays that way on leaving.
+    pub window_was_full: bool,
+    /// The system has reported the window full screen, so once it stops, the
+    /// user left through the system (the green button, ⌃⌘F) and this ends too.
+    pub window_reached: bool,
+}
+
 /// How new removals are painted.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RemovalBrush {
@@ -242,6 +252,7 @@ pub struct ViewState {
     pub tool_warning: Option<Instant>,
     /// Index into `settings.removals`.
     pub selected_removal: Option<usize>,
+    pub full_screen: Option<PhotoFullScreen>,
     pub removal_brush: RemovalBrush,
     pub mask_brush: MaskBrushTool,
     /// The mask stroke being painted. It renders like any stroke, but joins
@@ -298,6 +309,7 @@ impl Default for ViewState {
             library: Default::default(),
             tool_warning: None,
             selected_removal: None,
+            full_screen: None,
             removal_brush: RemovalBrush::default(),
             mask_brush: MaskBrushTool::default(),
             mask_stroke: None,
@@ -308,6 +320,15 @@ impl Default for ViewState {
 }
 
 impl ViewState {
+    /// Whether something open needs the panels that full screen hides.
+    pub fn needs_panels(&self) -> bool {
+        self.show_masks
+            || self.cropping
+            || self.show_removals
+            || self.library.grid
+            || self.library.survey
+    }
+
     pub fn curve_channel(&self) -> Option<CurveChannel> {
         self.curve_mode.checked_sub(1).map(|i| CurveChannel::ALL[i])
     }
@@ -348,7 +369,7 @@ impl ViewState {
     /// Masks, crop and Remove share the sidebar and the photo's pointer
     /// input, so at most one is open. They need the editor, so the grid
     /// and survey close too.
-    fn close_tools(&mut self) {
+    pub(crate) fn close_tools(&mut self) {
         self.show_masks = false;
         self.cropping = false;
         self.show_removals = false;
@@ -674,6 +695,66 @@ impl PhotonationApp {
         self.before = None;
         self.histogram = None;
         self.before_requested = None;
+    }
+
+    /// Turns the photo alone on the whole screen on or off. The tools need
+    /// their panels, so they close; the sheets open over it as usual.
+    pub fn toggle_full_screen(&mut self, ctx: &egui::Context) {
+        if self.view.full_screen.is_some() {
+            self.leave_full_screen(ctx);
+        } else if self.current.is_some() && !self.showing_folder_overview() {
+            self.view.close_tools();
+            self.view.eyedropper = None;
+            let window_is_full = ctx.input(|i| i.viewport().fullscreen) == Some(true);
+            self.view.full_screen = Some(PhotoFullScreen {
+                window_was_full: window_is_full,
+                window_reached: window_is_full,
+            });
+            self.set_window_full_screen(ctx, true);
+            self.notify("Press F or Esc to leave full screen");
+        }
+    }
+
+    /// The window alone, with the panels still in it (F11 where the system
+    /// offers no full screen of its own).
+    pub fn toggle_window_full_screen(&self, ctx: &egui::Context) {
+        let window_is_full = ctx.input(|i| i.viewport().fullscreen) == Some(true);
+        self.set_window_full_screen(ctx, !window_is_full);
+    }
+
+    fn leave_full_screen(&mut self, ctx: &egui::Context) {
+        if let Some(state) = self.view.full_screen.take()
+            && !state.window_was_full
+        {
+            self.set_window_full_screen(ctx, false);
+        }
+    }
+
+    /// A screenshot run leaves the window alone: going full screen would move
+    /// whoever is working at the computer to another Space.
+    fn set_window_full_screen(&self, ctx: &egui::Context, full: bool) {
+        if self.screenshot.is_none() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(full));
+        }
+    }
+
+    /// Ends full screen when something needs the panels back, a key opened a
+    /// tool or the grid, say, or when the system took the window out of it.
+    fn follow_full_screen(&mut self, ctx: &egui::Context) {
+        let Some(state) = &mut self.view.full_screen else {
+            return;
+        };
+        match ctx.input(|i| i.viewport().fullscreen) {
+            Some(true) => state.window_reached = true,
+            Some(false) if state.window_reached => {
+                self.view.full_screen = None;
+                return;
+            }
+            _ => {}
+        }
+        if self.current.is_none() || self.view.needs_panels() {
+            self.leave_full_screen(ctx);
+        }
     }
 
     pub fn notify(&mut self, message: impl Into<String>) {
@@ -1096,6 +1177,9 @@ impl PhotonationApp {
             close_help,
             copy_settings,
             paste_settings,
+            full_screen,
+            leave_full_screen,
+            window_full_screen,
         ) = ctx.input_mut(|i| {
             // Before the crop tool and the sheets see Esc: Help is in front.
             let close_help =
@@ -1110,6 +1194,12 @@ impl PhotonationApp {
                 plain(Key::Q),
             );
             let leave_crop = self.view.cropping && (plain(Key::Enter) || plain(Key::Escape));
+            // A sheet in front gets Esc first.
+            let sheet_open = self.view.show_export || self.view.show_settings;
+            let full_screen = plain(Key::F);
+            let leave_full_screen =
+                self.view.full_screen.is_some() && !sheet_open && plain(Key::Escape);
+            let window_full_screen = cfg!(not(target_os = "macos")) && plain(Key::F11);
             (
                 i.consume_key(Modifiers::COMMAND, Key::Z),
                 i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z),
@@ -1130,8 +1220,17 @@ impl PhotonationApp {
                 close_help,
                 i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::C),
                 i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::V),
+                full_screen,
+                leave_full_screen,
+                window_full_screen,
             )
         });
+        if full_screen || leave_full_screen {
+            self.toggle_full_screen(ctx);
+        }
+        if window_full_screen {
+            self.toggle_window_full_screen(ctx);
+        }
         if redo {
             self.redo();
         } else if undo {
@@ -1303,14 +1402,18 @@ impl eframe::App for PhotonationApp {
         self.perform_native_menu_choices(&ctx);
         crate::library::shortcuts(self, &ctx);
         self.shortcuts(&ctx);
+        self.follow_full_screen(&ctx);
+        let photo_only = self.view.full_screen.is_some();
 
         self.remember_photo_before_panels();
         // The panels set it again while the pointer stays on a preset.
         let preset_hover_before = self.view.presets.hover.take();
         let cropping_before = self.view.cropping;
 
-        panels::menu_bar::show(self, ui);
-        panels::toolbar::show(self, ui);
+        if !photo_only {
+            panels::menu_bar::show(self, ui);
+            panels::toolbar::show(self, ui);
+        }
         if self.showing_folder_overview() {
             panels::folders::show(self, ui);
         } else if self.view.library.survey {
@@ -1321,11 +1424,13 @@ impl eframe::App for PhotonationApp {
             panels::grid::show(self, ui);
         } else {
             // The inspector takes the full height; the filmstrip runs beside it.
-            if self.current.is_some() {
-                panels::adjustments::show(self, ui);
-            }
-            if !self.photos.is_empty() {
-                panels::filmstrip::show(self, ui);
+            if !photo_only {
+                if self.current.is_some() {
+                    panels::adjustments::show(self, ui);
+                }
+                if !self.photos.is_empty() {
+                    panels::filmstrip::show(self, ui);
+                }
             }
             panels::viewer::show(self, ui);
         }
@@ -1626,6 +1731,172 @@ mod tests {
         assert!(app.view.mask_brush.size_percent > size);
         window_frame(&mut app, &ctx, vec![key(egui::Key::OpenBracket)]);
         assert!((app.view.mask_brush.size_percent - size).abs() < 1e-4);
+    }
+
+    /// One frame; returns what it told the window to do.
+    fn window_commands(
+        app: &mut PhotonationApp,
+        ctx: &egui::Context,
+        events: Vec<egui::Event>,
+    ) -> Vec<egui::ViewportCommand> {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1000.0, 700.0),
+            )),
+            events,
+            ..Default::default()
+        };
+        let mut output = ctx.run_ui(input, |ui| {
+            eframe::App::ui(app, ui, &mut eframe::Frame::_new_kittest());
+        });
+        output.textures_delta.clear();
+        output.viewport_output[&egui::ViewportId::ROOT]
+            .commands
+            .clone()
+    }
+
+    fn pressed(key: egui::Key) -> egui::Event {
+        egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }
+    }
+
+    fn app_showing_a_photo(ctx: &egui::Context, folder: &tempfile::TempDir) -> PhotonationApp {
+        let mut app = PhotonationApp::empty(ctx);
+        app.open_folder(folder.path().to_path_buf());
+        app.current = Some(0);
+        window_frame(&mut app, ctx, Vec::new());
+        show_a_decoded_photo(&mut app, ctx, folder.path().join("a.CR3"));
+        window_frame(&mut app, ctx, Vec::new());
+        app
+    }
+
+    #[test]
+    fn f_and_esc_enter_and_leave_full_screen_with_the_panels_hidden() {
+        use egui::ViewportCommand::Fullscreen;
+        let folder = folder_of(&["a.CR3"]);
+        let ctx = egui::Context::default();
+        let mut app = app_showing_a_photo(&ctx, &folder);
+        app.view.show_masks = true;
+        window_frame(&mut app, &ctx, Vec::new());
+        assert!(app.view.inspector_rect.is_some(), "the panels are there");
+
+        let commands = window_commands(&mut app, &ctx, vec![pressed(egui::Key::F)]);
+        assert!(commands.contains(&Fullscreen(true)), "{commands:?}");
+        assert!(app.view.full_screen.is_some());
+        assert!(!app.view.show_masks, "the tools need their panels");
+        assert_eq!(app.view.inspector_rect, None, "no inspector");
+        assert_eq!(app.view.filmstrip_rect, None, "no filmstrip");
+        assert!(app.status.is_some(), "it says how to get out");
+
+        let commands = window_commands(&mut app, &ctx, vec![pressed(egui::Key::Escape)]);
+        assert!(commands.contains(&Fullscreen(false)), "{commands:?}");
+        assert_eq!(app.view.full_screen, None);
+        window_frame(&mut app, &ctx, Vec::new());
+        assert!(app.view.inspector_rect.is_some(), "the panels are back");
+
+        window_frame(&mut app, &ctx, vec![pressed(egui::Key::F)]);
+        let commands = window_commands(&mut app, &ctx, vec![pressed(egui::Key::F)]);
+        assert!(commands.contains(&Fullscreen(false)), "F leaves too");
+    }
+
+    #[test]
+    fn a_tool_or_the_grid_ends_full_screen_and_shows_its_panels() {
+        let folder = folder_of(&["a.CR3"]);
+        let ctx = egui::Context::default();
+        let mut app = app_showing_a_photo(&ctx, &folder);
+        for (key, opened) in [
+            (
+                egui::Key::M,
+                (&|view: &ViewState| view.show_masks) as &dyn Fn(&ViewState) -> bool,
+            ),
+            (egui::Key::R, &|view: &ViewState| view.cropping),
+            (egui::Key::Q, &|view: &ViewState| view.show_removals),
+            (egui::Key::G, &|view: &ViewState| view.library.grid),
+        ] {
+            window_frame(&mut app, &ctx, vec![pressed(egui::Key::F)]);
+            assert!(app.view.full_screen.is_some(), "{key:?}");
+            let commands = window_commands(&mut app, &ctx, vec![pressed(key)]);
+            assert!(opened(&app.view), "{key:?} opens");
+            assert_eq!(app.view.full_screen, None, "{key:?} leaves");
+            assert!(
+                commands.contains(&egui::ViewportCommand::Fullscreen(false)),
+                "{key:?}: {commands:?}"
+            );
+            app.view.close_tools();
+            window_frame(&mut app, &ctx, Vec::new());
+        }
+    }
+
+    #[test]
+    fn full_screen_ends_with_the_systems_and_keeps_a_window_already_full() {
+        let folder = folder_of(&["a.CR3"]);
+        let ctx = egui::Context::default();
+        let mut app = app_showing_a_photo(&ctx, &folder);
+        let frame_with_window = |app: &mut PhotonationApp, ctx: &egui::Context, full, events| {
+            let mut input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1000.0, 700.0),
+                )),
+                events,
+                ..Default::default()
+            };
+            input
+                .viewports
+                .entry(egui::ViewportId::ROOT)
+                .or_default()
+                .fullscreen = Some(full);
+            let mut output = ctx.run_ui(input, |ui| {
+                eframe::App::ui(app, ui, &mut eframe::Frame::_new_kittest());
+            });
+            output.textures_delta.clear();
+            output.viewport_output[&egui::ViewportId::ROOT]
+                .commands
+                .clone()
+        };
+        // Still on its way there: not yet a sign the user left.
+        frame_with_window(&mut app, &ctx, false, vec![pressed(egui::Key::F)]);
+        frame_with_window(&mut app, &ctx, false, Vec::new());
+        assert!(app.view.full_screen.is_some(), "while the window animates");
+        frame_with_window(&mut app, &ctx, true, Vec::new());
+        // The system took the window out (the green button): nothing to undo.
+        let commands = frame_with_window(&mut app, &ctx, false, Vec::new());
+        assert_eq!(app.view.full_screen, None);
+        assert!(
+            !commands.contains(&egui::ViewportCommand::Fullscreen(false)),
+            "{commands:?}"
+        );
+
+        // Full screen by the system first: leaving keeps the window so.
+        frame_with_window(&mut app, &ctx, true, vec![pressed(egui::Key::F)]);
+        assert!(app.view.full_screen.is_some());
+        let commands = frame_with_window(&mut app, &ctx, true, vec![pressed(egui::Key::Escape)]);
+        assert_eq!(app.view.full_screen, None);
+        assert!(
+            !commands.contains(&egui::ViewportCommand::Fullscreen(false)),
+            "{commands:?}"
+        );
+    }
+
+    #[test]
+    fn full_screen_needs_a_photo_and_esc_goes_to_a_sheet_first() {
+        let ctx = egui::Context::default();
+        let mut app = PhotonationApp::empty(&ctx);
+        window_frame(&mut app, &ctx, vec![pressed(egui::Key::F)]);
+        assert_eq!(app.view.full_screen, None, "nothing to show");
+
+        let folder = folder_of(&["a.CR3"]);
+        let mut app = app_showing_a_photo(&ctx, &folder);
+        window_frame(&mut app, &ctx, vec![pressed(egui::Key::F)]);
+        app.view.show_export = true;
+        window_frame(&mut app, &ctx, vec![pressed(egui::Key::Escape)]);
+        assert!(app.view.full_screen.is_some(), "the sheet was in front");
     }
 
     /// A folder with these (unreadable) raw files.

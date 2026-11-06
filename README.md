@@ -26,6 +26,8 @@ a Lightroom-style develop module with a Photomator-inspired interface.
 - **Culling and presets**: star ratings, pick and reject flags, colour labels,
   filter and sort, grid and survey views; presets and copying settings between
   photos. Lightroom edits (from XMP) and `.xmp` presets import.
+- **Viewing**: zoom, compare with the original, and a true full screen with the
+  photo alone (`F`).
 - **Non-destructive**: originals are never touched; edits live in a JSON sidecar
   next to each photo (`IMG_0001.CR3.photonation.json`), with undo/redo.
 - **Fast and lean**: a band-parallel pipeline renders a 24 MP raw to full-size

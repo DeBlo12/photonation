@@ -46,9 +46,7 @@ a Lightroom-style develop module with a Photomator-inspired interface.
 
 ## Quick start
 
-A build for Macs with Apple silicon is on the
-[Releases page](https://github.com/DeBlo12/photonation/releases). To build from
-source instead:
+There are no prebuilt downloads yet, so Photonation is built from source.
 
 Requires Rust 1.95+ (the pinned toolchain in `rust-toolchain.toml` installs
 automatically with rustup). On macOS the Xcode licence must be accepted

@@ -67,7 +67,8 @@ photo's path, size and modification time, its settings, the crate version
 and the size. A folder seen before opens with its renders at once. When it
 grows past 512 MB the least recently used files go, down to 384 MB, on a
 thread of its own at start-up. Services made for tests (`with_parts`) have
-no cache.
+no cache. Removal fills have a disk cache of their own, in `fills`; see
+[RETOUCH.md](RETOUCH.md).
 
 ## Preview control flow (`service.rs: preview_worker`)
 

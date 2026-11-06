@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 The Photonation contributors
 
-use crate::{Decoder, MetadataOptions, RawDecoder, Retoucher, default_model_path};
+use crate::{Decoder, MetadataOptions, RawDecoder, Retoucher};
 use photonation_color::ColorSpace;
 use photonation_develop::{Settings, load_photo_settings};
 use photonation_export::Format;
@@ -145,7 +145,7 @@ pub fn export_photo(
     options: &ExportOptions,
     adjust: impl FnOnce(&mut Settings, &photonation_image::SensorImage),
 ) -> Result<ExportReport, ExportError> {
-    let retoucher = Retoucher::new(default_model_path());
+    let retoucher = Retoucher::installed();
     export_photo_with(
         &RawDecoder,
         &retoucher,

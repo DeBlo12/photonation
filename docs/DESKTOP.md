@@ -41,7 +41,7 @@ it, and the inspector's outline pulses amber (`ViewState::tool_warning`).
 | `native_menu.rs` | macOS only: the menus in the system menu bar, built with muda and kept up to date |
 | `glass.rs` | macOS 26 and later: the Liquid Glass views behind the inspector and the filmstrip |
 | `panels/menu_bar.rs` | The row above the toolbar: the window buttons' room on macOS, the menus drawn with egui elsewhere |
-| `panels/settings.rs` | Settings window (graphics processor, export folder, export defaults) and About |
+| `panels/settings.rs` | Settings window (appearance, graphics processor, export folder, export defaults) and About |
 | `panels/help.rs` | The Help window (? button, Help ▸ Photonation Help, F1): one page per feature, written from the pipeline, the panels and these documents |
 | `panels/viewer.rs` | Canvas: fit/zoom/pan, before/after divider, eyedroppers, status toast |
 | `panels/adjustments.rs` | Histogram and one card per `AdjustmentGroup` |
@@ -79,6 +79,12 @@ is:
   `theme::palette()` returns the colours that differ between the modes; the
   constants in `theme.rs` are those that do not, such as the brand colours and
   whatever is drawn on the photo (`ON_PHOTO`, `KNOB`, `PIN_FILL`).
+- **Mode**: `Preferences::appearance` (Settings › General) is System, Light or
+  Dark, and `theme::set_appearance` applies it, at launch and as soon as it is
+  chosen. It sets egui's theme preference, which decides the palette; the
+  window's theme, for the title bar; and on macOS the app's `NSAppearance`, which
+  the glass and native dialogs take. System clears both, so they follow the
+  system again. `PHOTONATION_SCREENSHOT_THEME` wins over the saved choice.
 - **Surfaces**: in dark mode, near-neutral greys leaning slightly toward the
   brand's Ink (`#0E1322`), with Paper (`#F6F5F1`) text. In light mode, warm
   Paper with Ink text. The toolbar and filmstrip share the window colour; the

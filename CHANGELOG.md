@@ -20,7 +20,8 @@ changes to CI alone are not released.
 - A light mode. The app now follows macOS or Windows between dark and light,
   also when the system switches while it runs. Light mode uses warm Paper
   surfaces with a neutral mid-grey behind the photo, so the surfaces do not
-  skew how it looks.
+  skew how it looks. **Settings › General › Appearance** can keep the app in
+  Light or Dark instead of following the system.
 - On macOS 26 and later the window is Liquid Glass, with the inspector and the
   filmstrip as glass panes on it, so the desktop and other windows show through.
   Only the photo is solid, with a small border.

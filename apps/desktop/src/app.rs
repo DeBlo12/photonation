@@ -423,7 +423,7 @@ impl PhotonationApp {
             if let Some(glass) = &app.glass {
                 theme::use_glass();
                 if let Some(forced_theme) = crate::screenshot::forced_theme() {
-                    crate::glass::force_appearance(forced_theme);
+                    crate::glass::force_appearance(Some(forced_theme));
                 }
                 if let Some(screenshot) = &mut app.screenshot
                     && let Some(region) = glass.front_for_capture()
@@ -438,6 +438,9 @@ impl PhotonationApp {
             ));
         }
         app.preferences = crate::preferences::Preferences::load();
+        if crate::screenshot::forced_theme().is_none() {
+            theme::set_appearance(&cc.egui_ctx, app.preferences.appearance);
+        }
         app.gpu_setting_at_launch = app.preferences.gpu.clone();
         app.view.export_options = app.preferences.export_options();
         app.preferences.library.apply(&mut app.view.library);

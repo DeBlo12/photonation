@@ -2,8 +2,8 @@
 // Copyright (C) 2026 The Photonation contributors
 
 //! Visual language: Photomator's image-first layout in the Photonation
-//! brand, dark or light as the system is. All colours, type and metrics live
-//! here so the widgets stay consistent.
+//! brand, dark or light as the system is or as Settings says. All colours,
+//! type and metrics live here so the widgets stay consistent.
 //!
 //! Dark surfaces are near-neutral greys leaning slightly toward the brand's
 //! Ink; light ones are its warm Paper. In light mode the photo sits on a
@@ -19,6 +19,7 @@ use eframe::egui::{
     self, Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, FontTweak, Margin,
     Stroke, Theme, epaint::text::VariationCoords,
 };
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -123,8 +124,48 @@ pub fn palette() -> &'static Palette {
     })
 }
 
-/// Picks up the mode egui resolved from the system. Call at the start of a
-/// frame, before anything paints.
+/// The mode chosen in Settings.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Appearance {
+    /// Follow the system, also when it changes while running.
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
+impl Appearance {
+    pub const ALL: [Appearance; 3] = [Appearance::System, Appearance::Light, Appearance::Dark];
+    /// What Settings calls each of [`Appearance::ALL`].
+    pub const LABELS: [&str; 3] = ["System", "Light", "Dark"];
+
+    /// The mode this forces, if any.
+    const fn forced(self) -> Option<Theme> {
+        match self {
+            Appearance::System => None,
+            Appearance::Light => Some(Theme::Light),
+            Appearance::Dark => Some(Theme::Dark),
+        }
+    }
+}
+
+/// Puts the app in this mode: egui's widgets and the palette, the window's
+/// title bar and, on macOS, the glass and native dialogs.
+pub fn set_appearance(ctx: &egui::Context, appearance: Appearance) {
+    let forced = appearance.forced();
+    ctx.set_theme(forced.map_or(egui::ThemePreference::System, egui::ThemePreference::from));
+    ctx.send_viewport_cmd(egui::ViewportCommand::SetTheme(match forced {
+        None => egui::SystemTheme::SystemDefault,
+        Some(Theme::Light) => egui::SystemTheme::Light,
+        Some(Theme::Dark) => egui::SystemTheme::Dark,
+    }));
+    #[cfg(target_os = "macos")]
+    crate::glass::force_appearance(forced);
+}
+
+/// Picks up the mode egui resolved from the system or [`set_appearance`]. Call
+/// at the start of a frame, before anything paints.
 pub fn follow_mode(ctx: &egui::Context) {
     LIGHT_MODE.store(ctx.theme() == Theme::Light, Ordering::Relaxed);
 }
@@ -275,7 +316,8 @@ pub fn primary_button(label: &str) -> egui::Button<'_> {
 }
 
 /// Installs fonts and the widget visuals of both modes. The app then follows
-/// the system's mode, also when it changes while running.
+/// the system's mode, also when it changes while running, until
+/// [`set_appearance`] says otherwise.
 pub fn install(ctx: &egui::Context) {
     install_fonts(ctx);
     ctx.set_theme(egui::ThemePreference::System);
@@ -458,6 +500,66 @@ mod tests {
             assert_eq!(
                 ctx.global_style().visuals.widgets.inactive.weak_bg_fill,
                 palette.control
+            );
+        }
+    }
+
+    /// The mode the app ends up in with this `system` mode underneath.
+    fn mode_on(ctx: &egui::Context, system: Theme) -> Theme {
+        let input = egui::RawInput {
+            system_theme: Some(system),
+            ..Default::default()
+        };
+        ctx.run_ui(input, |_| {}).textures_delta.clear();
+        ctx.theme()
+    }
+
+    #[test]
+    fn a_chosen_appearance_overrides_the_system_mode() {
+        let ctx = egui::Context::default();
+        install(&ctx);
+        for system in [Theme::Light, Theme::Dark] {
+            set_appearance(&ctx, Appearance::Light);
+            assert_eq!(mode_on(&ctx, system), Theme::Light);
+            assert_eq!(
+                ctx.global_style().visuals.widgets.inactive.weak_bg_fill,
+                LIGHT.control
+            );
+            set_appearance(&ctx, Appearance::Dark);
+            assert_eq!(mode_on(&ctx, system), Theme::Dark);
+            assert_eq!(
+                ctx.global_style().visuals.widgets.inactive.weak_bg_fill,
+                DARK.control
+            );
+        }
+    }
+
+    #[test]
+    fn going_back_to_system_follows_it_again() {
+        let ctx = egui::Context::default();
+        install(&ctx);
+        set_appearance(&ctx, Appearance::Dark);
+        assert_eq!(mode_on(&ctx, Theme::Light), Theme::Dark);
+        set_appearance(&ctx, Appearance::System);
+        assert_eq!(mode_on(&ctx, Theme::Light), Theme::Light);
+        assert_eq!(mode_on(&ctx, Theme::Dark), Theme::Dark);
+    }
+
+    #[test]
+    fn the_window_is_told_the_mode_too() {
+        for (appearance, expected) in [
+            (Appearance::System, egui::SystemTheme::SystemDefault),
+            (Appearance::Light, egui::SystemTheme::Light),
+            (Appearance::Dark, egui::SystemTheme::Dark),
+        ] {
+            let ctx = egui::Context::default();
+            set_appearance(&ctx, appearance);
+            let mut output = ctx.run_ui(egui::RawInput::default(), |_| {});
+            output.textures_delta.clear();
+            let commands = &output.viewport_output[&egui::ViewportId::ROOT].commands;
+            assert!(
+                commands.contains(&egui::ViewportCommand::SetTheme(expected)),
+                "{appearance:?} sent {commands:?}"
             );
         }
     }

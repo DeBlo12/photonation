@@ -8,6 +8,7 @@
 
 use crate::gpu::GpuSetting;
 use crate::library::{GRID_SIZES, LibraryView, SortOrder};
+use crate::theme::Appearance;
 use photonation_color::ColorSpace;
 use photonation_engine::{ExportOptions, MetadataOptions, data_directory};
 use photonation_export::Format;
@@ -29,6 +30,8 @@ pub struct Preferences {
     pub export_without_asking: bool,
     /// The graphics adapter, chosen at start-up.
     pub gpu: GpuSetting,
+    /// Dark, light, or whichever the system is.
+    pub appearance: Appearance,
     /// The grid's cell size, the sort order and auto-advance.
     pub library: LibraryPreferences,
 }
@@ -195,9 +198,23 @@ mod tests {
         assert!(!partial.export_metadata.location);
         assert_eq!(partial.export, ExportDefaults::default());
         assert_eq!(partial.gpu, GpuSetting::Automatic);
+        assert_eq!(partial.appearance, Appearance::System);
         assert!(!partial.export_without_asking);
         let empty: Preferences = serde_json::from_str("{}").expect("parse");
         assert_eq!(empty, Preferences::default());
+    }
+
+    #[test]
+    fn the_appearance_is_remembered() {
+        for appearance in Appearance::ALL {
+            let preferences = Preferences {
+                appearance,
+                ..Default::default()
+            };
+            let json = serde_json::to_string(&preferences).expect("serialize");
+            let read: Preferences = serde_json::from_str(&json).expect("parse");
+            assert_eq!(read.appearance, appearance);
+        }
     }
 
     #[test]

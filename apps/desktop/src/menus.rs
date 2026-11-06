@@ -343,7 +343,7 @@ fn view(app: &PhotonationApp, native: bool) -> Vec<Entry> {
         ),
         toggle(
             "Full Screen Photo",
-            "F",
+            theme::SHORTCUT_FULL_SCREEN,
             Action::ToggleFullScreen,
             app.view.full_screen.is_some(),
             has_photo,

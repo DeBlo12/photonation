@@ -48,12 +48,16 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
                     ui.add_space(4.0);
                     crate::panels::help::button(ui, &mut app.view);
                     ui.add_space(4.0);
+                    let full_screen_key = theme::SHORTCUT_FULL_SCREEN;
                     if crate::panels::icon_button(
                         ui,
                         crate::widgets::Icon::FullScreen,
                         None,
                         false,
-                        "Full screen (F)\nThe photo alone on the whole screen. F or Esc leaves.",
+                        &format!(
+                            "Full screen ({full_screen_key})\nThe photo alone on the whole \
+                             screen. {full_screen_key} or Esc leaves."
+                        ),
                     )
                     .clicked()
                     {

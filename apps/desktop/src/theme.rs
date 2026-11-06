@@ -251,6 +251,13 @@ pub const SHORTCUT_QUIT: &str = shortcut("⌘Q", "Alt+F4");
 pub const SHORTCUT_COPY_SETTINGS: &str = shortcut("⇧⌘C", "Ctrl+Shift+C");
 pub const SHORTCUT_PASTE_SETTINGS: &str = shortcut("⇧⌘V", "Ctrl+Shift+V");
 pub const SHORTCUT_SELECT_ALL: &str = shortcut("⌘A", "Ctrl+A");
+pub const SHORTCUT_FULL_SCREEN: &str = shortcut("⌃F", "F");
+/// What's held with F for full screen: Control on a Mac.
+pub const FULL_SCREEN_MODIFIERS: egui::Modifiers = if cfg!(target_os = "macos") {
+    egui::Modifiers::CTRL
+} else {
+    egui::Modifiers::NONE
+};
 pub const SHIFT_KEY: &str = shortcut("⇧", "Shift");
 pub const ALT_KEY: &str = shortcut("Option", "Alt");
 pub const COMMAND_KEY: &str = shortcut("⌘", "Ctrl");

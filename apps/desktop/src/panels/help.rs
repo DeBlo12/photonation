@@ -1524,10 +1524,13 @@ fn content(page: Page) -> Content {
                 ),
                 Block::Heading("Full screen"),
                 term(
-                    "Full Screen Photo (F)",
-                    "shows the photo alone on the whole screen, on black, with every panel \
-                     hidden. Zoom, Compare, the arrow keys, ratings and flags still work. F or \
-                     Esc leaves, and so does opening a tool or the grid.",
+                    "Full Screen Photo",
+                    format!(
+                        "({key}) shows the photo alone on the whole screen, on black, with every \
+                         panel hidden. Zoom, Compare, the arrow keys, ratings and flags still \
+                         work. {key} or Esc leaves, and so does opening a tool or the grid.",
+                        key = theme::SHORTCUT_FULL_SCREEN,
+                    ),
                 ),
                 term(
                     "The window alone",
@@ -1858,7 +1861,10 @@ fn content(page: Page) -> Content {
                 ),
                 Block::Heading("View"),
                 keys(&["\\"], "Compare with the original"),
-                keys(&["F"], "Full screen, the photo alone"),
+                keys(
+                    &[theme::SHORTCUT_FULL_SCREEN],
+                    "Full screen, the photo alone",
+                ),
                 keys(&[theme::SHORTCUT_FIT], "Fit to window"),
                 Block::Heading("Tools"),
                 keys(&["M"], "Masks"),

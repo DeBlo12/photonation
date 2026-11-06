@@ -459,21 +459,24 @@ screen → mask mapping as an origin and one step per screen axis.
 
 ## Full screen
 
-**Full Screen Photo** (`F`, the toolbar's corners button, the View menu) shows the
+**Full Screen Photo** (⌃F on a Mac, `F` elsewhere, the toolbar's corners button,
+the View menu) shows the
 photo alone on the whole screen. `ViewState::full_screen` makes the frame skip the
 menu bar, toolbar, inspector and filmstrip, and the viewer fill the window in black
 with no margin, shadow or border, so glass doesn't show through either. The window
 goes full screen through `ViewportCommand::Fullscreen`. A toast says how to leave.
 
 It needs a photo. Opening it closes the tools, which need their panels, and a key
-that opens a tool or the grid leaves it (`follow_full_screen`). `F` and `Esc` leave,
-though `Esc` goes to an open sheet first. Zoom, Compare, the arrow keys, ratings and
+that opens a tool or the grid leaves it (`follow_full_screen`). Its shortcut and `Esc`
+leave, though `Esc` goes to an open sheet first. Zoom, Compare, the arrow keys, ratings and
 flags keep working.
 
 The state remembers two things about the window. If it was already full screen, it
 stays so on leaving. And once the system has reported it full screen, a report that
 it no longer is means the user left through the system (macOS's green button or
-⌃⌘F), so this ends too; before that report the window is still on its way there.
+⌃⌘F), so this ends too; before that report the window is still on its way there. On
+a Mac the report comes from the window's style mask (`glass::window_is_full_screen`),
+as egui's was seen staying false while the window was full screen.
 
 **The window alone**, panels included: macOS's own View › Enter Full Screen, and
 elsewhere View › Full Screen Window (`F11`).

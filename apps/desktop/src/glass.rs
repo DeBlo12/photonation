@@ -18,6 +18,7 @@ use objc2::runtime::AnyClass;
 use objc2_app_kit::{
     NSAppearance, NSAppearanceNameAqua, NSAppearanceNameDarkAqua, NSApplication,
     NSAutoresizingMaskOptions, NSGlassEffectView, NSScreen, NSView, NSWindow, NSWindowOrderingMode,
+    NSWindowStyleMask,
 };
 use objc2_foundation::{NSPoint, NSRect, NSSize};
 
@@ -25,6 +26,17 @@ use objc2_foundation::{NSPoint, NSRect, NSSize};
 /// exists, whether it is created transparent.
 pub fn supported() -> bool {
     AnyClass::get(c"NSGlassEffectView").is_some()
+}
+
+/// Whether macOS has the window in full screen, from the window itself, which
+/// also knows when the user took it there or back through the system. `None`
+/// without a window on this thread.
+pub fn window_is_full_screen() -> Option<bool> {
+    let main_thread = MainThreadMarker::new()?;
+    let window = NSApplication::sharedApplication(main_thread)
+        .windows()
+        .firstObject()?;
+    Some(window.styleMask().contains(NSWindowStyleMask::FullScreen))
 }
 
 /// Makes the glass and native dialogs match a mode other than the system's, as

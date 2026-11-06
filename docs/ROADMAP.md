@@ -13,9 +13,11 @@
 - Sharpening; Lanczos resizing; JPEG/PNG/TIFF export with ICC profiles and
   EXIF/XMP metadata (camera and capture, creator and copyright, optional GPS)
 - JSON sidecars, process versions, undo/redo
-- Masks: linear and radial gradients and a brush combined per mask (add,
-  subtract, intersect), with invert, amount and eight local adjustments; layer
-  panel with live thumbnails, reordering and a GPU overlay
+- Masks: linear and radial gradients, drawn on the photo, and a brush, combined
+  per mask (add, subtract, intersect), with invert, amount and eight local
+  adjustments; layer panel with live thumbnails, reordering and a GPU overlay;
+  masks a row can't reach cost it nothing on the CPU, and local saturation shares
+  the colour step's trip through Oklab
 - Crop and straighten tool (aspect ratios, angle, drag to turn)
 - Lightroom XMP import: global develop settings and crops open with the photo
 - Object removal: painted removals filled by content-aware fill (PatchMatch)
@@ -55,10 +57,7 @@
 
 In this order:
 
-1. **More masks**: creating gradients by dragging on the photo, masks in compare
-   mode, and later AI subject and sky masks. Skip masks whose
-   bounds miss a band, and fold local saturation into the colour step's Oklab
-   round trip, to speed up masked renders.
+1. **More masks**: later AI subject and sky masks.
 2. **Better removals**: one-click people selection (segmentation), dust
    spot and wire/fence detection, full-resolution tiled fills, a disk cache
    for fills. See [RETOUCH.md](RETOUCH.md).

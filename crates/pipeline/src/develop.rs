@@ -260,11 +260,32 @@ impl Develop {
     /// Local Saturation: scales Oklab chroma, like the global slider.
     #[inline(always)]
     fn saturate(&self, rgb: [f32; 3], amount: f32) -> [f32; 3] {
-        let mut lab = self.oklab.from_rgb(rgb.map(|v| v.max(0.0)));
+        let lab = self.oklab.from_rgb(rgb.map(|v| v.max(0.0)));
+        self.oklab.to_rgb(Self::scale_chroma(lab, amount))
+    }
+
+    #[inline(always)]
+    fn scale_chroma(mut lab: [f32; 3], amount: f32) -> [f32; 3] {
         let gain = (1.0 + amount).max(0.0);
         lab[1] *= gain;
         lab[2] *= gain;
-        self.oklab.to_rgb(lab)
+        lab
+    }
+
+    /// The colour step, then local Saturation, in one trip through Oklab
+    /// where possible: the step's own result is already there, so the cube
+    /// roots of going back in can be skipped. A channel the colour step left
+    /// negative still takes the longer way, since going back in clips it, and
+    /// that clip is part of how masked photos look.
+    #[inline(always)]
+    fn color_and_saturate(&self, color: &ColorAdjust, rgb: [f32; 3], amount: f32) -> [f32; 3] {
+        let lab = color.apply_in_oklab(rgb);
+        let adjusted = self.oklab.to_rgb(lab);
+        if adjusted.iter().all(|v| *v >= 0.0) {
+            self.oklab.to_rgb(Self::scale_chroma(lab, amount))
+        } else {
+            self.saturate(adjusted, amount)
+        }
     }
 
     /// Converts to the output primaries, pulling out-of-gamut colours toward
@@ -371,22 +392,26 @@ impl Develop {
             rgb = self.local_contrast(rgb, local.contrast);
         }
         rgb = [0, 1, 2].map(|channel| self.tone.eval(channel, rgb[channel]));
-        if let Some(color) = &self.color {
-            rgb = color.apply(rgb);
-        }
-        if MASKED {
-            // Like the global slider, local Dehaze restores washed-out colour.
-            let saturation = local.saturation + DEHAZE_SATURATION * local.dehaze;
-            if saturation != 0.0 {
-                rgb = self.saturate(rgb, saturation);
+        // Like the global slider, local Dehaze restores washed-out colour.
+        let saturation = if MASKED {
+            local.saturation + DEHAZE_SATURATION * local.dehaze
+        } else {
+            0.0
+        };
+        match &self.color {
+            Some(color) if MASKED && saturation != 0.0 => {
+                self.color_and_saturate(color, rgb, saturation)
             }
+            Some(color) => color.apply(rgb),
+            None if MASKED && saturation != 0.0 => self.saturate(rgb, saturation),
+            None => rgb,
         }
-        rgb
     }
 }
 
 impl PointOp for Develop {
     fn apply(&self, y: usize, row: &mut [f32]) {
+        let row_pixels = row.len() / 3;
         let pixels = row.chunks_exact_mut(3).enumerate();
         match &self.local {
             None => pixels.for_each(|(x, pixel)| {
@@ -397,14 +422,25 @@ impl PointOp for Develop {
                 );
                 pixel.copy_from_slice(&self.to_output_gamut(working));
             }),
-            Some(local) => pixels.for_each(|(x, pixel)| {
-                let working = self.working_pixel::<true>(
-                    [pixel[0], pixel[1], pixel[2]],
-                    &local.at(x, y),
-                    self.gain(x, y),
-                );
-                pixel.copy_from_slice(&self.to_output_gamut(working));
-            }),
+            Some(local) => {
+                let on_row = local.masks_on_row(y, row_pixels);
+                pixels.for_each(|(x, pixel)| {
+                    let camera_rgb = [pixel[0], pixel[1], pixel[2]];
+                    let gain = self.gain(x, y);
+                    // A pixel no mask reaches is exactly an unmasked one.
+                    let working = if on_row.is_empty() {
+                        self.working_pixel::<false>(camera_rgb, &LocalAmounts::NONE, gain)
+                    } else {
+                        match on_row.at(x) {
+                            Some(amounts) => self.working_pixel::<true>(camera_rgb, &amounts, gain),
+                            None => {
+                                self.working_pixel::<false>(camera_rgb, &LocalAmounts::NONE, gain)
+                            }
+                        }
+                    };
+                    pixel.copy_from_slice(&self.to_output_gamut(working));
+                });
+            }
         }
     }
 }
@@ -412,6 +448,49 @@ impl PointOp for Develop {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn one_oklab_trip_matches_two_for_local_saturation() {
+        let settings = Settings {
+            vibrance: 30.0,
+            saturation: 45.0,
+            ..Settings::default()
+        };
+        let develop = Develop::new(&settings, &Mat3::IDENTITY, 0.0, ColorSpace::Srgb);
+        let color = develop.color.as_ref().expect("a colour control is set");
+        let levels = [0.0, 0.002, 0.03, 0.18, 0.5, 0.9, 1.0];
+        let (mut folded, mut clipped) = (0, 0);
+        for r in levels {
+            for g in levels {
+                for b in levels {
+                    for amount in [-1.0, -0.4, 0.3, 1.5] {
+                        let one_trip = develop.color_and_saturate(color, [r, g, b], amount);
+                        let two_trips = develop.saturate(color.apply([r, g, b]), amount);
+                        let after_color = color.apply([r, g, b]);
+                        if after_color.iter().all(|v| *v >= 0.0) {
+                            folded += 1;
+                        } else {
+                            clipped += 1;
+                        }
+                        for channel in 0..3 {
+                            let difference = (one_trip[channel] - two_trips[channel]).abs();
+                            // Rounding, far below a 16-bit output step.
+                            assert!(
+                                difference < 2e-6 * (1.0 + two_trips[channel].abs()),
+                                "{:?} {amount}: {one_trip:?} vs {two_trips:?}",
+                                [r, g, b]
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        // Both routes must really have been taken for this to mean anything.
+        assert!(
+            folded > 0 && clipped > 0,
+            "{folded} folded, {clipped} clipped"
+        );
+    }
 
     /// A pixel with no masks covering it.
     fn global(develop: &Develop, rgb: [f32; 3]) -> [f32; 3] {

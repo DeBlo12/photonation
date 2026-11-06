@@ -254,6 +254,9 @@ pub struct ViewState {
     pub selected_removal: Option<usize>,
     pub full_screen: Option<PhotoFullScreen>,
     pub removal_brush: RemovalBrush,
+    /// A gradient just added, while it is still the selected shape: the next
+    /// drag on the photo places it.
+    pub shape_to_draw: Option<MaskSelection>,
     pub mask_brush: MaskBrushTool,
     /// The mask stroke being painted. It renders like any stroke, but joins
     /// the settings only on release: one undo step, and the interface never
@@ -311,6 +314,7 @@ impl Default for ViewState {
             selected_removal: None,
             full_screen: None,
             removal_brush: RemovalBrush::default(),
+            shape_to_draw: None,
             mask_brush: MaskBrushTool::default(),
             mask_stroke: None,
             painting: None,
@@ -663,6 +667,7 @@ impl PhotonationApp {
         self.view.pan = egui::Vec2::ZERO;
         self.view.disabled.clear();
         self.view.selected_mask = None;
+        self.view.shape_to_draw = None;
         self.view.mask_groups = Default::default();
         self.view.selected_point_color = 0;
         self.view.eyedropper = None;
@@ -1439,6 +1444,11 @@ impl eframe::App for PhotonationApp {
         }
         self.view.selected_mask =
             MaskSelection::validated(self.view.selected_mask, &self.settings.masks);
+        // Selecting anything else, or closing the panel, ends the wait for good,
+        // so coming back to the shape later doesn't make a drag redraw it.
+        if !self.view.show_masks || self.view.shape_to_draw != self.view.selected_mask {
+            self.view.shape_to_draw = None;
+        }
         self.view
             .mask_groups
             .validate(self.settings.mask_groups.len());
@@ -1705,6 +1715,285 @@ mod tests {
         window_frame(&mut app, &ctx, Vec::new());
         assert_eq!(painted_strokes(&app).len(), 1);
         assert_eq!(painted_strokes(&app)[0].path.points.len(), 1);
+    }
+
+    /// The centre of the topmost widget labelled `label`, from what a frame
+    /// tells assistive technology.
+    fn widget_labelled(app: &mut PhotonationApp, ctx: &egui::Context, label: &str) -> egui::Pos2 {
+        ctx.enable_accesskit();
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1000.0, 700.0),
+            )),
+            ..Default::default()
+        };
+        let mut output = ctx.run_ui(input, |ui| {
+            eframe::App::ui(app, ui, &mut eframe::Frame::_new_kittest());
+        });
+        output.textures_delta.clear();
+        let update = output
+            .platform_output
+            .accesskit_update
+            .expect("accesskit is on");
+        update
+            .nodes
+            .iter()
+            .filter(|(_, node)| node.label() == Some(label))
+            .filter_map(|(_, node)| node.bounds())
+            .min_by(|a, b| a.y0.total_cmp(&b.y0))
+            .map(|bounds| {
+                egui::pos2(
+                    ((bounds.x0 + bounds.x1) / 2.0) as f32,
+                    ((bounds.y0 + bounds.y1) / 2.0) as f32,
+                )
+            })
+            .unwrap_or_else(|| panic!("no widget labelled {label}"))
+    }
+
+    fn click(app: &mut PhotonationApp, ctx: &egui::Context, at: egui::Pos2) {
+        use egui::Modifiers;
+        window_frame(app, ctx, vec![egui::Event::PointerMoved(at)]);
+        window_frame(app, ctx, vec![pointer_button(at, true, Modifiers::NONE)]);
+        window_frame(app, ctx, vec![pointer_button(at, false, Modifiers::NONE)]);
+        window_frame(app, ctx, Vec::new());
+    }
+
+    /// Where the viewer draws the photo: two dabs reveal the mapping from
+    /// screen to photo positions, then undo removes them.
+    fn photo_rect_from_dabs(app: &mut PhotonationApp, ctx: &egui::Context) -> egui::Rect {
+        use egui::pos2;
+        let spots = [pos2(200.0, 200.0), pos2(400.0, 400.0)];
+        for spot in spots {
+            click(app, ctx, spot);
+            app.history.commit(&app.settings);
+        }
+        let strokes = painted_strokes(app);
+        let (a, b) = (strokes[0].path.points[0], strokes[1].path.points[0]);
+        let width = (spots[1].x - spots[0].x) as f64 / (b[0] - a[0]);
+        let height = (spots[1].y - spots[0].y) as f64 / (b[1] - a[1]);
+        let min = pos2(
+            (spots[0].x as f64 - a[0] * width) as f32,
+            (spots[0].y as f64 - a[1] * height) as f32,
+        );
+        app.undo();
+        app.undo();
+        egui::Rect::from_min_size(min, egui::vec2(width as f32, height as f32))
+    }
+
+    #[test]
+    fn a_drag_on_the_compare_divider_moves_only_the_divider() {
+        use egui::{Modifiers, pos2};
+        use photonation_develop::{MaskBrush, MaskShape};
+        let folder = folder_of(&["a.CR3"]);
+        let ctx = egui::Context::default();
+        let brush = MaskShape::Brush(MaskBrush::default());
+        let mut app = app_with_mask(&ctx, &folder, brush);
+        let rect = photo_rect_from_dabs(&mut app, &ctx);
+        app.view.compare = true;
+        let image = egui::ColorImage::new([60, 40], vec![egui::Color32::BLACK; 60 * 40]);
+        app.before = Some(Preview {
+            texture: ctx.load_texture("test original", image, TextureOptions::LINEAR),
+            size: [60, 40],
+        });
+        let knob = rect.center();
+        let moved_to = knob + egui::vec2(60.0, 0.0);
+        drag_on_the_photo(
+            &mut app,
+            &ctx,
+            knob,
+            &[knob + egui::vec2(30.0, 0.0), moved_to],
+            Modifiers::NONE,
+        );
+        let expected = (moved_to.x - rect.left()) / rect.width();
+        assert!(
+            (app.view.compare_split - expected).abs() < 1e-3,
+            "{} vs {expected}",
+            app.view.compare_split
+        );
+        assert!(painted_strokes(&app).is_empty(), "the brush stayed out");
+
+        // On the line but away from its knob, the brush paints across it.
+        let split = app.view.compare_split;
+        let on_the_line = pos2(moved_to.x, rect.top() + 40.0);
+        drag_on_the_photo(
+            &mut app,
+            &ctx,
+            on_the_line,
+            &[
+                on_the_line + egui::vec2(30.0, 0.0),
+                on_the_line + egui::vec2(60.0, 0.0),
+            ],
+            Modifiers::NONE,
+        );
+        assert_eq!(painted_strokes(&app).len(), 1);
+        assert_eq!(app.view.compare_split, split, "the divider stayed put");
+    }
+
+    #[test]
+    fn without_a_tool_the_whole_compare_line_moves_the_divider_and_nothing_pans() {
+        use egui::{Modifiers, pos2};
+        use photonation_develop::{MaskBrush, MaskShape};
+        let folder = folder_of(&["a.CR3"]);
+        let ctx = egui::Context::default();
+        let brush = MaskShape::Brush(MaskBrush::default());
+        let mut app = app_with_mask(&ctx, &folder, brush);
+        let rect = photo_rect_from_dabs(&mut app, &ctx);
+        app.view.show_masks = false;
+        app.view.compare = true;
+        let image = egui::ColorImage::new([60, 40], vec![egui::Color32::BLACK; 60 * 40]);
+        app.before = Some(Preview {
+            texture: ctx.load_texture("test original", image, TextureOptions::LINEAR),
+            size: [60, 40],
+        });
+        let on_the_line = pos2(rect.center().x, rect.top() + 40.0);
+        drag_on_the_photo(
+            &mut app,
+            &ctx,
+            on_the_line,
+            &[
+                on_the_line + egui::vec2(30.0, 0.0),
+                on_the_line + egui::vec2(60.0, 0.0),
+            ],
+            Modifiers::NONE,
+        );
+        assert!(app.view.compare_split > 0.5);
+        assert_eq!(app.view.pan, egui::Vec2::ZERO);
+    }
+
+    #[test]
+    fn adding_a_gradient_from_the_panel_lets_a_drag_place_it() {
+        use egui::{Modifiers, pos2};
+        use photonation_develop::{MaskShape, RadialGradient};
+        let folder = folder_of(&["a.CR3"]);
+        let ctx = egui::Context::default();
+        let mut app = PhotonationApp::empty(&ctx);
+        app.open_folder(folder.path().to_path_buf());
+        app.current = Some(0);
+        window_frame(&mut app, &ctx, Vec::new());
+        show_a_decoded_photo(&mut app, &ctx, folder.path().join("a.CR3"));
+        app.view.show_masks = true;
+        window_frame(&mut app, &ctx, Vec::new());
+
+        let button = widget_labelled(&mut app, &ctx, "+ Radial");
+        click(&mut app, &ctx, button);
+        assert_eq!(app.settings.masks.len(), 1, "the button adds a mask");
+        assert_eq!(app.view.shape_to_draw, Some(MaskSelection::mask(0)));
+        let MaskShape::Radial(radial) = app.settings.masks[0].components[0].shape else {
+            panic!("radial")
+        };
+        assert_eq!(radial, RadialGradient::default(), "ready to use as it is");
+
+        drag_on_the_photo(
+            &mut app,
+            &ctx,
+            pos2(150.0, 200.0),
+            &[pos2(190.0, 200.0), pos2(230.0, 200.0)],
+            Modifiers::NONE,
+        );
+        let MaskShape::Radial(placed) = app.settings.masks[0].components[0].shape else {
+            panic!("radial")
+        };
+        assert_ne!(placed.center, radial.center);
+        assert_eq!(placed.radius[0], placed.radius[1]);
+        assert_eq!(app.view.shape_to_draw, None);
+
+        // A brush paints, so nothing waits to be placed (the topmost button
+        // adds a mask; the one in the Shapes card, a shape).
+        let button = widget_labelled(&mut app, &ctx, "+ Brush");
+        click(&mut app, &ctx, button);
+        assert_eq!(app.settings.masks.len(), 2);
+        assert_eq!(app.view.selected_mask, Some(MaskSelection::mask(1)));
+        assert_eq!(app.view.shape_to_draw, None);
+    }
+
+    /// An app showing a photo, with the masks panel open on `shape`.
+    fn app_with_mask(
+        ctx: &egui::Context,
+        folder: &tempfile::TempDir,
+        shape: photonation_develop::MaskShape,
+    ) -> PhotonationApp {
+        let mut app = PhotonationApp::empty(ctx);
+        app.open_folder(folder.path().to_path_buf());
+        app.current = Some(0);
+        window_frame(&mut app, ctx, Vec::new());
+        show_a_decoded_photo(&mut app, ctx, folder.path().join("a.CR3"));
+        app.settings.masks = vec![photonation_develop::Mask::new("Mask", shape)];
+        app.view.selected_mask = Some(MaskSelection::mask(0));
+        app.view.show_masks = true;
+        window_frame(&mut app, ctx, Vec::new());
+        app.history.commit(&app.settings);
+        app
+    }
+
+    #[test]
+    fn a_new_gradient_is_placed_by_the_next_drag_and_only_that_one() {
+        use egui::{Modifiers, pos2};
+        use photonation_develop::{LinearGradient, MaskShape};
+        let folder = folder_of(&["a.CR3"]);
+        let ctx = egui::Context::default();
+        let original = LinearGradient::default();
+        let mut app = app_with_mask(&ctx, &folder, MaskShape::Linear(original));
+        let linear = |app: &PhotonationApp| match &app.settings.masks[0].components[0].shape {
+            MaskShape::Linear(linear) => *linear,
+            other => panic!("not linear: {other:?}"),
+        };
+
+        // Nothing waits: a drag off the handles leaves the shape alone.
+        let path = [pos2(250.0, 300.0), pos2(250.0, 340.0), pos2(250.0, 400.0)];
+        drag_on_the_photo(&mut app, &ctx, path[0], &path[1..], Modifiers::NONE);
+        assert_eq!(linear(&app), original, "no shape was waiting");
+
+        app.view.shape_to_draw = app.view.selected_mask;
+        drag_on_the_photo(&mut app, &ctx, path[0], &path[1..], Modifiers::NONE);
+        window_frame(&mut app, &ctx, Vec::new());
+        let placed = linear(&app);
+        assert_ne!(placed, original);
+        assert!(placed.end[1] > placed.start[1], "from the press downward");
+        assert_eq!(app.view.shape_to_draw, None, "one drag places it");
+
+        // The next drag has nothing waiting either, and one undo step goes.
+        drag_on_the_photo(
+            &mut app,
+            &ctx,
+            pos2(260.0, 200.0),
+            &[pos2(300.0, 200.0), pos2(340.0, 200.0)],
+            Modifiers::NONE,
+        );
+        assert_eq!(linear(&app), placed);
+        app.undo();
+        assert_eq!(linear(&app), original);
+    }
+
+    #[test]
+    fn a_shape_stops_waiting_to_be_drawn_once_another_is_selected() {
+        use egui::{Modifiers, pos2};
+        use photonation_develop::{CombineMode, LinearGradient, MaskComponent, MaskShape};
+        let folder = folder_of(&["a.CR3"]);
+        let ctx = egui::Context::default();
+        let original = LinearGradient::default();
+        let mut app = app_with_mask(&ctx, &folder, MaskShape::Linear(original));
+        app.settings.masks[0].components.push(MaskComponent::new(
+            MaskShape::Linear(original),
+            CombineMode::Add,
+        ));
+        app.view.shape_to_draw = Some(MaskSelection {
+            mask: 0,
+            component: 1,
+        });
+        drag_on_the_photo(
+            &mut app,
+            &ctx,
+            pos2(250.0, 300.0),
+            &[pos2(250.0, 340.0), pos2(250.0, 400.0)],
+            Modifiers::NONE,
+        );
+        let unchanged = |index: usize| match &app.settings.masks[0].components[index].shape {
+            MaskShape::Linear(linear) => *linear == original,
+            other => panic!("not linear: {other:?}"),
+        };
+        assert!(unchanged(0) && unchanged(1), "shape 0 is selected, not 1");
+        assert_eq!(app.view.shape_to_draw, None, "and coming back won't redraw");
     }
 
     #[test]

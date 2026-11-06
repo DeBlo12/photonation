@@ -80,6 +80,44 @@ impl ShapeWeight {
         }
     }
 
+    /// Whether the weight is exactly 0 everywhere in a metric area
+    /// `[left, top, right, bottom]`.
+    fn selects_nothing_in(&self, area: [f32; 4]) -> bool {
+        match *self {
+            // The ramp is linear, so its lowest value over the area is at a
+            // corner, and it is past the fade from 1 on.
+            ShapeWeight::Linear { start, ramp } => {
+                let lowest = |low: f32, high: f32, origin: f32, slope: f32| {
+                    (if slope >= 0.0 { low } else { high } - origin) * slope
+                };
+                lowest(area[0], area[2], start[0], ramp[0])
+                    + lowest(area[1], area[3], start[1], ramp[1])
+                    > 1.0
+            }
+            ShapeWeight::Radial {
+                center,
+                axis_x,
+                axis_y,
+                ..
+            } => {
+                // The ellipse's reach along each axis of the photo. The axes
+                // are its own divided by their radii, so their inverse
+                // lengths give the radii back.
+                let radius = [axis_x, axis_y].map(|axis| 1.0 / axis[0].hypot(axis[1]));
+                let (rotated_x, rotated_y) = (axis_x[0] * radius[0], axis_x[1] * radius[0]);
+                let reach = [
+                    (radius[0] * rotated_x).hypot(radius[1] * rotated_y),
+                    (radius[0] * rotated_y).hypot(radius[1] * rotated_x),
+                ];
+                area[2] < center[0] - reach[0]
+                    || area[0] > center[0] + reach[0]
+                    || area[3] < center[1] - reach[1]
+                    || area[1] > center[1] + reach[1]
+            }
+            ShapeWeight::Brush(ref map) => map.selects_nothing_in(area),
+        }
+    }
+
     /// Selection strength, 0..1, at a metric point.
     #[inline(always)]
     pub fn at(&self, point: [f32; 2]) -> f32 {
@@ -234,6 +272,28 @@ impl MaskWeight {
         }
     }
 
+    /// Whether the selection is exactly 0 everywhere in a metric area
+    /// `[left, top, right, bottom]`. It answers no when it can't tell: an
+    /// inverted mask selects what its shapes leave out.
+    pub fn selects_nothing_in(&self, area: [f32; 4]) -> bool {
+        if self.invert {
+            return false;
+        }
+        let mut components = self.components.iter();
+        let mut nothing = components
+            .next()
+            .is_none_or(|(shape, _)| shape.selects_nothing_in(area));
+        for (shape, mode) in components {
+            nothing = match mode {
+                CombineMode::Add => nothing && shape.selects_nothing_in(area),
+                // Takes away, so what was empty stays empty.
+                CombineMode::Subtract => nothing,
+                CombineMode::Intersect => nothing || shape.selects_nothing_in(area),
+            };
+        }
+        nothing
+    }
+
     /// Selection strength, 0..1, at a metric point. A mask without shapes
     /// selects nothing (everything, inverted).
     #[inline]
@@ -312,15 +372,76 @@ impl LocalAdjust {
     /// The summed adjustments at stage pixel `(x, y)`.
     #[inline]
     pub fn at(&self, x: usize, y: usize) -> LocalAmounts {
-        let point = self.positions.at(x, y);
-        let mut amounts = LocalAmounts::NONE;
-        for mask in &self.masks {
+        Self::sum(self.masks.iter(), self.positions.at(x, y)).unwrap_or(LocalAmounts::NONE)
+    }
+
+    /// The masks that can touch stage row `y`, `width` pixels long. Most
+    /// masks cover part of a photo, and a pixel costs less the fewer are left
+    /// to measure, so this leaves out those whose bounds miss the row. The
+    /// result doesn't change: what's left out would have added nothing.
+    pub fn masks_on_row(&self, y: usize, width: usize) -> LocalRow<'_> {
+        let (first, last) = (
+            self.positions.at(0, y),
+            self.positions.at(width.saturating_sub(1), y),
+        );
+        // Rounding must not cut off a pixel on the very edge of a mask.
+        let area = [
+            first[0].min(last[0]) - ROW_AREA_MARGIN,
+            first[1].min(last[1]) - ROW_AREA_MARGIN,
+            first[0].max(last[0]) + ROW_AREA_MARGIN,
+            first[1].max(last[1]) + ROW_AREA_MARGIN,
+        ];
+        LocalRow {
+            y,
+            positions: self.positions,
+            masks: self
+                .masks
+                .iter()
+                .filter(|mask| !mask.weight.selects_nothing_in(area))
+                .collect(),
+        }
+    }
+
+    /// The masks' adjustments at `point`, or `None` where none applies.
+    #[inline(always)]
+    fn sum<'a>(
+        masks: impl Iterator<Item = &'a WeightedMask>,
+        point: [f32; 2],
+    ) -> Option<LocalAmounts> {
+        let mut amounts = None;
+        for mask in masks {
             let weight = mask.weight.at(point);
             if weight > 0.0 {
-                amounts.add_weighted(&mask.amounts, weight);
+                amounts
+                    .get_or_insert(LocalAmounts::NONE)
+                    .add_weighted(&mask.amounts, weight);
             }
         }
         amounts
+    }
+}
+
+/// How far (metric) a row's area reaches past its pixels' centres: well under
+/// a pixel on any sensor, well over `f32` rounding at these magnitudes.
+const ROW_AREA_MARGIN: f32 = 1e-5;
+
+/// The masks that can touch one stage row.
+pub struct LocalRow<'a> {
+    y: usize,
+    positions: PixelToMask,
+    masks: Vec<&'a WeightedMask>,
+}
+
+impl LocalRow<'_> {
+    pub fn is_empty(&self) -> bool {
+        self.masks.is_empty()
+    }
+
+    /// The summed adjustments at pixel `x` of the row, or `None` where no
+    /// mask applies, so the pixel can skip the local steps.
+    #[inline]
+    pub fn at(&self, x: usize) -> Option<LocalAmounts> {
+        LocalAdjust::sum(self.masks.iter().copied(), self.positions.at(x, self.y))
     }
 }
 
@@ -446,6 +567,134 @@ mod tests {
         // Half-size pixel 3 covers full pixels 6 and 7; its centre is between.
         let between = (full.at(6, 0)[0] + full.at(7, 0)[0]) / 2.0;
         assert!((half.at(3, 0)[0] - between).abs() < 1e-6);
+    }
+
+    /// Every kind of shape, turned and offset, with areas all over a photo:
+    /// whatever claims to select nothing there must read 0 at every sample.
+    #[test]
+    fn selecting_nothing_in_an_area_is_never_wrong() {
+        let mut shapes = vec![
+            linear([0.5, 0.2], [0.5, 0.6]),
+            linear([0.7, 0.8], [0.2, 0.1]),
+            linear([0.2, 0.2], [0.21, 0.2]),
+            radial([0.4, 0.6], [0.2, 0.05], 30.0, 50.0),
+            radial([0.6, 0.3], [0.1, 0.3], 130.0, 0.0),
+            radial([0.5, 0.5], [0.15, 0.15], 0.0, 100.0),
+        ];
+        shapes.push(ShapeWeight::new(
+            &MaskShape::Brush(photonation_develop::MaskBrush {
+                strokes: vec![photonation_develop::MaskStroke {
+                    path: photonation_develop::BrushStroke {
+                        points: vec![[0.3, 0.3], [0.6, 0.5]],
+                        radius: 0.05,
+                    },
+                    ..photonation_develop::MaskStroke::default()
+                }],
+            }),
+            square(),
+        ));
+        let mut claims = 0;
+        for shape in &shapes {
+            for row in 0..40 {
+                for column in 0..40 {
+                    let (x, y) = (column as f32 / 40.0, row as f32 / 40.0);
+                    let area = [x, y, x + 0.025, y + 0.025];
+                    if shape.selects_nothing_in(area) {
+                        claims += 1;
+                        for i in 0..=5 {
+                            for j in 0..=5 {
+                                let point = [x + 0.005 * i as f32, y + 0.005 * j as f32];
+                                assert_eq!(shape.at(point), 0.0, "{shape:?} at {point:?}");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // It also has to find something, or it would save nothing.
+        assert!(claims > shapes.len() * 40 * 40 / 3, "{claims}");
+        let far = [0.9, 0.9, 1.0, 1.0];
+        assert!(radial([0.2, 0.2], [0.1, 0.1], 0.0, 50.0).selects_nothing_in(far));
+        assert!(linear([0.5, 0.1], [0.5, 0.4]).selects_nothing_in(far));
+        assert!(!linear([0.5, 0.4], [0.5, 0.1]).selects_nothing_in(far));
+    }
+
+    #[test]
+    fn combined_shapes_select_nothing_only_where_the_result_does() {
+        use photonation_develop::MaskComponent;
+        let left = hard_circle([0.2, 0.5], 0.1);
+        let right = hard_circle([0.8, 0.5], 0.1);
+        let weight = |mode| {
+            let mut mask = Mask::new("Pair", left.clone());
+            mask.components
+                .push(MaskComponent::new(right.clone(), mode));
+            MaskWeight::new(&mask, square())
+        };
+        let on_right = [0.75, 0.45, 0.85, 0.55];
+        let on_left = [0.15, 0.45, 0.25, 0.55];
+        let elsewhere = [0.4, 0.0, 0.6, 0.1];
+        let add = weight(CombineMode::Add);
+        assert!(!add.selects_nothing_in(on_right) && !add.selects_nothing_in(on_left));
+        assert!(add.selects_nothing_in(elsewhere));
+        let subtract = weight(CombineMode::Subtract);
+        assert!(subtract.selects_nothing_in(on_right));
+        assert!(!subtract.selects_nothing_in(on_left));
+        let intersect = weight(CombineMode::Intersect);
+        assert!(intersect.selects_nothing_in(on_right));
+        assert!(intersect.selects_nothing_in(on_left));
+        let mut inverted = Mask::new("Inverted", left.clone());
+        inverted.invert = true;
+        let inverted = MaskWeight::new(&inverted, square());
+        assert!(!inverted.selects_nothing_in(elsewhere), "it selects it");
+        assert!(
+            MaskWeight::new(
+                &Mask {
+                    components: Vec::new(),
+                    ..Mask::default()
+                },
+                square()
+            )
+            .selects_nothing_in(elsewhere)
+        );
+    }
+
+    #[test]
+    fn a_row_gives_the_same_amounts_as_every_mask_measured() {
+        for orientation in [Orientation::Normal, Orientation::Rotate90] {
+            let sensor = SensorImage::test_pattern(104, 84, orientation);
+            let size = (sensor.crop.w, sensor.crop.h);
+            let positions = PixelToMask::new(&sensor, sensor.crop, size);
+            let adjusted = |mut mask: Mask| {
+                mask.adjustments.exposure = 1.0;
+                mask.adjustments.saturation = 20.0;
+                mask
+            };
+            let masks = [
+                adjusted(Mask::new(
+                    "Top",
+                    MaskShape::Linear(LinearGradient {
+                        start: [0.5, 0.1],
+                        end: [0.5, 0.3],
+                    }),
+                )),
+                adjusted(Mask::new("Spot", hard_circle([0.6, 0.7], 0.1))),
+            ];
+            let local = LocalAdjust::new(&masks, &[], &sensor, positions).expect("active");
+            let (mut skipped, mut empty_rows) = (0, 0);
+            for y in 0..size.1 {
+                let row = local.masks_on_row(y, size.0);
+                skipped += masks.len() - row.masks.len();
+                empty_rows += usize::from(row.is_empty());
+                for x in 0..size.0 {
+                    let amounts = row.at(x).unwrap_or(LocalAmounts::NONE);
+                    assert_eq!(amounts, local.at(x, y), "{orientation:?} {x} {y}");
+                }
+            }
+            assert!(skipped > 0, "{orientation:?} leaves masks out");
+            if orientation == Orientation::Normal {
+                assert!(empty_rows > 0, "rows between the masks need none");
+            }
+        }
     }
 
     #[test]

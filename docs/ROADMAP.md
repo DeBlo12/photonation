@@ -55,9 +55,8 @@
 
 In this order:
 
-1. **More masks**: a brush is done; still to come are creating gradients by
-   dragging on the photo, masks in compare mode, and later AI subject and sky
-   masks.
+1. **More masks**: creating gradients by dragging on the photo, masks in compare
+   mode, and later AI subject and sky masks.
 2. **Better removals**: one-click people selection (segmentation), dust
    spot and wire/fence detection, full-resolution tiled fills, a disk cache
    for fills. See [RETOUCH.md](RETOUCH.md).

@@ -8,6 +8,13 @@ changes to CI alone are not released.
 
 ## [Unreleased]
 
+## 0.24.1 - 2026-11-07
+
+### Fixed
+
+- The changelog's comparison links no longer point at versions that were never
+  tagged: 0.21.0, 0.22.0 and 0.24.1 have none, and 0.24.0 now compares with 0.20.0.
+
 ## [0.24.0] - 2026-11-06
 
 ### Added
@@ -16,7 +23,7 @@ changes to CI alone are not released.
   them at once instead of computing them again. The cache stays under 2 GB, in the
   `fills` folder next to the thumbnails.
 
-## [0.22.0] - 2026-11-06
+## 0.22.0 - 2026-11-06
 
 ### Added
 
@@ -26,7 +33,7 @@ changes to CI alone are not released.
   still work; the same key or `Esc` leaves. On Windows and Linux, **View › Full Screen Window** (`F11`) makes the window
   full screen with its panels, as macOS's own item does.
 
-## [0.21.0] - 2026-11-06
+## 0.21.0 - 2026-11-06
 
 ### Added
 
@@ -501,9 +508,7 @@ changes to CI alone are not released.
 - Licensed under GPL-3.0-or-later.
 
 [Unreleased]: https://github.com/DeBlo12/photonation/compare/v0.24.0...HEAD
-[0.24.0]: https://github.com/DeBlo12/photonation/compare/v0.22.0...v0.24.0
-[0.22.0]: https://github.com/DeBlo12/photonation/compare/v0.21.0...v0.22.0
-[0.21.0]: https://github.com/DeBlo12/photonation/compare/v0.20.0...v0.21.0
+[0.24.0]: https://github.com/DeBlo12/photonation/compare/v0.20.0...v0.24.0
 [0.20.0]: https://github.com/DeBlo12/photonation/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/DeBlo12/photonation/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/DeBlo12/photonation/compare/v0.17.1...v0.18.0

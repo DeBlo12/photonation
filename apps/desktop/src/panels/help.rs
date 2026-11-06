@@ -1317,12 +1317,14 @@ fn content(page: Page) -> Content {
                 term(
                     "+ Linear",
                     "adds a gradient: full effect up to the first line, fading to none at \
-                     the second. Drag the lines and their handles on the photo.",
+                     the second. Then drag on the photo to draw it, from full effect to \
+                     none, or drag the lines and their handles to adjust it.",
                 ),
                 term(
                     "+ Radial",
                     format!(
-                        "adds an ellipse that fades toward its edge. Drag its centre and \
+                        "adds an ellipse that fades toward its edge. Then drag on the photo to \
+                         draw it as a circle from its centre outward, or drag its centre and \
                          handles ({shift} keeps a circle round); Feather sets how much of it \
                          fades, Rotation turns it."
                     ),
@@ -1512,7 +1514,9 @@ fn content(page: Page) -> Content {
                     "Compare (\\)",
                     "splits the photo: the unedited original left of the handle, your edit \
                      right of it. Drag the handle across the photo. The original is framed \
-                     like the edit.",
+                     like the edit. Masks stay editable: their tint shows only on the \
+                     edited side, and while a tool is open, only the handle's knob moves \
+                     the split.",
                 ),
                 term(
                     "A card's switch",

@@ -12,7 +12,9 @@ use crate::panels::mask_handles::{select_pin, selected_shape, selected_shape_mut
 use crate::panels::removal_brush::{extend, paint_stroke, screen_radius};
 use crate::photo_frame::PhotoFrame;
 use crate::theme;
-use eframe::egui::{self, Color32, Key, Modifiers, Painter, Pos2, Response, Stroke, Ui, vec2};
+use eframe::egui::{
+    self, Color32, Key, Modifiers, Painter, Pos2, Rect, Response, Stroke, Ui, vec2,
+};
 use photonation_develop::{
     BrushStroke, MAX_BRUSH_RADIUS, MAX_STROKE_POINTS, MIN_BRUSH_RADIUS, MaskBrush, MaskShape,
     MaskStroke, Settings,
@@ -175,7 +177,8 @@ fn push_stroke(brush: &mut MaskBrush, stroke: MaskStroke) {
     }
 }
 
-/// Draws the stroke being painted, where the overlay can't show it yet, and
+/// Draws the stroke being painted, where the overlay can't show it yet and
+/// like the overlay only in `edited` (compare's original has no masks), and
 /// the brush's outline under the pointer.
 pub fn paint(
     view: &ViewState,
@@ -183,6 +186,7 @@ pub fn paint(
     response: &Response,
     painter: &Painter,
     frame: &PhotoFrame,
+    edited: Rect,
 ) {
     let painter = painter.with_clip_rect(frame.image_rect.intersect(painter.clip_rect()));
     let tool = view.mask_brush;
@@ -194,7 +198,8 @@ pub fn paint(
         } else {
             theme::MASK_OVERLAY
         };
-        paint_stroke(&painter, frame, &stroke.path, color);
+        let tint = painter.with_clip_rect(edited.intersect(painter.clip_rect()));
+        paint_stroke(&tint, frame, &stroke.path, color);
     }
     let pointer = response.interact_pointer_pos().or(response.hover_pos());
     let Some(pointer) = pointer.filter(|p| frame.image_rect.contains(*p)) else {
@@ -233,7 +238,7 @@ pub fn paint(
 mod tests {
     use super::*;
     use crate::app::MaskSelection;
-    use eframe::egui::{Rect, pos2};
+    use eframe::egui::pos2;
     use photonation_develop::{Mask, MaskSpace};
     use photonation_image::CropFrame;
 

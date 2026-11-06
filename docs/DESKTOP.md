@@ -389,6 +389,19 @@ amber rings mark the selected mask's other shapes; solid pins mark the other
 masks. Clicking either selects it. A drag that starts on a handle edits the
 shape instead of panning.
 
+**Drawing a gradient.** Adding a gradient, as a new mask or a further shape, puts
+it in its usual place, so it works at once, and makes it
+`ViewState::shape_to_draw`. Until something is dragged, the next drag on the photo
+places it: a linear gradient starts at the press and ends at the pointer, and a
+radial one centres on the press with both radii reaching the pointer
+(`begin_drawing`, then the drag moves `Handle::LinearEnd` or
+`Handle::RadialRadius` like any handle). A drag that starts on one of the shape's
+handles moves that handle instead, since that's what the pointer is on, and it too
+ends the wait. Selecting anything else or closing the panel also ends it, for
+good, so coming back to the shape doesn't make a drag redraw it. Placing is a second undo step after adding, so undo goes
+back to the usual place first. Clicks still select pins. Brushes don't take part;
+they paint.
+
 **Brush** (`panels/mask_brush.rs`). While the selected shape is a brush, the canvas
 paints instead of showing handles, with the brush's outline, an inner ring where
 the feather starts and a plus or minus under the pointer. A drag paints a stroke,
@@ -422,6 +435,16 @@ handle drags at once, without waiting for the photo to re-render. A brush's map
 (PIPELINE.md §5b) is a texture instead, 8 bits and hardware filtered, uploaded
 only when the `Arc` from `BrushMap::cached` changes; a mask has one brush, so one
 texture is enough.
+
+**Compare.** With Compare on, masks stay editable. The Original side shows the
+unedited photo, so the overlay and the stroke being painted are clipped to the
+Edited side (`edited_part`), while handles, pins and the brush's outline stay
+everywhere, since they are tools rather than part of either picture. Editing on
+the Original side works, and shows once the divider moves. The divider takes a
+drag before any tool, so one drag moves one thing. While a tool works on the
+photo (masks, crop, Remove), only the divider's knob grabs it, so the tool still
+works right next to the line; otherwise any point along the line does. A drag on
+the divider no longer also pans a zoomed photo.
 
 **Thumbnails** (`panels/mask_thumbnails.rs`) are computed on the CPU at twice
 the row's point size and cached by the mask's shapes (a brush by its
@@ -627,6 +650,7 @@ shows the first point colour's range); `PHOTONATION_SCREENSHOT_MASKS=1` opens
 the masks panel with the first mask selected (`=group` selects the first mask
 group instead); `PHOTONATION_SCREENSHOT_CROP=1` opens the crop tool;
 `PHOTONATION_SCREENSHOT_REMOVE=1` the Remove panel;
+`PHOTONATION_SCREENSHOT_COMPARE=1` splits the photo for Compare;
 `PHOTONATION_SCREENSHOT_SIDEBAR=280` starts the sidebar at that width
 (280–440), to check narrow and wide layouts; `PHOTONATION_SCREENSHOT_EXPORT=1`
 opens the export sheet; `PHOTONATION_SCREENSHOT_HELP=1` the Help window

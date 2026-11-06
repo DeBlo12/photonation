@@ -17,6 +17,11 @@ changes to CI alone are not released.
   other shape. Older versions can't read a photo's sidecar once a mask on it has
   a brush: they say so and open the photo without its edits, and editing it there
   would replace them.
+- Gradients can be drawn on the photo. After **+ Linear** or **+ Radial**, drag on
+  the photo to place the new shape: a linear gradient runs from full effect where
+  you press to none where you let go, and a radial one grows as a circle from its
+  centre. Its handles still adjust it, and it starts in the usual place if you
+  don't drag.
 
 ### Changed
 
@@ -25,6 +30,13 @@ changes to CI alone are not released.
   trip through Oklab where a colour control is set. With both, a few pixels may
   land one output level from where they were (about 1 sample in 400 at 16 bits, 1
   in 100 000 at 8 bits), which isn't visible.
+
+### Fixed
+
+- Masks while comparing: the tint stays on the Edited side, since the Original has
+  no masks, and a drag on the divider moves only the divider. It used to also edit
+  a mask or removal under it, or pan a zoomed photo. While a tool is open, grab the
+  divider by its knob, so the tool still works right next to the line.
 
 ## [0.20.0] - 2026-11-06
 

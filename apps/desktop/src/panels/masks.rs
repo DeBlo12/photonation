@@ -67,7 +67,14 @@ pub fn show(app: &mut PhotonationApp, ui: &mut Ui) {
         });
     }
     if let Some(action) = action {
+        let added_a_gradient = matches!(
+            action,
+            LayerAction::Add(MaskShape::Linear(_) | MaskShape::Radial(_))
+        );
         layers(app).apply(action);
+        if added_a_gradient {
+            app.view.shape_to_draw = app.view.selected_mask;
+        }
     }
     let Some(selection) = app.view.selected_mask else {
         return;
@@ -75,11 +82,21 @@ pub fn show(app: &mut PhotonationApp, ui: &mut Ui) {
     let mask = &mut app.settings.masks[selection.mask];
     let mut component = selection.component;
     let tool = &mut app.view.mask_brush;
-    card(ui, |ui| shapes(mask, &mut component, tool, ui));
-    app.view.selected_mask = Some(MaskSelection {
+    let waiting_to_draw = app.view.shape_to_draw == Some(selection);
+    let shapes_before = mask.components.len();
+    card(ui, |ui| {
+        shapes(mask, &mut component, tool, waiting_to_draw, ui)
+    });
+    let selection = MaskSelection {
         component,
         ..selection
-    });
+    };
+    app.view.selected_mask = Some(selection);
+    if mask.components.len() > shapes_before
+        && !matches!(mask.components[component].shape, MaskShape::Brush(_))
+    {
+        app.view.shape_to_draw = Some(selection);
+    }
     card(ui, |ui| {
         layer_settings(mask, &mut app.view.mask_overlay, ui)
     });
@@ -164,7 +181,7 @@ fn header(
     if masks.is_empty() {
         hint(
             ui,
-            "Add a gradient and drag its handles in the photo, or a brush and paint there.",
+            "Add a gradient and drag on the photo to place it, or a brush and paint there.",
         );
     }
     action
@@ -551,7 +568,13 @@ fn single_line(
 
 /// The selected mask's shapes and how they combine, then the selected
 /// shape's options.
-fn shapes(mask: &mut Mask, selected: &mut usize, tool: &mut MaskBrushTool, ui: &mut Ui) {
+fn shapes(
+    mask: &mut Mask,
+    selected: &mut usize,
+    tool: &mut MaskBrushTool,
+    waiting_to_draw: bool,
+    ui: &mut Ui,
+) {
     ui.horizontal(|ui| {
         ui.label(
             RichText::new("Shapes")
@@ -630,6 +653,17 @@ fn shapes(mask: &mut Mask, selected: &mut usize, tool: &mut MaskBrushTool, ui: &
     if let Some(component) = mask.components.get_mut(*selected) {
         ui.add_space(4.0);
         shape_options(&mut component.shape, tool, ui);
+        if waiting_to_draw {
+            hint(ui, draw_hint(&component.shape));
+        }
+    }
+}
+
+/// What the next drag on the photo does to a gradient just added.
+fn draw_hint(shape: &MaskShape) -> &'static str {
+    match shape {
+        MaskShape::Radial(_) => "Or drag on the photo to draw it, from its centre outward.",
+        _ => "Or drag on the photo to draw it, from full effect to none.",
     }
 }
 

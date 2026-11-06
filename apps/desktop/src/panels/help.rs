@@ -1522,6 +1522,26 @@ fn content(page: Page) -> Content {
                     "A card's switch",
                     "turns that card off, to compare just one adjustment.",
                 ),
+                Block::Heading("Full screen"),
+                term(
+                    "Full Screen Photo",
+                    format!(
+                        "({key}) shows the photo alone on the whole screen, on black, with every \
+                         panel hidden. Zoom, Compare, the arrow keys, ratings and flags still \
+                         work. {key} or Esc leaves, and so does opening a tool or the grid.",
+                        key = theme::SHORTCUT_FULL_SCREEN,
+                    ),
+                ),
+                term(
+                    "The window alone",
+                    if cfg!(target_os = "macos") {
+                        "goes full screen with its panels through View › Enter Full Screen \
+                         or the green window button."
+                    } else {
+                        "goes full screen with its panels through View › Full Screen Window \
+                         (F11)."
+                    },
+                ),
                 Block::Heading("Zoom"),
                 term(
                     "Fit",
@@ -1841,6 +1861,10 @@ fn content(page: Page) -> Content {
                 ),
                 Block::Heading("View"),
                 keys(&["\\"], "Compare with the original"),
+                keys(
+                    &[theme::SHORTCUT_FULL_SCREEN],
+                    "Full screen, the photo alone",
+                ),
                 keys(&[theme::SHORTCUT_FIT], "Fit to window"),
                 Block::Heading("Tools"),
                 keys(&["M"], "Masks"),

@@ -77,6 +77,8 @@ pub enum Action {
     FitToWindow,
     ActualPixels,
     ToggleCompare,
+    ToggleFullScreen,
+    ToggleWindowFullScreen,
     ToggleMasks,
     ToggleCropping,
     ToggleRemovals,
@@ -339,6 +341,13 @@ fn view(app: &PhotonationApp, native: bool) -> Vec<Entry> {
             app.view.compare,
             has_photo,
         ),
+        toggle(
+            "Full Screen Photo",
+            theme::SHORTCUT_FULL_SCREEN,
+            Action::ToggleFullScreen,
+            app.view.full_screen.is_some(),
+            has_photo,
+        ),
         Entry::Separator,
         toggle(
             "Masks",
@@ -375,9 +384,20 @@ fn view(app: &PhotonationApp, native: bool) -> Vec<Entry> {
             position.is_some_and(|p| p < last),
         ),
     ];
-    if native {
-        entries.extend([Entry::Separator, Entry::System(SystemItem::FullScreen)]);
-    }
+    // macOS has its own, with its own shortcut.
+    entries.extend([
+        Entry::Separator,
+        if native {
+            Entry::System(SystemItem::FullScreen)
+        } else {
+            item(
+                "Full Screen Window",
+                "F11",
+                Action::ToggleWindowFullScreen,
+                true,
+            )
+        },
+    ]);
     entries
 }
 
@@ -632,6 +652,8 @@ impl PhotonationApp {
                 self.view.pan = egui::Vec2::ZERO;
             }
             Action::ToggleCompare => self.view.compare = !self.view.compare,
+            Action::ToggleFullScreen => self.toggle_full_screen(ctx),
+            Action::ToggleWindowFullScreen => self.toggle_window_full_screen(ctx),
             Action::ToggleMasks => self.view.toggle_masks(),
             Action::ToggleCropping => self.view.toggle_cropping(),
             Action::ToggleRemovals => self.view.toggle_removals(),

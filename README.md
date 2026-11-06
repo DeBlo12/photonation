@@ -26,6 +26,8 @@ a Lightroom-style develop module with a Photomator-inspired interface.
 - **Culling and presets**: star ratings, pick and reject flags, colour labels,
   filter and sort, grid and survey views; presets and copying settings between
   photos. Lightroom edits (from XMP) and `.xmp` presets import.
+- **Viewing**: zoom, compare with the original, and a true full screen with the
+  photo alone (⌃F on a Mac, `F` elsewhere).
 - **Non-destructive**: originals are never touched; edits live in a JSON sidecar
   next to each photo (`IMG_0001.CR3.photonation.json`), with undo/redo.
 - **Fast and lean**: a band-parallel pipeline renders a 24 MP raw to full-size
@@ -101,6 +103,9 @@ on `PATH`. Shortcuts use Ctrl where the table below shows ⌘, and Alt for ⌥.
 | ← / → | Previous / next photo |
 | ⌘Z / ⇧⌘Z | Undo / redo |
 | `\` | Compare with original (drag the divider) |
+| ⌃F (`F` on Windows and Linux) | Full screen, the photo alone (the same key or `Esc` leaves) |
+| `M` / `R` / `Q` | Masks / crop and straighten / remove objects |
+| `[` / `]` | With a mask brush: smaller / larger brush |
 | ⌘0, double-click | Fit / actual pixels |
 | ⇧⌘E | Export |
 | ⌘, | Settings |
@@ -114,6 +119,7 @@ on `PATH`. Shortcuts use Ctrl where the table below shows ⌘, and Alt for ⌥.
 | [PIPELINE.md](docs/PIPELINE.md) | The render path step by step: band engine, demosaic, colour, tone |
 | [EDIT-MODEL.md](docs/EDIT-MODEL.md) | Settings, controls, sidecars, process versions |
 | [ENGINE.md](docs/ENGINE.md) | Background workers, events, export |
+| [RETOUCH.md](docs/RETOUCH.md) | Object removal: fills, models, caching |
 | [DESKTOP.md](docs/DESKTOP.md) | The editor's layout and per-frame control flow |
 | [DEVELOPMENT.md](docs/DEVELOPMENT.md) | Building, testing, conventions, adding a control |
 | [ROADMAP.md](docs/ROADMAP.md) | What's done and what's next |

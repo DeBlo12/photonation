@@ -48,6 +48,22 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
                     ui.add_space(4.0);
                     crate::panels::help::button(ui, &mut app.view);
                     ui.add_space(4.0);
+                    let full_screen_key = theme::SHORTCUT_FULL_SCREEN;
+                    if crate::panels::icon_button(
+                        ui,
+                        crate::widgets::Icon::FullScreen,
+                        None,
+                        false,
+                        &format!(
+                            "Full screen ({full_screen_key})\nThe photo alone on the whole \
+                             screen. {full_screen_key} or Esc leaves."
+                        ),
+                    )
+                    .clicked()
+                    {
+                        let ctx = ui.ctx().clone();
+                        app.toggle_full_screen(&ctx);
+                    }
                     let is_actual =
                         matches!(app.view.zoom, Zoom::Scale(s) if (s - 1.0).abs() < 1e-3);
                     let actual_tip = "Actual pixels\nOne photo pixel per screen pixel, to judge \

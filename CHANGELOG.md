@@ -8,6 +8,16 @@ changes to CI alone are not released.
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-11-06
+
+### Added
+
+- A true full screen. **View › Full Screen Photo** (⌃F on a Mac, `F` on Windows and
+  Linux), or the new button in the toolbar, shows the photo alone on the whole screen,
+  on black, with every panel hidden. Zoom, Compare, the arrow keys, ratings and flags
+  still work; the same key or `Esc` leaves. On Windows and Linux, **View › Full Screen Window** (`F11`) makes the window
+  full screen with its panels, as macOS's own item does.
+
 ## [0.21.0] - 2026-11-06
 
 ### Added
@@ -482,7 +492,8 @@ changes to CI alone are not released.
 
 - Licensed under GPL-3.0-or-later.
 
-[Unreleased]: https://github.com/DeBlo12/photonation/compare/v0.21.0...HEAD
+[Unreleased]: https://github.com/DeBlo12/photonation/compare/v0.22.0...HEAD
+[0.22.0]: https://github.com/DeBlo12/photonation/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/DeBlo12/photonation/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/DeBlo12/photonation/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/DeBlo12/photonation/compare/v0.18.0...v0.19.0

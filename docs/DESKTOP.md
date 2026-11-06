@@ -36,7 +36,7 @@ it, and the inspector's outline pulses amber (`ViewState::tool_warning`).
 
 | File | Region |
 |---|---|
-| `panels/toolbar.rs` | Open, the grid button and filter chip, the path to the open folder (see *Folders* below), photo name, its stars, flag and label, exposure info, undo/redo, compare, zoom, export. As the window narrows the exposure info goes, then the name shortens, then the labels go (they stay in the Library menu); nothing reaches the controls on the right |
+| `panels/toolbar.rs` | Open, the grid button and filter chip, the path to the open folder (see *Folders* below), photo name, its stars, flag and label, exposure info, undo/redo, compare, full screen, zoom, export. As the window narrows the exposure info goes, then the name shortens, then the labels go (they stay in the Library menu); nothing reaches the controls on the right |
 | `menus.rs` | The menus as data, and what choosing an item does |
 | `native_menu.rs` | macOS only: the menus in the system menu bar, built with muda and kept up to date |
 | `glass.rs` | macOS 26 and later: the Liquid Glass views behind the inspector and the filmstrip |
@@ -457,6 +457,30 @@ Textures not drawn in a frame are dropped.
 pins and the overlay follow a turned crop; the overlay's uniform carries the
 screen → mask mapping as an origin and one step per screen axis.
 
+## Full screen
+
+**Full Screen Photo** (⌃F on a Mac, `F` elsewhere, the toolbar's corners button,
+the View menu) shows the
+photo alone on the whole screen. `ViewState::full_screen` makes the frame skip the
+menu bar, toolbar, inspector and filmstrip, and the viewer fill the window in black
+with no margin, shadow or border, so glass doesn't show through either. The window
+goes full screen through `ViewportCommand::Fullscreen`. A toast says how to leave.
+
+It needs a photo. Opening it closes the tools, which need their panels, and a key
+that opens a tool or the grid leaves it (`follow_full_screen`). Its shortcut and `Esc`
+leave, though `Esc` goes to an open sheet first. Zoom, Compare, the arrow keys, ratings and
+flags keep working.
+
+The state remembers two things about the window. If it was already full screen, it
+stays so on leaving. And once the system has reported it full screen, a report that
+it no longer is means the user left through the system (macOS's green button or
+⌃⌘F), so this ends too; before that report the window is still on its way there. On
+a Mac the report comes from the window's style mask (`glass::window_is_full_screen`),
+as egui's was seen staying false while the window was full screen.
+
+**The window alone**, panels included: macOS's own View › Enter Full Screen, and
+elsewhere View › Full Screen Window (`F11`).
+
 ## Crop and straighten (`panels/crop.rs`)
 
 The crop tool (⛶ or `R`; `Return` or `Esc` closes it) previews the whole photo,
@@ -563,8 +587,8 @@ or photo>`) takes the same paths.
 
 **Menus** (`menus.rs`). File (Open Folder, Open Photo, Export, Export All
 Photos, Settings, Quit), Edit (Undo, Redo, Reset All Adjustments), View (Fit,
-Actual Pixels, Compare, Masks, Crop and Straighten, Remove Objects, previous
-and next photo) and Help (Photonation Help, Keyboard Shortcuts, About).
+Actual Pixels, Compare, Full Screen Photo, Masks, Crop and Straighten, Remove
+Objects, previous and next photo, and the window's full screen) and Help (Photonation Help, Keyboard Shortcuts, About).
 Items show their shortcuts and are disabled when they cannot apply.
 
 Each frame `menus::menus` builds the menus as data from the app's state, so an
@@ -651,6 +675,9 @@ the masks panel with the first mask selected (`=group` selects the first mask
 group instead); `PHOTONATION_SCREENSHOT_CROP=1` opens the crop tool;
 `PHOTONATION_SCREENSHOT_REMOVE=1` the Remove panel;
 `PHOTONATION_SCREENSHOT_COMPARE=1` splits the photo for Compare;
+`PHOTONATION_SCREENSHOT_FULL_SCREEN=1` hides the panels as full screen does, while
+leaving the window as it is, since going full screen would take over the screen of
+whoever is working at the computer;
 `PHOTONATION_SCREENSHOT_SIDEBAR=280` starts the sidebar at that width
 (280–440), to check narrow and wide layouts; `PHOTONATION_SCREENSHOT_EXPORT=1`
 opens the export sheet; `PHOTONATION_SCREENSHOT_HELP=1` the Help window

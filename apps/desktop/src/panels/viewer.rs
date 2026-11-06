@@ -2,7 +2,7 @@
 // Copyright (C) 2026 The Photonation contributors
 
 //! The image canvas: fit/zoom/pan, before/after split, eyedropper, mask
-//! editing (handles and the GPU overlay) while the masks panel is open, the
+//! editing (handles, the brush and the GPU overlay) while the masks panel is open, the
 //! crop frame while the crop tool is, and painting removals while the
 //! Remove panel is.
 
@@ -10,7 +10,7 @@ use crate::app::{PhotonationApp, Preview, ViewState, Zoom};
 use crate::gpu::mask_overlay::MaskOverlay;
 use crate::menus;
 use crate::panels::mask_thumbnails::tint_strength;
-use crate::panels::{crop, mask_handles, removal_brush};
+use crate::panels::{crop, mask_brush, mask_handles, removal_brush};
 use crate::photo_frame::PhotoFrame;
 use crate::theme;
 use crate::widgets::{self, Icon};
@@ -98,8 +98,14 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
             let editing_masks = app.view.show_masks && app.view.eyedropper.is_none();
             let cropping = app.view.cropping && app.view.eyedropper.is_none();
             let painting_removals = app.view.show_removals && app.view.eyedropper.is_none();
+            let brushing_mask = editing_masks && mask_brush::in_hand(app);
+            // The panel closed or the shape went mid-stroke (a shortcut): drop
+            // the stroke, or the next render would still show it.
+            if !brushing_mask && app.view.mask_stroke.take().is_some() {
+                app.refresh();
+            }
             // A drag that grabs a mask handle or the crop frame, or paints a
-            // removal, edits it instead of panning.
+            // removal or a mask, edits it instead of panning.
             let mut dragging_mask = false;
             if cropping
                 && let Some(frame) = photo_frame(
@@ -115,13 +121,26 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
                     Rect::from_center_size(canvas.center() + app.view.pan, displayed),
                 )
             {
-                dragging_mask = mask_handles::interact(
-                    &mut app.settings.masks,
-                    &mut app.view.selected_mask,
-                    ui,
-                    &response,
-                    &frame,
-                );
+                dragging_mask = if brushing_mask {
+                    let before = app.view.mask_stroke.as_ref().map(|s| s.path.points.len());
+                    let painting = mask_brush::interact(app, ui, &response, &frame);
+                    let after = app.view.mask_stroke.as_ref().map(|s| s.path.points.len());
+                    if before != after && after.is_some() {
+                        // Show the effect as the stroke grows, also if the
+                        // pointer then rests.
+                        app.refresh();
+                        ui.ctx().request_repaint();
+                    }
+                    painting
+                } else {
+                    mask_handles::interact(
+                        &mut app.settings.masks,
+                        &mut app.view.selected_mask,
+                        ui,
+                        &response,
+                        &frame,
+                    )
+                };
             }
             if painting_removals
                 && let Some(frame) = photo_frame(
@@ -180,6 +199,9 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
                     &painter,
                     &frame,
                 );
+                if brushing_mask {
+                    mask_brush::paint(&app.view, ui, &response, &painter, &frame);
+                }
             }
             if cropping && let Some(frame) = photo_frame(app, image_rect) {
                 crop::paint(app, &painter, &frame);
@@ -207,7 +229,12 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
             }
             eyedropper(app, ui, &response, image_rect);
 
-            if response.double_clicked() && app.view.eyedropper.is_none() && !dragging_mask {
+            // A second dab with the mask brush isn't a request to zoom.
+            if response.double_clicked()
+                && app.view.eyedropper.is_none()
+                && !dragging_mask
+                && !brushing_mask
+            {
                 app.view.zoom = if app.view.zoom == Zoom::Fit {
                     Zoom::Scale(1.0)
                 } else {

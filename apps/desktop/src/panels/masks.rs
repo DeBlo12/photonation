@@ -6,13 +6,13 @@
 //! photo, its name, shapes and amount, and a visibility switch; masks can
 //! be gathered in collapsible groups, `groups.rs`; drag a row to reorder,
 //! right-click for more), then the selected mask's shapes, settings and
-//! local adjustments, or the selected group's settings. Shapes are edited
-//! by dragging their handles in the viewer (`mask_handles.rs`). See
-//! docs/DESKTOP.md.
+//! local adjustments, or the selected group's settings. Gradients are edited
+//! by dragging their handles in the viewer (`mask_handles.rs`), brushes by
+//! painting there (`mask_brush.rs`). See docs/DESKTOP.md.
 
 pub mod groups;
 
-use crate::app::{MaskSelection, PhotonationApp, ViewState};
+use crate::app::{MaskBrushTool, MaskSelection, PhotonationApp, ViewState};
 use crate::panels::adjustments::{control_slider, style_for};
 use crate::panels::mask_thumbnails::{HIDDEN_OPACITY, tint_strength};
 use crate::panels::tool_button;
@@ -25,9 +25,9 @@ use eframe::egui::{
 };
 use groups::{GROUP_INDENT, LayerAction, Layers, ListRow};
 use photonation_develop::{
-    CombineMode, LOCAL_CONTROLS, LinearGradient, LocalAdjustments, MAX_MASK_COMPONENTS,
-    MAX_MASK_GROUPS, MAX_MASK_NAME_CHARS, MAX_MASKS, Mask, MaskComponent, MaskGroup, MaskShape,
-    RadialGradient, group_members,
+    CombineMode, LOCAL_CONTROLS, LinearGradient, LocalAdjustments, MAX_BRUSH_RADIUS,
+    MAX_MASK_COMPONENTS, MAX_MASK_GROUPS, MAX_MASK_NAME_CHARS, MAX_MASKS, MIN_BRUSH_RADIUS, Mask,
+    MaskBrush, MaskComponent, MaskGroup, MaskShape, MaskStroke, RadialGradient, group_members,
 };
 
 const ROW_HEIGHT: f32 = 46.0;
@@ -74,7 +74,8 @@ pub fn show(app: &mut PhotonationApp, ui: &mut Ui) {
     };
     let mask = &mut app.settings.masks[selection.mask];
     let mut component = selection.component;
-    card(ui, |ui| shapes(mask, &mut component, ui));
+    let tool = &mut app.view.mask_brush;
+    card(ui, |ui| shapes(mask, &mut component, tool, ui));
     app.view.selected_mask = Some(MaskSelection {
         component,
         ..selection
@@ -161,16 +162,20 @@ fn header(
         );
     });
     if masks.is_empty() {
-        hint(ui, "Add a gradient, then drag its handles in the photo.");
+        hint(
+            ui,
+            "Add a gradient and drag its handles in the photo, or a brush and paint there.",
+        );
     }
     action
 }
 
 /// One of each shape, as new masks and new shapes start.
-fn new_shapes() -> [MaskShape; 2] {
+fn new_shapes() -> [MaskShape; 3] {
     [
         MaskShape::Linear(LinearGradient::default()),
         MaskShape::Radial(RadialGradient::default()),
+        MaskShape::Brush(MaskBrush::default()),
     ]
 }
 
@@ -178,6 +183,7 @@ fn shape_name(shape: &MaskShape) -> &'static str {
     match shape {
         MaskShape::Linear(_) => "Linear",
         MaskShape::Radial(_) => "Radial",
+        MaskShape::Brush(_) => "Brush",
     }
 }
 
@@ -185,6 +191,7 @@ fn shape_icon(shape: &MaskShape) -> widgets::Icon {
     match shape {
         MaskShape::Linear(_) => widgets::Icon::LinearGradient,
         MaskShape::Radial(_) => widgets::Icon::RadialGradient,
+        MaskShape::Brush(_) => widgets::Icon::Brush,
     }
 }
 
@@ -196,6 +203,7 @@ fn shape_tooltip(shape: &MaskShape) -> &'static str {
         MaskShape::Radial(_) => {
             "Radial gradient: full effect inside the ellipse, fading out at its edge"
         }
+        MaskShape::Brush(_) => "Brush: paint the area on the photo",
     }
 }
 
@@ -543,7 +551,7 @@ fn single_line(
 
 /// The selected mask's shapes and how they combine, then the selected
 /// shape's options.
-fn shapes(mask: &mut Mask, selected: &mut usize, ui: &mut Ui) {
+fn shapes(mask: &mut Mask, selected: &mut usize, tool: &mut MaskBrushTool, ui: &mut Ui) {
     ui.horizontal(|ui| {
         ui.label(
             RichText::new("Shapes")
@@ -553,10 +561,13 @@ fn shapes(mask: &mut Mask, selected: &mut usize, ui: &mut Ui) {
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             ui.add_enabled_ui(mask.components.len() < MAX_MASK_COMPONENTS, |ui| {
                 for shape in new_shapes().into_iter().rev() {
-                    let tooltip = format!(
-                        "Add a {} gradient to this mask",
-                        shape_name(&shape).to_lowercase()
-                    );
+                    let tooltip = match shape {
+                        MaskShape::Brush(_) => "Paint on this mask".to_owned(),
+                        _ => format!(
+                            "Add a {} gradient to this mask",
+                            shape_name(&shape).to_lowercase()
+                        ),
+                    };
                     if tool_button(ui, &format!("+ {}", shape_name(&shape)), false, &tooltip)
                         .clicked()
                     {
@@ -618,12 +629,13 @@ fn shapes(mask: &mut Mask, selected: &mut usize, ui: &mut Ui) {
     }
     if let Some(component) = mask.components.get_mut(*selected) {
         ui.add_space(4.0);
-        shape_options(&mut component.shape, ui);
+        shape_options(&mut component.shape, tool, ui);
     }
 }
 
-fn shape_options(shape: &mut MaskShape, ui: &mut Ui) {
+fn shape_options(shape: &mut MaskShape, tool: &mut MaskBrushTool, ui: &mut Ui) {
     match shape {
+        MaskShape::Brush(brush) => brush_options(brush, tool, ui),
         MaskShape::Linear(_) => hint(
             ui,
             "Drag the outer lines to set where the effect starts and ends, the middle one to move it.",
@@ -668,6 +680,66 @@ fn shape_options(shape: &mut MaskShape, ui: &mut Ui) {
             );
         }
     }
+}
+
+/// How the next strokes are painted, and clearing what's painted. These
+/// sliders set the tool, not the brush: each stroke keeps what it was painted
+/// with, as a painted area does in any editor.
+fn brush_options(brush: &mut MaskBrush, tool: &mut MaskBrushTool, ui: &mut Ui) {
+    let mut mode = usize::from(tool.erase);
+    if widgets::segmented(ui, &["Paint", "Erase"], &mut mode).changed() {
+        tool.erase = mode == 1;
+    }
+    let defaults = MaskBrushTool::default();
+    let whole_number = SliderStyle {
+        format: |v| format!("{v:.0}"),
+        ..SliderStyle::default()
+    };
+    adjustment_slider(
+        ui,
+        "Size",
+        &mut tool.size_percent,
+        (MIN_BRUSH_RADIUS * 100.0) as f32..=(MAX_BRUSH_RADIUS * 100.0) as f32,
+        defaults.size_percent,
+        &SliderStyle {
+            format: |v| format!("{v:.1} %"),
+            ..SliderStyle::default()
+        },
+    );
+    adjustment_slider(
+        ui,
+        "Feather",
+        &mut tool.feather,
+        0.0..=100.0,
+        defaults.feather,
+        &whole_number,
+    );
+    adjustment_slider(
+        ui,
+        "Flow",
+        &mut tool.flow,
+        0.0..=100.0,
+        defaults.flow,
+        &whole_number,
+    );
+    let room = brush.has_room_for(&MaskStroke::default());
+    hint(
+        ui,
+        &if room {
+            format!(
+                "Drag on the photo to paint, click to dab. {alt} does the opposite of the \
+                 mode above; [ and ] change the size.",
+                alt = theme::ALT_KEY,
+            )
+        } else {
+            "This brush is full: clear it, or paint on another mask.".to_owned()
+        },
+    );
+    ui.add_enabled_ui(!brush.strokes.is_empty(), |ui| {
+        if ui.button("Clear Strokes").clicked() {
+            brush.strokes.clear();
+        }
+    });
 }
 
 fn layer_settings(mask: &mut Mask, show_overlay: &mut bool, ui: &mut Ui) {
@@ -791,8 +863,16 @@ fn move_mask(
     to
 }
 
-/// Adds a shape that adds to the selection, and selects it.
+/// Adds a shape that adds to the selection, and selects it. A mask keeps one
+/// brush, which paints and erases on its own: asking for another selects it.
 fn add_component(mask: &mut Mask, selected: &mut usize, shape: MaskShape) {
+    let is_brush = |shape: &MaskShape| matches!(shape, MaskShape::Brush(_));
+    if is_brush(&shape)
+        && let Some(brush) = mask.components.iter().position(|c| is_brush(&c.shape))
+    {
+        *selected = brush;
+        return;
+    }
     if mask.components.len() >= MAX_MASK_COMPONENTS {
         return;
     }
@@ -848,7 +928,8 @@ mod tests {
     fn adding_selects_and_removing_keeps_the_selection_on_its_mask() {
         let mut masks = Vec::new();
         let mut selection = None;
-        for shape in [new_shapes()[0], new_shapes()[1], new_shapes()[1]] {
+        let [linear, radial, _] = new_shapes();
+        for shape in [linear, radial.clone(), radial] {
             add_mask(&mut masks, &mut selection, shape);
         }
         assert_eq!(selection, Some(MaskSelection::mask(2)));
@@ -939,8 +1020,9 @@ mod tests {
     fn shapes_are_added_selected_and_removed_down_to_one() {
         let mut mask = Mask::new("Sky", MaskShape::default());
         let mut selected = 0;
-        add_component(&mut mask, &mut selected, new_shapes()[0]);
-        add_component(&mut mask, &mut selected, new_shapes()[1]);
+        let [linear, radial, _] = new_shapes();
+        add_component(&mut mask, &mut selected, linear);
+        add_component(&mut mask, &mut selected, radial);
         assert_eq!((mask.components.len(), selected), (3, 2));
         remove_component(&mut mask, &mut selected, 0);
         assert_eq!(selected, 1, "still the last shape");
@@ -957,7 +1039,21 @@ mod tests {
         mask.adjustments.exposure = 1.0;
         mask.invert = true;
         mask.amount = 60.0;
-        mask.components.push(mask.components[0]);
+        mask.components.push(mask.components[0].clone());
         assert_eq!(summary(&mask), "2 shapes · inverted · 60 %");
+        let brush = Mask::new("Painted", MaskShape::Brush(MaskBrush::default()));
+        assert_eq!(summary(&brush), "Brush · no adjustments");
+    }
+
+    #[test]
+    fn a_mask_keeps_one_brush_and_asking_again_selects_it() {
+        let [linear, _, brush] = new_shapes();
+        let mut mask = Mask::new("Sky", linear);
+        let mut selected = 0;
+        add_component(&mut mask, &mut selected, brush.clone());
+        assert_eq!((mask.components.len(), selected), (2, 1));
+        selected = 0;
+        add_component(&mut mask, &mut selected, brush);
+        assert_eq!((mask.components.len(), selected), (2, 1));
     }
 }

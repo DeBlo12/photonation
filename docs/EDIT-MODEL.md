@@ -115,9 +115,32 @@ point colours. How colours are selected and shifted: docs/PIPELINE.md §5.
 | `group` | Index into `settings.mask_groups`, or absent for a mask outside any group |
 
 **Shapes** (`MaskShape`): a `Linear` gradient (full effect up to the line through
-`start`, fading to none at the parallel line through `end`) or a `Radial` one
+`start`, fading to none at the parallel line through `end`), a `Radial` one
 (an ellipse with `center`, `radius` per axis, clockwise `rotation` in degrees,
-and `feather`, the share of the radius that fades out).
+and `feather`, the share of the radius that fades out), or a `Brush`
+(`MaskBrush`): painted strokes.
+
+**Brushes.** A brush's `strokes` are `MaskStroke`s, applied in order to a
+selection that starts empty, at most `MAX_MASK_BRUSH_STROKES` (1024) with
+`MAX_MASK_BRUSH_POINTS` (32 768) points between them, and up to 1024 per stroke:
+
+| Field | Meaning |
+|---|---|
+| `points` | The path, in mask space; one point is a dab |
+| `radius` | Long-edge units, 0.001..0.25 |
+| `feather` | The share of the radius that fades out, 0..100 |
+| `flow` | 0..100 %: how much of the selection one stroke paints or erases |
+| `erase` | Takes away instead of adding; sidecars leave it out while false |
+
+A stroke's own weight `w` at a point comes from the distance to its path, so a
+stroke crossing itself is still one coat. With `f` its flow and `s` the selection
+so far, painting gives `s + (1 − s) · f · w`, and erasing `s · (1 − f · w)`:
+repeated low-flow strokes build up, and at full flow a stroke's core reaches 1 or
+0 whatever was below it.
+
+A mask keeps one brush, since one brush both paints and erases. Sanitizing drops
+further ones: each brush becomes a weight map in memory (see PIPELINE.md §5b), so
+this ties what a hostile sidecar can allocate to `MAX_MASKS`.
 
 **Combining.** A mask's selection at a point starts as its first shape's
 weight (0..1); each further shape then combines with it by its `CombineMode`:
@@ -163,13 +186,19 @@ multiplied by exactly 1). Older sidecars have no groups, so they render as they
 did; a grouped sidecar opened by an older build loses only its groups (it
 ignores the unknown fields and renders every mask as if ungrouped).
 
+**Nor do brushes need one:** they add a shape, and gradients render as before.
+Builds before brushes don't know the `brush` kind, so they can't read a sidecar
+that has one. As with any unreadable sidecar, they report the error and open the
+photo without its edits, leaving the file alone unless the photo is edited there.
+
 **Mask space** (`MaskSpace`). Positions are normalized to the photo: 0..1 across
 its width and height, in display orientation, on the camera's default crop but
 *before* the user's crop, so a mask stays on the same content when the crop
 changes. Radii are in units of the long edge, so circles stay round on any
 aspect ratio.
 
-**Sanitizing** caps the number of masks, shapes and groups, truncates names,
+**Sanitizing** caps the number of masks, shapes, brushes, strokes, points and
+groups (a brush keeps whole strokes up to the cap), truncates names,
 clamps every value (group amounts too) and repairs non-finite numbers, then
 tidies the groups (`sanitize_groups`). The caps also bound the per-pixel cost a
 hostile sidecar can cause.
@@ -289,6 +318,9 @@ the settings with some groups switched off (the panel switches in the editor).
   the library block already there. Builds before 0.14 ignore the block and
   drop it when they save the photo.
 - Sidecars written before straightening have no `crop_angle` and render as before.
+- Masks with a brush store every stroke, so they make the largest sidecars: about
+  18 bytes per point (the editor rounds positions to five decimals). The reader's
+  cap, `MAX_SIDECAR_BYTES` (4 MiB), leaves room for over 200 000 points.
 
 ## Process versions
 

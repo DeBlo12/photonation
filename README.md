@@ -19,8 +19,8 @@ a Lightroom-style develop module with a Photomator-inspired interface.
   (shadows/midtones/highlights/global with blending and balance), sharpening,
   luminance and colour noise reduction, lens corrections (distortion,
   vignetting and chromatic aberration from the bundled Lensfun database).
-- **Local edits and geometry**: masks (linear and radial gradients combined per
-  mask, with local adjustments), crop and straighten (draw a level line, or let
+- **Local edits and geometry**: masks (linear and radial gradients and a brush
+  combined per mask, with local adjustments), crop and straighten (draw a level line, or let
   Auto find it), and object removal by content-aware fill or a neural inpainting
   model.
 - **Culling and presets**: star ratings, pick and reject flags, colour labels,

@@ -8,14 +8,16 @@
 //! with the global ones.
 //!
 //! [`MaskWeight::at`] and [`LocalAdjust::at`] are the reference for the
-//! GPU: the desktop editor's mask overlay
+//! GPU, with [`BrushMap::at`]: the desktop editor's mask overlay
 //! (`apps/desktop/src/gpu/mask_overlay.wgsl`) and the GPU renderer
 //! (`crates/gpu/src/develop.wgsl`); keep them in step.
 
+use crate::brush_map::BrushMap;
 use crate::color::smoothstep;
 use crate::plan::{LocalPlan, MaskPlan};
 use photonation_develop::{CombineMode, LocalAdjustments, Mask, MaskGroup, MaskShape, MaskSpace};
 use photonation_image::{Rect, SensorImage};
+use std::sync::Arc;
 
 /// The mask space of a photo: its default crop in display orientation.
 pub fn mask_space(sensor: &SensorImage) -> MaskSpace {
@@ -27,7 +29,7 @@ pub fn mask_space(sensor: &SensorImage) -> MaskSpace {
 
 /// A mask shape prepared for evaluation at metric points of its
 /// [`MaskSpace`].
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ShapeWeight {
     Linear {
         start: [f32; 2],
@@ -44,6 +46,9 @@ pub enum ShapeWeight {
         /// Normalized radius where the fade starts (1 − feather).
         fade_start: f32,
     },
+    /// Painted strokes, already rasterized: too many to measure the distance
+    /// to at every pixel.
+    Brush(Arc<BrushMap>),
 }
 
 impl ShapeWeight {
@@ -71,6 +76,7 @@ impl ShapeWeight {
                     fade_start: 1.0 - radial.feather / 100.0,
                 }
             }
+            MaskShape::Brush(brush) => ShapeWeight::Brush(BrushMap::cached(brush, space)),
         }
     }
 
@@ -99,6 +105,7 @@ impl ShapeWeight {
                     1.0 - smoothstep(fade_start, 1.0, distance)
                 }
             }
+            ShapeWeight::Brush(ref map) => map.at(point),
         }
     }
 }

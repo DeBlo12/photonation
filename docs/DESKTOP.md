@@ -58,6 +58,7 @@ it, and the inspector's outline pulses amber (`ViewState::tool_warning`).
 | `panels/masks/groups.rs` | Mask groups in the layer list: rows, drop targets, group edits, the group row and card |
 | `panels/mask_thumbnails.rs` | The layer list's pictures of what each mask selects |
 | `panels/mask_handles.rs` | On-canvas handles and pins for mask editing |
+| `panels/mask_brush.rs` | Painting a mask's brush on the canvas |
 | `panels/crop.rs` | Crop tool: the frame on the canvas and the crop card |
 | `photo_frame.rs` | Screen ↔ photo positions for the displayed crop (handles, overlay, crop tool) |
 | `panels/removals.rs` | Remove panel: method, brush size, model status, removal list, selected removal |
@@ -331,8 +332,8 @@ and copies them into the presets folder.
 
 **Panel** (`panels/masks.rs`), top to bottom:
 
-1. **Layer list.** *+ Linear* / *+ Radial* add a mask with one shape and select
-   it (inside the selected group, or the selected mask's group, if there is
+1. **Layer list.** *+ Linear* / *+ Radial* / *+ Brush* add a mask with one shape
+   and select it (inside the selected group, or the selected mask's group, if there is
    one). Each row shows the photo's thumbnail tinted where the mask applies, its
    name, a summary ("2 shapes · inverted · 60 %") and a visibility switch.
    Click a row to select it, drag it to reorder, right-click to invert,
@@ -348,9 +349,11 @@ and copies them into the presets folder.
    right-click to rename, fold, ungroup or delete it (with its masks).
 2. **Group** (instead of 2–4, while a group is selected): name, amount,
    visibility, *Ungroup* and *Delete Group*.
-2. **Shapes** of the selected mask: add shapes, pick the one the handles edit,
+2. **Shapes** of the selected mask: add shapes, pick the one the canvas edits,
    choose how each later shape combines (Add, Subtract, Intersect), remove
-   shapes (one always stays). Feather and rotation for radial shapes.
+   shapes (one always stays). Feather and rotation for radial shapes. For a
+   brush: Paint or Erase, Size, Feather, Flow and *Clear Strokes*. A mask keeps
+   one brush, so *+ Brush* on a mask that has one selects it.
 3. **Name, Amount, Invert** and the overlay switch.
 4. **Adjustments**: the local sliders, Reset, Delete Mask.
 
@@ -386,6 +389,26 @@ amber rings mark the selected mask's other shapes; solid pins mark the other
 masks. Clicking either selects it. A drag that starts on a handle edits the
 shape instead of panning.
 
+**Brush** (`panels/mask_brush.rs`). While the selected shape is a brush, the canvas
+paints instead of showing handles, with the brush's outline, an inner ring where
+the feather starts and a plus or minus under the pointer. A drag paints a stroke,
+a click dabs (a click on a pin still selects it, and the viewer's double-click
+zoom stays off, so quick dabs don't zoom). Alt does the opposite of the panel's
+mode for that stroke; `[` and `]` size the brush instead of rating the photo.
+The sliders set `ViewState::mask_brush`, which applies to the next stroke, not to
+what's painted.
+
+The stroke in progress is `ViewState::mask_stroke`, outside the settings until
+release, so it is one undo step and the sidecar isn't saved mid-stroke, and the
+interface thread never builds a weight map while the pointer moves. It does reach
+the renders (`preview_settings` adds it to the selected brush), so the worker
+rasterizes it and the adjustments follow the stroke. The overlay shows the map of
+what's already painted, with the stroke drawn over it as a plain path in the
+overlay's red, or grey when erasing, until release shows its feather and flow. A
+stroke at the 1024-point limit joins the settings and goes on as a new one, so a
+long drag with a tiny brush doesn't stop; a brush at its caps turns strokes away,
+and the panel says it's full.
+
 **Overlay** (`gpu/mask_overlay.rs`). A fragment shader tints the photo by the
 selected mask's combined weight, mirroring `MaskWeight::at`. The tint's strength
 follows the mask as it renders (`tint_strength`): its amount times its group's
@@ -395,10 +418,14 @@ drawn dimmed too. The CPU packs the
 mask (up to eight shapes) into one uniform. Tests check the packing against
 the pipeline's weights through a transcription of the shader, and validate the
 shader with naga. Because the GPU evaluates the overlay, the tint follows
-handle drags at once, without waiting for the photo to re-render.
+handle drags at once, without waiting for the photo to re-render. A brush's map
+(PIPELINE.md §5b) is a texture instead, 8 bits and hardware filtered, uploaded
+only when the `Arc` from `BrushMap::cached` changes; a mask has one brush, so one
+texture is enough.
 
 **Thumbnails** (`panels/mask_thumbnails.rs`) are computed on the CPU at twice
-the row's point size and cached by the mask's shapes, inversion, crop and size.
+the row's point size and cached by the mask's shapes (a brush by its
+fingerprint), inversion, crop and size.
 They are drawn as strongly as the overlay (`tint_strength`), and over a dimmed
 photo while the mask or its group is hidden.
 Textures not drawn in a frame are dropped.

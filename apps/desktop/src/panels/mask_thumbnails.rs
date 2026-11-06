@@ -10,7 +10,7 @@
 use crate::photo_frame::PhotoFrame;
 use crate::theme;
 use eframe::egui::{self, Color32, ColorImage, Rect, TextureHandle, TextureOptions, pos2, vec2};
-use photonation_develop::Mask;
+use photonation_develop::{Mask, MaskShape};
 use photonation_pipeline::masks::MaskWeight;
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -74,10 +74,18 @@ impl MaskThumbnails {
 
 fn tint_key(mask: &Mask, frame: PhotoFrame, size: [usize; 2]) -> u64 {
     let mut hasher = DefaultHasher::new();
-    // Floats don't implement Hash; their Debug text identifies them.
+    for component in &mask.components {
+        component.mode.hash(&mut hasher);
+        match &component.shape {
+            // Every frame, for every row: too many points to print.
+            MaskShape::Brush(brush) => brush.fingerprint().hash(&mut hasher),
+            // Floats don't implement Hash; their Debug text identifies them.
+            gradient => format!("{gradient:?}").hash(&mut hasher),
+        }
+    }
     format!(
-        "{:?} {} {:?} {:?} {:?}",
-        mask.components, mask.invert, frame.crop, frame.space, frame.lens
+        "{} {:?} {:?} {:?}",
+        mask.invert, frame.crop, frame.space, frame.lens
     )
     .hash(&mut hasher);
     size.hash(&mut hasher);

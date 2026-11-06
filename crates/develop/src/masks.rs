@@ -4,8 +4,9 @@
 //! Masks: layers that each select part of the photo with one or more
 //! shapes, and apply their local adjustments there. See docs/EDIT-MODEL.md.
 
-use crate::LOCAL_CONTROLS;
+use crate::{BrushStroke, LOCAL_CONTROLS};
 use serde::{Deserialize, Serialize};
+use std::hash::{Hash, Hasher};
 
 /// Most masks one photo keeps. Every mask costs time at every pixel, so the
 /// cap also stops a hostile sidecar from making renders arbitrarily slow.
@@ -15,6 +16,12 @@ pub const MAX_MASK_NAME_CHARS: usize = 64;
 /// Most shapes one mask combines. The desktop overlay evaluates them in a
 /// fixed-size GPU uniform, and each one costs time at every pixel.
 pub const MAX_MASK_COMPONENTS: usize = 8;
+/// Most strokes one [`MaskBrush`] keeps.
+pub const MAX_MASK_BRUSH_STROKES: usize = 1024;
+/// Most points one [`MaskBrush`] keeps across its strokes. Painting whole
+/// photos at a small size stays well below it; it bounds the time a hostile
+/// sidecar can make a brush's weight map take.
+pub const MAX_MASK_BRUSH_POINTS: usize = 32_768;
 
 /// The coordinate frame masks are drawn in.
 ///
@@ -103,11 +110,109 @@ impl Default for RadialGradient {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+/// One stroke of a [`MaskBrush`]: a path swept by a round brush.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MaskStroke {
+    /// Positions in [`MaskSpace`], radius in units of the long edge.
+    #[serde(flatten)]
+    pub path: BrushStroke,
+    /// How much of the radius fades out, 0..100 (0 = hard edge).
+    pub feather: f32,
+    /// How much of the selection one stroke paints or erases, 0..100.
+    pub flow: f32,
+    /// Takes away from the selection instead of adding to it.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub erase: bool,
+}
+
+impl Default for MaskStroke {
+    fn default() -> Self {
+        MaskStroke {
+            path: BrushStroke::default(),
+            feather: 50.0,
+            flow: 100.0,
+            erase: false,
+        }
+    }
+}
+
+impl MaskStroke {
+    /// The selection after this stroke, where its own weight (from its
+    /// radius and feather) is `weight`. Painting over a selection builds up
+    /// towards full; at full flow a stroke's core always reaches it.
+    #[inline(always)]
+    pub fn combine(erase: bool, flow: f32, selected: f32, weight: f32) -> f32 {
+        let strength = flow * weight;
+        if erase {
+            selected * (1.0 - strength)
+        } else {
+            selected + (1.0 - selected) * strength
+        }
+    }
+}
+
+/// Painted strokes, applied in order to a selection that starts empty.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MaskBrush {
+    pub strokes: Vec<MaskStroke>,
+}
+
+impl MaskBrush {
+    /// Whether `stroke` still fits under the caps.
+    pub fn has_room_for(&self, stroke: &MaskStroke) -> bool {
+        self.strokes.len() < MAX_MASK_BRUSH_STROKES
+            && self.point_count() + stroke.path.points.len() <= MAX_MASK_BRUSH_POINTS
+    }
+
+    fn point_count(&self) -> usize {
+        self.strokes
+            .iter()
+            .map(|stroke| stroke.path.points.len())
+            .sum()
+    }
+
+    /// A hash of everything that changes what the brush selects, for
+    /// in-memory caches. Not stable across builds, so never persist it.
+    pub fn fingerprint(&self) -> u64 {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        for stroke in &self.strokes {
+            stroke.path.hash_path(&mut hasher);
+            stroke.feather.to_bits().hash(&mut hasher);
+            stroke.flow.to_bits().hash(&mut hasher);
+            stroke.erase.hash(&mut hasher);
+        }
+        hasher.finish()
+    }
+
+    fn sanitize(&mut self) {
+        self.strokes.truncate(MAX_MASK_BRUSH_STROKES);
+        for stroke in &mut self.strokes {
+            stroke.path.sanitize();
+            stroke.feather = percent_or(stroke.feather, MaskStroke::default().feather);
+            stroke.flow = percent_or(stroke.flow, MaskStroke::default().flow);
+        }
+        self.strokes.retain(|stroke| !stroke.path.points.is_empty());
+        let mut points = 0;
+        let kept = self
+            .strokes
+            .iter()
+            .take_while(|stroke| {
+                points += stroke.path.points.len();
+                points <= MAX_MASK_BRUSH_POINTS
+            })
+            .count();
+        self.strokes.truncate(kept);
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum MaskShape {
     Linear(LinearGradient),
     Radial(RadialGradient),
+    Brush(MaskBrush),
 }
 
 impl Default for MaskShape {
@@ -184,7 +289,7 @@ impl CombineMode {
 }
 
 /// One shape of a mask and how it combines with the shapes before it.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct MaskComponent {
     pub shape: MaskShape,
@@ -306,9 +411,17 @@ impl Mask {
             let value = control.get_mut(&mut mask.adjustments);
             *value = control.clamp(*value);
         }
+        // A brush's selection is a weight map in memory, so the number of
+        // masks also bounds what a hostile sidecar can allocate. A second
+        // brush would add nothing: one brush paints and erases on its own.
+        let mut seen_brush = false;
+        mask.components.retain(|component| {
+            let is_brush = matches!(component.shape, MaskShape::Brush(_));
+            !(is_brush && std::mem::replace(&mut seen_brush, true))
+        });
         mask.components.truncate(MAX_MASK_COMPONENTS);
         for component in &mut mask.components {
-            component.shape = sanitized_shape(component.shape);
+            sanitize_shape(&mut component.shape);
         }
         mask.amount = if mask.amount.is_finite() {
             mask.amount.clamp(0.0, 100.0)
@@ -333,38 +446,44 @@ const MIN_GRADIENT_LENGTH: f64 = 1e-3;
 const MIN_RADIUS: f64 = 1e-3;
 const MAX_RADIUS: f64 = 2.0;
 
-fn sanitized_shape(shape: MaskShape) -> MaskShape {
+fn sanitize_shape(shape: &mut MaskShape) {
     match shape {
         MaskShape::Linear(linear) => {
-            let start = sanitize_position(linear.start);
-            let mut end = sanitize_position(linear.end);
+            linear.start = sanitize_position(linear.start);
+            linear.end = sanitize_position(linear.end);
+            let (start, end) = (linear.start, linear.end);
             // A zero-length gradient has no direction; make it a hard
             // edge pointing down.
             if (end[0] - start[0]).hypot(end[1] - start[1]) < MIN_GRADIENT_LENGTH {
-                end = [start[0], start[1] + MIN_GRADIENT_LENGTH];
+                linear.end = [start[0], start[1] + MIN_GRADIENT_LENGTH];
             }
-            MaskShape::Linear(LinearGradient { start, end })
         }
-        MaskShape::Radial(radial) => MaskShape::Radial(RadialGradient {
-            center: sanitize_position(radial.center),
-            radius: radial.radius.map(|r| {
+        MaskShape::Radial(radial) => {
+            radial.center = sanitize_position(radial.center);
+            radial.radius = radial.radius.map(|r| {
                 if r.is_finite() {
                     r.clamp(MIN_RADIUS, MAX_RADIUS)
                 } else {
                     RadialGradient::default().radius[0]
                 }
-            }),
-            rotation: if radial.rotation.is_finite() {
+            });
+            radial.rotation = if radial.rotation.is_finite() {
                 radial.rotation.rem_euclid(360.0)
             } else {
                 0.0
-            },
-            feather: if radial.feather.is_finite() {
-                radial.feather.clamp(0.0, 100.0)
-            } else {
-                RadialGradient::default().feather
-            },
-        }),
+            };
+            radial.feather = percent_or(radial.feather, RadialGradient::default().feather);
+        }
+        MaskShape::Brush(brush) => brush.sanitize(),
+    }
+}
+
+/// `value` clamped to 0..100, or `default` if it isn't finite.
+fn percent_or(value: f32, default: f32) -> f32 {
+    if value.is_finite() {
+        value.clamp(0.0, 100.0)
+    } else {
+        default
     }
 }
 
@@ -448,7 +567,7 @@ mod tests {
         mask.adjustments.exposure = 99.0;
         mask.adjustments.contrast = f32::NAN;
         mask.amount = f32::NAN;
-        mask.components = vec![mask.components[0]; MAX_MASK_COMPONENTS * 4];
+        mask.components = vec![mask.components[0].clone(); MAX_MASK_COMPONENTS * 4];
         let clean = mask.sanitized();
         assert_eq!(clean.name.chars().count(), MAX_MASK_NAME_CHARS);
         assert_eq!(clean.adjustments.exposure, 4.0);
@@ -503,6 +622,127 @@ mod tests {
         mask.amount = 100.0;
         mask.components.clear();
         assert!(!mask.is_active());
+    }
+
+    fn stroke(points: Vec<[f64; 2]>) -> MaskStroke {
+        MaskStroke {
+            path: BrushStroke {
+                points,
+                radius: 0.05,
+            },
+            ..MaskStroke::default()
+        }
+    }
+
+    fn brush_mask(strokes: Vec<MaskStroke>) -> Mask {
+        Mask::new("Painted", MaskShape::Brush(MaskBrush { strokes }))
+    }
+
+    fn brush_of(mask: &Mask) -> &MaskBrush {
+        match &mask.components[0].shape {
+            MaskShape::Brush(brush) => brush,
+            other => panic!("not a brush: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn brush_strokes_round_trip_and_stay_compact() {
+        let mut erased = stroke(vec![[0.1, 0.2], [0.3, 0.4]]);
+        erased.erase = true;
+        erased.flow = 40.0;
+        let mask = brush_mask(vec![stroke(vec![[0.5, 0.5]]), erased]);
+        let json = serde_json::to_string(&mask).expect("serialize");
+        assert!(json.contains(r#""kind":"brush""#), "{json}");
+        assert!(json.contains(r#""radius":0.05"#), "flat: {json}");
+        assert_eq!(
+            json.matches("erase").count(),
+            1,
+            "painting strokes leave it out: {json}"
+        );
+        let back: Mask = serde_json::from_str(&json).expect("parse");
+        assert_eq!(back, mask);
+    }
+
+    #[test]
+    fn brush_stroke_fields_default_when_missing() {
+        let mask: Mask = serde_json::from_str(
+            r#"{"components": [{"shape": {"kind": "brush", "strokes": [{"points": [[0.5, 0.5]]}]}}]}"#,
+        )
+        .expect("parse");
+        let stroke = &brush_of(&mask).strokes[0];
+        assert_eq!(stroke.path.radius, BrushStroke::default().radius);
+        assert_eq!((stroke.feather, stroke.flow), (50.0, 100.0));
+        assert!(!stroke.erase);
+    }
+
+    #[test]
+    fn sanitize_repairs_and_caps_brushes() {
+        let mut hostile = stroke(vec![[f64::NAN, 0.5], [9.0, -9.0]]);
+        hostile.path.radius = f64::INFINITY;
+        hostile.feather = f32::NAN;
+        hostile.flow = 1000.0;
+        let clean = brush_mask(vec![hostile, stroke(vec![[f64::NAN, f64::NAN]])]).sanitized();
+        let strokes = &brush_of(&clean).strokes;
+        assert_eq!(strokes.len(), 1, "a stroke left without points goes");
+        assert_eq!(strokes[0].path.points, vec![[2.0, -1.0]]);
+        assert_eq!(strokes[0].path.radius, BrushStroke::default().radius);
+        assert_eq!((strokes[0].feather, strokes[0].flow), (50.0, 100.0));
+
+        let many = vec![stroke(vec![[0.5, 0.5]]); MAX_MASK_BRUSH_STROKES * 2];
+        let clean = brush_mask(many).sanitized();
+        assert_eq!(brush_of(&clean).strokes.len(), MAX_MASK_BRUSH_STROKES);
+
+        let long = vec![stroke(vec![[0.5, 0.5]; crate::MAX_STROKE_POINTS]); 40];
+        let clean = brush_mask(long).sanitized();
+        let brush = brush_of(&clean);
+        assert_eq!(
+            brush.point_count(),
+            MAX_MASK_BRUSH_POINTS,
+            "whole strokes up to the cap"
+        );
+        assert!(!brush.has_room_for(&stroke(vec![[0.5, 0.5]])));
+    }
+
+    #[test]
+    fn sanitize_keeps_one_brush_per_mask() {
+        let mut mask = brush_mask(vec![stroke(vec![[0.1, 0.1]])]);
+        mask.components
+            .push(MaskComponent::new(MaskShape::default(), CombineMode::Add));
+        mask.components.push(MaskComponent::new(
+            MaskShape::Brush(MaskBrush::default()),
+            CombineMode::Subtract,
+        ));
+        let clean = mask.sanitized();
+        assert_eq!(clean.components.len(), 2);
+        assert!(matches!(clean.components[1].shape, MaskShape::Radial(_)));
+    }
+
+    #[test]
+    fn brush_fingerprints_follow_what_it_selects() {
+        let base = MaskBrush {
+            strokes: vec![stroke(vec![[0.5, 0.5], [0.6, 0.5]])],
+        };
+        let changed = |edit: fn(&mut MaskStroke)| {
+            let mut other = base.clone();
+            edit(&mut other.strokes[0]);
+            other.fingerprint()
+        };
+        assert_eq!(base.fingerprint(), base.clone().fingerprint());
+        assert_ne!(base.fingerprint(), changed(|s| s.path.points[1][0] = 0.7));
+        assert_ne!(base.fingerprint(), changed(|s| s.path.radius = 0.1));
+        assert_ne!(base.fingerprint(), changed(|s| s.feather = 10.0));
+        assert_ne!(base.fingerprint(), changed(|s| s.flow = 10.0));
+        assert_ne!(base.fingerprint(), changed(|s| s.erase = true));
+    }
+
+    #[test]
+    fn strokes_build_up_and_erase() {
+        assert_eq!(MaskStroke::combine(false, 1.0, 0.25, 1.0), 1.0, "full flow");
+        assert_eq!(MaskStroke::combine(false, 0.5, 0.5, 1.0), 0.75, "build-up");
+        assert_eq!(MaskStroke::combine(false, 0.5, 0.5, 0.0), 0.5, "untouched");
+        assert_eq!(MaskStroke::combine(true, 1.0, 0.75, 1.0), 0.0, "erased");
+        assert_eq!(MaskStroke::combine(true, 0.5, 0.5, 1.0), 0.25, "half");
+        assert_eq!(MaskStroke::combine(true, 1.0, 0.5, 0.0), 0.5, "untouched");
     }
 
     #[test]

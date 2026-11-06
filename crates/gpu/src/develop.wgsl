@@ -96,6 +96,8 @@ struct Develop {
 @group(0) @binding(9) var<storage, read> removals: array<vec4<f32>>;
 // Every fill's linear camera RGB before white balance, interleaved.
 @group(0) @binding(10) var<storage, read> patches: array<f32>;
+// Every brush mask's weights (pipeline `BrushMap`), one after the other.
+@group(0) @binding(11) var<storage, read> brush_maps: array<f32>;
 
 // Removal fills (pipeline `RetouchPlan`).
 struct Retouch {
@@ -129,12 +131,15 @@ struct MaskEntry {
 // One shape of a mask (pipeline `ShapeWeight`).
 struct Shape {
     // Linear: start (xy), ramp (zw). Radial: centre (xy), fade start (z).
+    // Brush: first cell's centre (xy), cells per metric unit (z).
     a: vec4<f32>,
     // Radial: axis_x (xy), axis_y (zw), each divided by its radius.
     b: vec4<f32>,
-    // x: 0 linear, 1 radial; y: how it combines with the shapes before
-    // it (0 add, 1 subtract, 2 intersect).
+    // x: 0 linear, 1 radial, 2 brush; y: how it combines with the shapes
+    // before it (0 add, 1 subtract, 2 intersect).
     kind: vec4<u32>,
+    // Brush: first weight in `brush_maps` (x), width (y), height (z).
+    map: vec4<u32>,
 }
 
 fn smooth_step(edge0: f32, edge1: f32, x: f32) -> f32 {
@@ -412,10 +417,33 @@ fn linear(x: u32, y: u32) -> vec3<f32> {
 
 // ---- Masks --------------------------------------------------------------
 
+// A brush map's bilinear sample at a metric point (pipeline `BrushMap::at`).
+fn brush_weight(shape: Shape, point: vec2<f32>) -> f32 {
+    let first = shape.map.x;
+    let width = shape.map.y;
+    let last = vec2<f32>(f32(width - 1u), f32(shape.map.z - 1u));
+    let x = clamp((point.x - shape.a.x) * shape.a.z, 0.0, last.x);
+    let y = clamp((point.y - shape.a.y) * shape.a.z, 0.0, last.y);
+    let x0 = u32(x);
+    let y0 = u32(y);
+    let x1 = min(x0 + 1u, width - 1u);
+    let y1 = min(y0 + 1u, shape.map.z - 1u);
+    let fx = x - f32(x0);
+    let fy = y - f32(y0);
+    let row0 = first + y0 * width;
+    let row1 = first + y1 * width;
+    let top = brush_maps[row0 + x0] + (brush_maps[row0 + x1] - brush_maps[row0 + x0]) * fx;
+    let bottom = brush_maps[row1 + x0] + (brush_maps[row1 + x1] - brush_maps[row1 + x0]) * fx;
+    return top + (bottom - top) * fy;
+}
+
 fn shape_weight(shape: Shape, point: vec2<f32>) -> f32 {
     if shape.kind.x == 0u {
         let t = (point.x - shape.a.x) * shape.a.z + (point.y - shape.a.y) * shape.a.w;
         return 1.0 - smooth_step(0.0, 1.0, t);
+    }
+    if shape.kind.x == 2u {
+        return brush_weight(shape, point);
     }
     let offset = point - shape.a.xy;
     let x = offset.x * shape.b.x + offset.y * shape.b.y;

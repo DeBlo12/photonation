@@ -8,11 +8,13 @@
 use photonation_develop::CombineMode;
 use photonation_image::{Orientation, SensorLayout};
 use photonation_pipeline::Demosaic;
+use photonation_pipeline::brush_map::{BrushMap, CELLS_PER_LONG_EDGE};
 use photonation_pipeline::masks::ShapeWeight;
 use photonation_pipeline::plan::{
     ColorPlan, DenoisePlan, DevelopPlan, LocalContrastPlan, RenderPlan, RetouchPlan, SelectionPlan,
     StraightenPlan,
 };
+use std::sync::Arc;
 
 /// 32-bit words for a GPU buffer.
 #[derive(Default)]
@@ -212,6 +214,7 @@ pub fn develop(plan: &DevelopPlan) -> Words {
 pub fn masks(plan: &DevelopPlan) -> (Words, Words) {
     let (mut masks, mut shapes) = (Words::default(), Words::default());
     let mut shape_count = 0;
+    let mut map_offset = 0;
     for mask in plan.local.iter().flat_map(|local| &local.masks) {
         let components = &mask.weight.components;
         masks.uints([
@@ -224,19 +227,42 @@ pub fn masks(plan: &DevelopPlan) -> (Words, Words) {
         masks.floats([a.exposure, a.temperature, a.tint, a.contrast]);
         masks.floats([a.highlights, a.shadows, a.dehaze, a.saturation]);
         for (shape, mode) in components {
-            shape_words(&mut shapes, shape, *mode);
+            shape_words(&mut shapes, shape, *mode, &mut map_offset);
         }
         shape_count += components.len() as u32;
     }
-    for words in [&mut masks, &mut shapes] {
-        if words.0.is_empty() {
-            (0..3).for_each(|_| words.uints([0; 4]));
-        }
+    if masks.0.is_empty() {
+        (0..3).for_each(|_| masks.uints([0; 4]));
+        (0..4).for_each(|_| shapes.uints([0; 4]));
     }
     (masks, shapes)
 }
 
-fn shape_words(words: &mut Words, shape: &ShapeWeight, mode: CombineMode) {
+/// Every brush map of `plan`, in the order [`masks`] gives their offsets.
+pub fn brush_maps(plan: &DevelopPlan) -> Vec<&Arc<BrushMap>> {
+    plan.local
+        .iter()
+        .flat_map(|local| &local.masks)
+        .flat_map(|mask| &mask.weight.components)
+        .filter_map(|(shape, _)| match shape {
+            ShapeWeight::Brush(map) => Some(map),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Every brush map's weights: the develop shader's `brush_maps` array.
+pub fn brush_map_weights(maps: &[&Arc<BrushMap>]) -> Words {
+    Words(
+        maps.iter()
+            .flat_map(|map| map.weights.iter().map(|v| v.to_bits()))
+            .collect(),
+    )
+}
+
+/// Four rows of the develop shader's `Shape`; `map_offset` is where the next
+/// brush map starts in the `brush_maps` array.
+fn shape_words(words: &mut Words, shape: &ShapeWeight, mode: CombineMode, map_offset: &mut u32) {
     let mode = match mode {
         CombineMode::Add => 0,
         CombineMode::Subtract => 1,
@@ -247,6 +273,7 @@ fn shape_words(words: &mut Words, shape: &ShapeWeight, mode: CombineMode) {
             words.floats([start[0], start[1], ramp[0], ramp[1]]);
             words.floats([0.0; 4]);
             words.uints([0, mode, 0, 0]);
+            words.uints([0; 4]);
         }
         ShapeWeight::Radial {
             center,
@@ -257,6 +284,14 @@ fn shape_words(words: &mut Words, shape: &ShapeWeight, mode: CombineMode) {
             words.floats([center[0], center[1], fade_start, 0.0]);
             words.floats([axis_x[0], axis_x[1], axis_y[0], axis_y[1]]);
             words.uints([1, mode, 0, 0]);
+            words.uints([0; 4]);
+        }
+        ShapeWeight::Brush(ref map) => {
+            words.floats([map.origin[0], map.origin[1], CELLS_PER_LONG_EDGE, 0.0]);
+            words.floats([0.0; 4]);
+            words.uints([2, mode, 0, 0]);
+            words.uints([*map_offset, map.width as u32, map.height as u32, 0]);
+            *map_offset += map.weights.len() as u32;
         }
     }
 }

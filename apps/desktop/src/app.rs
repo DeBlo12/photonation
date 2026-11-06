@@ -8,7 +8,7 @@ use crate::theme;
 use crate::widgets::CurveChannel;
 use eframe::egui::{self, TextureHandle, TextureOptions};
 use photonation_develop::{
-    AdjustmentGroup, BrushStroke, LibraryInfo, MAX_POINT_COLORS, OklabLch, PointColor,
+    AdjustmentGroup, BrushStroke, LibraryInfo, MAX_POINT_COLORS, MaskStroke, OklabLch, PointColor,
     RemovalMethod, Settings, SettingsOrigin, load_photo, save_photo,
 };
 use photonation_engine::{
@@ -152,6 +152,36 @@ impl RemovalBrush {
     }
 }
 
+/// How new mask strokes are painted.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MaskBrushTool {
+    /// Brush radius as a percentage of the photo's long edge.
+    pub size_percent: f32,
+    pub feather: f32,
+    pub flow: f32,
+    /// The panel's Paint or Erase; holding Alt does the opposite.
+    pub erase: bool,
+}
+
+impl Default for MaskBrushTool {
+    fn default() -> Self {
+        let stroke = MaskStroke::default();
+        MaskBrushTool {
+            size_percent: 2.0,
+            feather: stroke.feather,
+            flow: stroke.flow,
+            erase: stroke.erase,
+        }
+    }
+}
+
+impl MaskBrushTool {
+    /// Radius in long-edge units, as strokes store it.
+    pub fn radius(self) -> f64 {
+        f64::from(self.size_percent) / 100.0
+    }
+}
+
 /// Transient view state (not saved with the photo).
 pub struct ViewState {
     /// Where the inspector is this frame, if shown.
@@ -213,6 +243,11 @@ pub struct ViewState {
     /// Index into `settings.removals`.
     pub selected_removal: Option<usize>,
     pub removal_brush: RemovalBrush,
+    pub mask_brush: MaskBrushTool,
+    /// The mask stroke being painted. It renders like any stroke, but joins
+    /// the settings only on release: one undo step, and the interface never
+    /// waits for a weight map while the pointer moves.
+    pub mask_stroke: Option<MaskStroke>,
     /// The stroke being painted; it joins the settings on release.
     pub painting: Option<BrushStroke>,
     /// Presets, copied settings and their dialogs.
@@ -264,6 +299,8 @@ impl Default for ViewState {
             tool_warning: None,
             selected_removal: None,
             removal_brush: RemovalBrush::default(),
+            mask_brush: MaskBrushTool::default(),
+            mask_stroke: None,
             painting: None,
             presets: Default::default(),
         }
@@ -316,6 +353,7 @@ impl ViewState {
         self.cropping = false;
         self.show_removals = false;
         self.painting = None;
+        self.mask_stroke = None;
         self.library.grid = false;
         self.library.survey = false;
         self.tool_warning = None;
@@ -610,6 +648,7 @@ impl PhotonationApp {
         self.pending_color_pick = None;
         self.view.selected_removal = None;
         self.view.painting = None;
+        self.view.mask_stroke = None;
         self.filling_removals = false;
         self.remember_photo_before_panels();
         self.refresh();
@@ -686,7 +725,7 @@ impl PhotonationApp {
     }
 
     /// Re-render without marking the photo as changed.
-    fn refresh(&mut self) {
+    pub(crate) fn refresh(&mut self) {
         self.generation += 1;
     }
 
@@ -749,12 +788,13 @@ impl PhotonationApp {
     /// What the viewer shows: the crop tool shows the whole photo, and a
     /// preset under the pointer shows on the photo.
     fn preview_settings(&self) -> Settings {
-        let settings = self
+        let mut settings = self
             .view
             .presets
             .hover
             .clone()
             .unwrap_or_else(|| self.effective_settings());
+        panels::mask_brush::with_stroke_in_progress(&mut settings, &self.view);
         if self.view.cropping {
             panels::crop::uncropped(settings)
         } else {
@@ -1416,6 +1456,176 @@ mod tests {
                 crs:ProcessVersion="15.4" crs:Exposure2012="+0.70"/></rdf:RDF></x:xmpmeta>"#,
         )
         .expect("write xmp");
+    }
+
+    /// Pretends the current photo has loaded, so the viewer draws it.
+    fn show_a_decoded_photo(app: &mut PhotonationApp, ctx: &egui::Context, path: PathBuf) {
+        app.info = Some(PhotoInfo {
+            path,
+            camera: Default::default(),
+            as_shot: (5000.0, 0.0),
+            size: (6000, 4000),
+        });
+        let image = egui::ColorImage::new([60, 40], vec![egui::Color32::GRAY; 60 * 40]);
+        app.preview = Some(Preview {
+            texture: ctx.load_texture("test photo", image, TextureOptions::LINEAR),
+            size: [60, 40],
+        });
+    }
+
+    fn pointer_button(pos: egui::Pos2, pressed: bool, modifiers: egui::Modifiers) -> egui::Event {
+        egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers,
+        }
+    }
+
+    /// A press at `from`, a drag along `to`, and a release: frame by frame,
+    /// as the window runs them.
+    fn drag_on_the_photo(
+        app: &mut PhotonationApp,
+        ctx: &egui::Context,
+        from: egui::Pos2,
+        to: &[egui::Pos2],
+        modifiers: egui::Modifiers,
+    ) {
+        window_frame(app, ctx, vec![egui::Event::ModifiersChanged(modifiers)]);
+        window_frame(app, ctx, vec![egui::Event::PointerMoved(from)]);
+        window_frame(app, ctx, vec![pointer_button(from, true, modifiers)]);
+        for point in to {
+            window_frame(app, ctx, vec![egui::Event::PointerMoved(*point)]);
+        }
+        let end = to.last().copied().unwrap_or(from);
+        window_frame(app, ctx, vec![pointer_button(end, false, modifiers)]);
+        let released = egui::Event::ModifiersChanged(egui::Modifiers::NONE);
+        window_frame(app, ctx, vec![released]);
+    }
+
+    fn painted_strokes(app: &PhotonationApp) -> &[photonation_develop::MaskStroke] {
+        match &app.settings.masks[0].components[0].shape {
+            photonation_develop::MaskShape::Brush(brush) => &brush.strokes,
+            other => panic!("not a brush: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn painting_on_the_photo_makes_one_undoable_stroke_that_renders_as_it_grows() {
+        use egui::{Modifiers, pos2};
+        use photonation_develop::{Mask, MaskBrush, MaskShape};
+        let folder = folder_of(&["a.CR3"]);
+        let ctx = egui::Context::default();
+        let mut app = PhotonationApp::empty(&ctx);
+        app.open_folder(folder.path().to_path_buf());
+        app.current = Some(0);
+        window_frame(&mut app, &ctx, Vec::new());
+        show_a_decoded_photo(&mut app, &ctx, folder.path().join("a.CR3"));
+        app.settings.masks = vec![Mask::new("Painted", MaskShape::Brush(MaskBrush::default()))];
+        app.view.selected_mask = Some(MaskSelection::mask(0));
+        app.view.show_masks = true;
+        window_frame(&mut app, &ctx, Vec::new());
+        app.history.commit(&app.settings);
+        assert!(painted_strokes(&app).is_empty());
+
+        let path = [
+            pos2(300.0, 300.0),
+            pos2(340.0, 300.0),
+            pos2(380.0, 320.0),
+            pos2(420.0, 320.0),
+        ];
+        let generation = app.generation;
+        window_frame(&mut app, &ctx, vec![egui::Event::PointerMoved(path[0])]);
+        window_frame(
+            &mut app,
+            &ctx,
+            vec![pointer_button(path[0], true, Modifiers::NONE)],
+        );
+        for point in &path[1..] {
+            window_frame(&mut app, &ctx, vec![egui::Event::PointerMoved(*point)]);
+        }
+        assert!(painted_strokes(&app).is_empty(), "not until the release");
+        let growing = app.view.mask_stroke.as_ref().expect("painting");
+        assert!(growing.path.points.len() >= 3, "{:?}", growing.path.points);
+        assert!(
+            app.generation > generation,
+            "the stroke renders as it grows"
+        );
+        let rendered = app.preview_settings();
+        match &rendered.masks[0].components[0].shape {
+            MaskShape::Brush(brush) => assert_eq!(brush.strokes.len(), 1),
+            other => panic!("not a brush: {other:?}"),
+        }
+
+        window_frame(
+            &mut app,
+            &ctx,
+            vec![pointer_button(path[3], false, Modifiers::NONE)],
+        );
+        window_frame(&mut app, &ctx, Vec::new());
+        assert!(app.view.mask_stroke.is_none());
+        assert_eq!(painted_strokes(&app).len(), 1);
+        assert!(!painted_strokes(&app)[0].erase);
+        assert!(app.pending_save.is_some(), "the stroke is an edit to save");
+
+        // With Alt the brush erases, and each stroke is its own undo step.
+        drag_on_the_photo(
+            &mut app,
+            &ctx,
+            pos2(300.0, 350.0),
+            &[pos2(340.0, 350.0), pos2(380.0, 350.0)],
+            Modifiers::ALT,
+        );
+        window_frame(&mut app, &ctx, Vec::new());
+        assert_eq!(painted_strokes(&app).len(), 2);
+        assert!(painted_strokes(&app)[1].erase);
+        app.undo();
+        assert_eq!(painted_strokes(&app).len(), 1, "undo takes back one stroke");
+        app.undo();
+        assert!(painted_strokes(&app).is_empty());
+
+        // A click dabs, and the viewer doesn't take it for a zoom.
+        let spot = pos2(350.0, 300.0);
+        window_frame(&mut app, &ctx, vec![egui::Event::PointerMoved(spot)]);
+        window_frame(
+            &mut app,
+            &ctx,
+            vec![pointer_button(spot, true, Modifiers::NONE)],
+        );
+        window_frame(
+            &mut app,
+            &ctx,
+            vec![pointer_button(spot, false, Modifiers::NONE)],
+        );
+        window_frame(&mut app, &ctx, Vec::new());
+        assert_eq!(painted_strokes(&app).len(), 1);
+        assert_eq!(painted_strokes(&app)[0].path.points.len(), 1);
+    }
+
+    #[test]
+    fn brackets_size_the_mask_brush_instead_of_rating_the_photo() {
+        use photonation_develop::{Mask, MaskBrush, MaskShape};
+        let folder = folder_of(&["a.CR3"]);
+        let ctx = egui::Context::default();
+        let mut app = PhotonationApp::empty(&ctx);
+        app.open_folder(folder.path().to_path_buf());
+        app.current = Some(0);
+        window_frame(&mut app, &ctx, Vec::new());
+        app.settings.masks = vec![Mask::new("Painted", MaskShape::Brush(MaskBrush::default()))];
+        app.view.selected_mask = Some(MaskSelection::mask(0));
+        app.view.show_masks = true;
+        let size = app.view.mask_brush.size_percent;
+        let key = |key| egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        };
+        window_frame(&mut app, &ctx, vec![key(egui::Key::CloseBracket)]);
+        assert!(app.view.mask_brush.size_percent > size);
+        window_frame(&mut app, &ctx, vec![key(egui::Key::OpenBracket)]);
+        assert!((app.view.mask_brush.size_percent - size).abs() < 1e-4);
     }
 
     /// A folder with these (unreadable) raw files.

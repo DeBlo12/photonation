@@ -28,7 +28,8 @@ mod params;
 use params::Words;
 use photonation_develop::Settings;
 use photonation_image::{BitDepth, OutputImage, Pixels, SensorImage, SensorLayout};
-use photonation_pipeline::plan::{DenoisePlan, LocalContrastPlan, RetouchPlan};
+use photonation_pipeline::brush_map::BrushMap;
+use photonation_pipeline::plan::{DenoisePlan, DevelopPlan, LocalContrastPlan, RetouchPlan};
 use photonation_pipeline::{
     PlanError, RemovalFills, RenderOptions, RenderPlan, RetouchPatch, render_plan,
 };
@@ -145,11 +146,22 @@ struct UploadedSensor {
     view: wgpu::TextureView,
 }
 
-/// The removal fills of the last render on the GPU.
-struct UploadedFills {
-    /// Identify the fills, in order (see [`UploadedSensor::sensor`]).
-    patches: Vec<Weak<RetouchPatch>>,
+/// Shared data of the last render on the GPU: removal fills or brush maps.
+struct UploadedBuffer<T> {
+    /// Identify the sources, in order (see [`UploadedSensor::sensor`]).
+    sources: Vec<Weak<T>>,
     buffer: wgpu::Buffer,
+}
+
+impl<T> UploadedBuffer<T> {
+    fn holds(&self, sources: &[Weak<T>]) -> bool {
+        self.sources.len() == sources.len()
+            && self
+                .sources
+                .iter()
+                .zip(sources)
+                .all(|(cached, source)| Weak::ptr_eq(cached, source))
+    }
 }
 
 /// Renders on one GPU device. Keeps the last photo's mosaic and removal
@@ -161,7 +173,8 @@ pub struct GpuRenderer {
     adapter: String,
     pipelines: Pipelines,
     uploaded: Option<UploadedSensor>,
-    fills: Option<UploadedFills>,
+    fills: Option<UploadedBuffer<RetouchPatch>>,
+    brush_maps: Option<UploadedBuffer<BrushMap>>,
 }
 
 impl GpuRenderer {
@@ -201,6 +214,7 @@ impl GpuRenderer {
             pipelines,
             uploaded: None,
             fills: None,
+            brush_maps: None,
         })
     }
 
@@ -245,6 +259,13 @@ impl GpuRenderer {
         if fill_bytes as u64 > limits.max_storage_buffer_binding_size {
             return Err(GpuError::Unsupported("removal fills this large"));
         }
+        let brush_bytes: usize = params::brush_maps(&plan.develop)
+            .iter()
+            .map(|map| map.byte_size())
+            .sum();
+        if brush_bytes as u64 > limits.max_storage_buffer_binding_size {
+            return Err(GpuError::Unsupported("brush masks this large"));
+        }
         if let Some(contrast) = &plan.local_contrast
             && contrast.clarity_radius.max(contrast.texture_radius) > MAX_BOX_RADIUS
         {
@@ -257,12 +278,14 @@ impl GpuRenderer {
         let validation = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
         let mosaic = self.mosaic(sensor);
         let fills = self.fills(plan.retouch.as_ref());
-        let readback = self.run(&plan, &sensor.layout, &mosaic, fills);
+        let brush_maps = self.brush_maps(&plan.develop);
+        let readback = self.run(&plan, &sensor.layout, &mosaic, fills, brush_maps);
         let errors = [validation.pop(), out_of_memory.pop()].map(pollster::block_on);
         if let Some(error) = errors.into_iter().flatten().next() {
             // A failed upload must not be reused.
             self.uploaded = None;
             self.fills = None;
+            self.brush_maps = None;
             return Err(GpuError::Device(error.to_string()));
         }
         let (width, height) = plan.orientation.display_size(plan.target.0, plan.target.1);
@@ -341,18 +364,13 @@ impl GpuRenderer {
         let Some(retouch) = retouch else {
             return self.storage("no fills", &Words::default());
         };
-        let patches: Vec<Weak<RetouchPatch>> = retouch
+        let sources: Vec<Weak<RetouchPatch>> = retouch
             .removals
             .iter()
             .map(|removal| Arc::downgrade(&removal.patch))
             .collect();
         if let Some(uploaded) = &self.fills
-            && uploaded.patches.len() == patches.len()
-            && uploaded
-                .patches
-                .iter()
-                .zip(&patches)
-                .all(|(cached, patch)| Weak::ptr_eq(cached, patch))
+            && uploaded.holds(&sources)
         {
             return Bind::Buffer(uploaded.buffer.clone());
         }
@@ -360,8 +378,30 @@ impl GpuRenderer {
         let Bind::Buffer(buffer) = self.storage("fills", &params::patches(retouch)) else {
             unreachable!("storage is a buffer")
         };
-        self.fills = Some(UploadedFills {
-            patches,
+        self.fills = Some(UploadedBuffer {
+            sources,
+            buffer: buffer.clone(),
+        });
+        Bind::Buffer(buffer)
+    }
+
+    /// The buffer holding `develop`'s brush maps, uploaded unless they are
+    /// the cached ones, so a slider drag on a painted mask uploads none.
+    fn brush_maps(&mut self, develop: &DevelopPlan) -> Bind {
+        let maps = params::brush_maps(develop);
+        let sources: Vec<Weak<BrushMap>> = maps.iter().map(|map| Arc::downgrade(map)).collect();
+        if let Some(uploaded) = &self.brush_maps
+            && uploaded.holds(&sources)
+        {
+            return Bind::Buffer(uploaded.buffer.clone());
+        }
+        self.brush_maps = None; // free the previous maps first
+        let weights = params::brush_map_weights(&maps);
+        let Bind::Buffer(buffer) = self.storage("brush maps", &weights) else {
+            unreachable!("storage is a buffer")
+        };
+        self.brush_maps = Some(UploadedBuffer {
+            sources,
             buffer: buffer.clone(),
         });
         Bind::Buffer(buffer)
@@ -375,6 +415,7 @@ impl GpuRenderer {
         layout: &SensorLayout,
         mosaic: &wgpu::TextureView,
         fills: Bind,
+        brush_maps: Bind,
     ) -> wgpu::Buffer {
         let device = &self.device;
         let pipelines = &self.pipelines;
@@ -403,6 +444,7 @@ impl GpuRenderer {
                 (8, self.uniform("retouch", &retouch)),
                 (9, self.storage("removals", &removals)),
                 (10, fills),
+                (11, brush_maps),
             ],
         );
         dispatch(

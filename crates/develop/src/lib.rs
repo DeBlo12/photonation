@@ -42,8 +42,9 @@ pub use mask_groups::{
     rendered_masks, sanitize_groups, tidy_groups,
 };
 pub use masks::{
-    CombineMode, LinearGradient, LocalAdjustments, MAX_MASK_COMPONENTS, MAX_MASK_NAME_CHARS,
-    MAX_MASKS, Mask, MaskComponent, MaskShape, MaskSpace, RadialGradient,
+    CombineMode, LinearGradient, LocalAdjustments, MAX_MASK_BRUSH_POINTS, MAX_MASK_BRUSH_STROKES,
+    MAX_MASK_COMPONENTS, MAX_MASK_NAME_CHARS, MAX_MASKS, Mask, MaskBrush, MaskComponent, MaskShape,
+    MaskSpace, MaskStroke, RadialGradient,
 };
 pub use point_colors::{MAX_POINT_COLORS, MAX_SAMPLED_CHROMA, OklabLch, PointColor};
 pub use presets::{

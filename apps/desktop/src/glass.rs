@@ -27,20 +27,23 @@ pub fn supported() -> bool {
     AnyClass::get(c"NSGlassEffectView").is_some()
 }
 
-/// Makes the glass match a mode other than the system's, as egui then does.
-pub fn force_appearance(theme: Theme) {
+/// Makes the glass and native dialogs match a mode other than the system's, as
+/// egui then does. `None` hands them back to the system.
+pub fn force_appearance(theme: Option<Theme>) {
     let Some(main_thread) = MainThreadMarker::new() else {
         return;
     };
-    // SAFETY: the names are AppKit's constants, valid while AppKit is loaded.
-    let name = unsafe {
-        match theme {
-            Theme::Dark => NSAppearanceNameDarkAqua,
-            Theme::Light => NSAppearanceNameAqua,
-        }
-    };
-    NSApplication::sharedApplication(main_thread)
-        .setAppearance(NSAppearance::appearanceNamed(name).as_deref());
+    let appearance = theme.and_then(|theme| {
+        // SAFETY: the names are AppKit's constants, valid while AppKit is loaded.
+        let name = unsafe {
+            match theme {
+                Theme::Dark => NSAppearanceNameDarkAqua,
+                Theme::Light => NSAppearanceNameAqua,
+            }
+        };
+        NSAppearance::appearanceNamed(name)
+    });
+    NSApplication::sharedApplication(main_thread).setAppearance(appearance.as_deref());
 }
 
 /// The corner radius of a glass pane of this size.

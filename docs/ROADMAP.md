@@ -53,7 +53,7 @@
 
 In this order:
 
-1. **More masks**: masks in compare mode, and later AI subject and sky masks. Skip masks whose
+1. **More masks**: later AI subject and sky masks. Skip masks whose
    bounds miss a band, and fold local saturation into the colour step's Oklab
    round trip, to speed up masked renders.
 2. **Better removals**: one-click people selection (segmentation), dust

@@ -23,6 +23,13 @@ changes to CI alone are not released.
   centre. Its handles still adjust it, and it starts in the usual place if you
   don't drag.
 
+### Fixed
+
+- Masks while comparing: the tint stays on the Edited side, since the Original has
+  no masks, and a drag on the divider moves only the divider. It used to also edit
+  a mask or removal under it, or pan a zoomed photo. While a tool is open, grab the
+  divider by its knob, so the tool still works right next to the line.
+
 ## [0.20.0] - 2026-11-06
 
 ### Added

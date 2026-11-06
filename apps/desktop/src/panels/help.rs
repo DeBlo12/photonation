@@ -1514,7 +1514,9 @@ fn content(page: Page) -> Content {
                     "Compare (\\)",
                     "splits the photo: the unedited original left of the handle, your edit \
                      right of it. Drag the handle across the photo. The original is framed \
-                     like the edit.",
+                     like the edit. Masks stay editable: their tint shows only on the \
+                     edited side, and while a tool is open, only the handle's knob moves \
+                     the split.",
                 ),
                 term(
                     "A card's switch",

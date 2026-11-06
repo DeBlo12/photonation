@@ -436,6 +436,16 @@ handle drags at once, without waiting for the photo to re-render. A brush's map
 only when the `Arc` from `BrushMap::cached` changes; a mask has one brush, so one
 texture is enough.
 
+**Compare.** With Compare on, masks stay editable. The Original side shows the
+unedited photo, so the overlay and the stroke being painted are clipped to the
+Edited side (`edited_part`), while handles, pins and the brush's outline stay
+everywhere, since they are tools rather than part of either picture. Editing on
+the Original side works, and shows once the divider moves. The divider takes a
+drag before any tool, so one drag moves one thing. While a tool works on the
+photo (masks, crop, Remove), only the divider's knob grabs it, so the tool still
+works right next to the line; otherwise any point along the line does. A drag on
+the divider no longer also pans a zoomed photo.
+
 **Thumbnails** (`panels/mask_thumbnails.rs`) are computed on the CPU at twice
 the row's point size and cached by the mask's shapes (a brush by its
 fingerprint), inversion, crop and size.
@@ -640,6 +650,7 @@ shows the first point colour's range); `PHOTONATION_SCREENSHOT_MASKS=1` opens
 the masks panel with the first mask selected (`=group` selects the first mask
 group instead); `PHOTONATION_SCREENSHOT_CROP=1` opens the crop tool;
 `PHOTONATION_SCREENSHOT_REMOVE=1` the Remove panel;
+`PHOTONATION_SCREENSHOT_COMPARE=1` splits the photo for Compare;
 `PHOTONATION_SCREENSHOT_SIDEBAR=280` starts the sidebar at that width
 (280–440), to check narrow and wide layouts; `PHOTONATION_SCREENSHOT_EXPORT=1`
 opens the export sheet; `PHOTONATION_SCREENSHOT_HELP=1` the Help window

@@ -14,13 +14,17 @@ use crate::panels::{crop, mask_brush, mask_handles, removal_brush};
 use crate::photo_frame::PhotoFrame;
 use crate::theme;
 use crate::widgets::{self, Icon};
-use eframe::egui::{self, Align2, Color32, CursorIcon, Rect, Sense, Stroke, Vec2, pos2, vec2};
+use eframe::egui::{
+    self, Align2, Color32, CursorIcon, Pos2, Rect, Sense, Stroke, Vec2, pos2, vec2,
+};
 use photonation_develop::{AdjustmentGroup, MaskSpace};
 use photonation_image::CropFrame;
 use photonation_pipeline::LensMap;
 use photonation_pipeline::masks::MaskWeight;
 
 const MARGIN: f32 = 28.0;
+/// How close (points) the pointer must be to grab the compare divider.
+const DIVIDER_GRAB: f32 = 16.0;
 const MIN_SCALE: f32 = 0.05;
 const MAX_SCALE: f32 = 8.0;
 
@@ -104,10 +108,20 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
             if !brushing_mask && app.view.mask_stroke.take().is_some() {
                 app.refresh();
             }
-            // A drag that grabs a mask handle or the crop frame, or paints a
-            // removal or a mask, edits it instead of panning.
-            let mut dragging_mask = false;
-            if cropping
+            // A drag that grabs a mask handle or the crop frame, paints a
+            // removal or a mask, or moves the compare divider, edits it instead
+            // of panning. The divider goes first: one drag moves one thing.
+            let tool_on_photo = editing_masks || cropping || painting_removals;
+            let moving_divider = compare_divider(
+                app,
+                ui,
+                &response,
+                Rect::from_center_size(canvas.center() + app.view.pan, displayed),
+                tool_on_photo,
+            );
+            let mut dragging_mask = moving_divider;
+            if !moving_divider
+                && cropping
                 && let Some(frame) = photo_frame(
                     app,
                     Rect::from_center_size(canvas.center() + app.view.pan, displayed),
@@ -115,7 +129,8 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
             {
                 dragging_mask = crop::interact(app, ui, &response, &frame);
             }
-            if editing_masks
+            if !moving_divider
+                && editing_masks
                 && let Some(frame) = photo_frame(
                     app,
                     Rect::from_center_size(canvas.center() + app.view.pan, displayed),
@@ -143,7 +158,8 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
                     )
                 };
             }
-            if painting_removals
+            if !moving_divider
+                && painting_removals
                 && let Some(frame) = photo_frame(
                     app,
                     Rect::from_center_size(canvas.center() + app.view.pan, displayed),
@@ -189,10 +205,20 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
             if app.view.compare
                 && let Some(before) = &app.before
             {
-                compare_overlay(&mut app.view, ui, &response, &painter, before, image_rect);
+                compare_overlay(&app.view, &painter, before, image_rect);
+                // After the tools, which set their own cursors.
+                let split = app.view.compare_split;
+                if response
+                    .hover_pos()
+                    .is_some_and(|pointer| on_divider(pointer, split, image_rect, tool_on_photo))
+                {
+                    ui.ctx().set_cursor_icon(CursorIcon::ResizeHorizontal);
+                }
             }
             if editing_masks && let Some(frame) = photo_frame(app, image_rect) {
-                selected_mask_overlay(app, &painter, &frame);
+                let edited = edited_part(app, image_rect);
+                let tint = painter.with_clip_rect(edited.intersect(painter.clip_rect()));
+                selected_mask_overlay(app, &tint, &frame);
                 // As rendered, so pins of hidden masks look hidden.
                 mask_handles::paint(
                     &app.settings.rendered_masks(),
@@ -201,7 +227,7 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
                     &frame,
                 );
                 if brushing_mask {
-                    mask_brush::paint(&app.view, ui, &response, &painter, &frame);
+                    mask_brush::paint(&app.view, ui, &response, &painter, &frame, edited);
                 }
             }
             if cropping && let Some(frame) = photo_frame(app, image_rect) {
@@ -455,15 +481,68 @@ fn clamp_pan(pan: Vec2, displayed: Vec2, canvas: Vec2) -> Vec2 {
 }
 
 /// Before (left of the divider) over after; drag the divider handle.
-fn compare_overlay(
-    view: &mut ViewState,
+/// The part of the photo showing the edit: all of it, or while comparing, the
+/// part right of the divider. The original has no masks, so a mask's tint
+/// stays out of its side.
+fn edited_part(app: &PhotonationApp, image_rect: Rect) -> Rect {
+    if app.view.compare && app.before.is_some() {
+        image_rect.with_min_x(divider_x(app.view.compare_split, image_rect))
+    } else {
+        image_rect
+    }
+}
+
+fn divider_x(split: f32, image_rect: Rect) -> f32 {
+    image_rect.left() + image_rect.width() * split
+}
+
+/// Whether a drag from `pointer` moves the compare divider. Any point along
+/// it does, unless a tool also works on the photo: then only its knob, so
+/// the tool can still work right next to the divider.
+fn on_divider(pointer: Pos2, split: f32, image_rect: Rect, tool_on_photo: bool) -> bool {
+    let knob = pos2(divider_x(split, image_rect), image_rect.center().y);
+    if tool_on_photo {
+        pointer.distance(knob) < DIVIDER_GRAB
+    } else {
+        (pointer.x - knob.x).abs() < DIVIDER_GRAB
+    }
+}
+
+/// Handles dragging the compare divider. Returns whether it owns the pointer.
+fn compare_divider(
+    app: &mut PhotonationApp,
     ui: &egui::Ui,
     response: &egui::Response,
-    painter: &egui::Painter,
-    before: &Preview,
     image_rect: Rect,
-) {
-    let split_x = image_rect.left() + image_rect.width() * view.compare_split;
+    tool_on_photo: bool,
+) -> bool {
+    if !(app.view.compare && app.before.is_some()) {
+        return false;
+    }
+    let split = app.view.compare_split;
+    let on = |pointer| on_divider(pointer, split, image_rect, tool_on_photo);
+    let dragging_id = response.id.with("dragging-divider");
+    let mut dragging = ui
+        .ctx()
+        .data(|d| d.get_temp::<bool>(dragging_id))
+        .unwrap_or(false);
+    if response.drag_started() && ui.input(|i| i.pointer.press_origin()).is_some_and(on) {
+        dragging = true;
+    }
+    if !response.dragged() {
+        dragging = false;
+    }
+    if dragging && let Some(pointer) = response.interact_pointer_pos() {
+        app.view.compare_split =
+            ((pointer.x - image_rect.left()) / image_rect.width()).clamp(0.0, 1.0);
+        ui.ctx().set_cursor_icon(CursorIcon::ResizeHorizontal);
+    }
+    ui.ctx().data_mut(|d| d.insert_temp(dragging_id, dragging));
+    dragging
+}
+
+fn compare_overlay(view: &ViewState, painter: &egui::Painter, before: &Preview, image_rect: Rect) {
+    let split_x = divider_x(view.compare_split, image_rect);
     let left = Rect::from_min_max(image_rect.min, pos2(split_x, image_rect.bottom()));
     paint(painter, before, image_rect, left);
     painter.line_segment(
@@ -495,28 +574,6 @@ fn compare_overlay(
         theme::body(12.0),
         theme::ON_PHOTO,
     );
-
-    let near_handle = response
-        .hover_pos()
-        .is_some_and(|p| (p.x - split_x).abs() < 16.0);
-    if near_handle {
-        ui.ctx().set_cursor_icon(CursorIcon::ResizeHorizontal);
-    }
-    let dragging_id = response.id.with("dragging-divider");
-    let mut dragging = ui
-        .ctx()
-        .data(|d| d.get_temp::<bool>(dragging_id))
-        .unwrap_or(false);
-    if response.drag_started() && near_handle {
-        dragging = true;
-    }
-    if !response.dragged() {
-        dragging = false;
-    }
-    if dragging && let Some(pointer) = response.interact_pointer_pos() {
-        view.compare_split = ((pointer.x - image_rect.left()) / image_rect.width()).clamp(0.0, 1.0);
-    }
-    ui.ctx().data_mut(|d| d.insert_temp(dragging_id, dragging));
 }
 
 fn eyedropper(
@@ -544,5 +601,26 @@ fn eyedropper(
     }
     if ui.ctx().input(|i| i.key_pressed(egui::Key::Escape)) {
         app.view.eyedropper = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn with_a_tool_open_only_the_knob_grabs_the_divider() {
+        let photo = Rect::from_min_size(pos2(100.0, 100.0), vec2(600.0, 400.0));
+        let knob = pos2(400.0, 300.0);
+        let up_the_line = pos2(400.0, 150.0);
+        assert!(on_divider(knob, 0.5, photo, true));
+        assert!(!on_divider(up_the_line, 0.5, photo, true));
+        assert!(on_divider(knob, 0.5, photo, false));
+        assert!(on_divider(up_the_line, 0.5, photo, false));
+        assert!(!on_divider(pos2(450.0, 300.0), 0.5, photo, false));
+        assert!(
+            on_divider(pos2(250.0, 300.0), 0.25, photo, true),
+            "follows the split"
+        );
     }
 }

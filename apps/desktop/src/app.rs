@@ -1654,6 +1654,108 @@ mod tests {
         window_frame(app, ctx, Vec::new());
     }
 
+    /// Where the viewer draws the photo: two dabs reveal the mapping from
+    /// screen to photo positions, then undo removes them.
+    fn photo_rect_from_dabs(app: &mut PhotonationApp, ctx: &egui::Context) -> egui::Rect {
+        use egui::pos2;
+        let spots = [pos2(200.0, 200.0), pos2(400.0, 400.0)];
+        for spot in spots {
+            click(app, ctx, spot);
+            app.history.commit(&app.settings);
+        }
+        let strokes = painted_strokes(app);
+        let (a, b) = (strokes[0].path.points[0], strokes[1].path.points[0]);
+        let width = (spots[1].x - spots[0].x) as f64 / (b[0] - a[0]);
+        let height = (spots[1].y - spots[0].y) as f64 / (b[1] - a[1]);
+        let min = pos2(
+            (spots[0].x as f64 - a[0] * width) as f32,
+            (spots[0].y as f64 - a[1] * height) as f32,
+        );
+        app.undo();
+        app.undo();
+        egui::Rect::from_min_size(min, egui::vec2(width as f32, height as f32))
+    }
+
+    #[test]
+    fn a_drag_on_the_compare_divider_moves_only_the_divider() {
+        use egui::{Modifiers, pos2};
+        use photonation_develop::{MaskBrush, MaskShape};
+        let folder = folder_of(&["a.CR3"]);
+        let ctx = egui::Context::default();
+        let brush = MaskShape::Brush(MaskBrush::default());
+        let mut app = app_with_mask(&ctx, &folder, brush);
+        let rect = photo_rect_from_dabs(&mut app, &ctx);
+        app.view.compare = true;
+        let image = egui::ColorImage::new([60, 40], vec![egui::Color32::BLACK; 60 * 40]);
+        app.before = Some(Preview {
+            texture: ctx.load_texture("test original", image, TextureOptions::LINEAR),
+            size: [60, 40],
+        });
+        let knob = rect.center();
+        let moved_to = knob + egui::vec2(60.0, 0.0);
+        drag_on_the_photo(
+            &mut app,
+            &ctx,
+            knob,
+            &[knob + egui::vec2(30.0, 0.0), moved_to],
+            Modifiers::NONE,
+        );
+        let expected = (moved_to.x - rect.left()) / rect.width();
+        assert!(
+            (app.view.compare_split - expected).abs() < 1e-3,
+            "{} vs {expected}",
+            app.view.compare_split
+        );
+        assert!(painted_strokes(&app).is_empty(), "the brush stayed out");
+
+        // On the line but away from its knob, the brush paints across it.
+        let split = app.view.compare_split;
+        let on_the_line = pos2(moved_to.x, rect.top() + 40.0);
+        drag_on_the_photo(
+            &mut app,
+            &ctx,
+            on_the_line,
+            &[
+                on_the_line + egui::vec2(30.0, 0.0),
+                on_the_line + egui::vec2(60.0, 0.0),
+            ],
+            Modifiers::NONE,
+        );
+        assert_eq!(painted_strokes(&app).len(), 1);
+        assert_eq!(app.view.compare_split, split, "the divider stayed put");
+    }
+
+    #[test]
+    fn without_a_tool_the_whole_compare_line_moves_the_divider_and_nothing_pans() {
+        use egui::{Modifiers, pos2};
+        use photonation_develop::{MaskBrush, MaskShape};
+        let folder = folder_of(&["a.CR3"]);
+        let ctx = egui::Context::default();
+        let brush = MaskShape::Brush(MaskBrush::default());
+        let mut app = app_with_mask(&ctx, &folder, brush);
+        let rect = photo_rect_from_dabs(&mut app, &ctx);
+        app.view.show_masks = false;
+        app.view.compare = true;
+        let image = egui::ColorImage::new([60, 40], vec![egui::Color32::BLACK; 60 * 40]);
+        app.before = Some(Preview {
+            texture: ctx.load_texture("test original", image, TextureOptions::LINEAR),
+            size: [60, 40],
+        });
+        let on_the_line = pos2(rect.center().x, rect.top() + 40.0);
+        drag_on_the_photo(
+            &mut app,
+            &ctx,
+            on_the_line,
+            &[
+                on_the_line + egui::vec2(30.0, 0.0),
+                on_the_line + egui::vec2(60.0, 0.0),
+            ],
+            Modifiers::NONE,
+        );
+        assert!(app.view.compare_split > 0.5);
+        assert_eq!(app.view.pan, egui::Vec2::ZERO);
+    }
+
     #[test]
     fn adding_a_gradient_from_the_panel_lets_a_drag_place_it() {
         use egui::{Modifiers, pos2};

@@ -8,7 +8,13 @@ changes to CI alone are not released.
 
 ## [Unreleased]
 
-## 0.26.0 - 2026-11-07
+## 0.26.1 - 2026-11-07
+
+### Fixed
+
+- The changelog links 0.26.0 to its tag, and Unreleased now compares from it.
+
+## [0.26.0] - 2026-11-07
 
 ### Added
 
@@ -551,7 +557,8 @@ changes to CI alone are not released.
 
 - Licensed under GPL-3.0-or-later.
 
-[Unreleased]: https://github.com/DeBlo12/photonation/compare/v0.24.0...HEAD
+[Unreleased]: https://github.com/DeBlo12/photonation/compare/v0.26.0...HEAD
+[0.26.0]: https://github.com/DeBlo12/photonation/compare/v0.24.0...v0.26.0
 [0.24.0]: https://github.com/DeBlo12/photonation/compare/v0.20.0...v0.24.0
 [0.20.0]: https://github.com/DeBlo12/photonation/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/DeBlo12/photonation/compare/v0.18.0...v0.19.0

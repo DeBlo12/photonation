@@ -1341,6 +1341,15 @@ fn content(page: Page) -> Content {
                     ),
                 ),
                 term(
+                    "Select People",
+                    format!(
+                        "outlines the people in the photo (with the people model; see \
+                         Remove). Click a person to make a brush mask of them, \
+                         {shift}-click to add them to the selected mask's brush. Refine the \
+                         edge with the brush; click Done to edit shapes again."
+                    ),
+                ),
+                term(
                     "Combining:",
                     "a mask holds up to 8 shapes, one of them a brush. Each further shape Adds to, Subtracts from \
                      or Intersects with what the mask selects so far, and Invert flips the \
@@ -1504,8 +1513,9 @@ fn content(page: Page) -> Content {
                     "Photonation ships no models and never downloads anything itself. \
                      Generative AI needs the LaMa model (lama_fp32.onnx, 208 MB), Select \
                      People the RF-DETR model (rfdetr-seg-medium.onnx, 138 MB), both \
-                     Apache-2.0. Get the Model shows what the model does, who made it, \
-                     what it learned from, its size, licence and SHA-256 before anything \
+                     Apache-2.0. Get the Model shows what the model does, who made it \
+                     (About links their page), what it learned from, its size, licence and \
+                     SHA-256 before anything \
                      downloads; Download then opens it in your browser. Put the file in \
                      {DATA_FOLDER}{sep}models (Open Models Folder; it can keep its name), \
                      then click Check Again. Models run on this computer only. Without the \

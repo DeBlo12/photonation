@@ -70,6 +70,12 @@ impl Selection {
         }
     }
 
+    /// A cell's larger side, in long-edge units.
+    pub fn cell_size(&self, space: MaskSpace) -> f64 {
+        let [scale_x, scale_y] = space.scale();
+        (scale_x / self.width.max(1) as f64).max(scale_y / self.height.max(1) as f64)
+    }
+
     /// How many cells are selected.
     pub fn area(&self) -> usize {
         self.cells.iter().filter(|cell| **cell).count()
@@ -296,5 +302,7 @@ mod tests {
         assert!(!coarse.contains([0.9, 0.5]));
         assert!(!coarse.contains([1.2, 0.5]));
         assert_eq!(coarse.area(), 4);
+        let square = MaskSpace::new(1.0, 1.0);
+        assert_eq!(coarse.cell_size(square), 0.5, "the taller side");
     }
 }

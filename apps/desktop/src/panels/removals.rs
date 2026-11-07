@@ -11,8 +11,8 @@
 use crate::app::{PhotonationApp, RemovalBrush};
 use crate::panels::masks::hint;
 use crate::panels::models::{self, ModelAction};
+use crate::panels::people_picker::{self, PeopleTool};
 use crate::panels::tool_button;
-use crate::people::Search;
 use crate::theme;
 use crate::widgets::{self, SliderStyle, adjustment_slider};
 use eframe::egui::{self, Align, Layout, RichText, Sense, Ui, vec2};
@@ -45,7 +45,18 @@ pub fn show(app: &mut PhotonationApp, ui: &mut Ui) {
             ui,
         ));
     });
-    card(ui, |ui| actions.extend(people(app, ui)));
+    card(ui, |ui| {
+        actions.extend(people_picker::section(
+            app,
+            ui,
+            &PeopleTool {
+                click: "Click one to remove them; ⇧-click adds them to the selected removal.",
+                tooltip: "Select people with a click\nOutlines the people in the photo; click \
+                          one to remove them.",
+                without_model: "Paint over people with the brush instead.",
+            },
+        ))
+    });
     for action in actions {
         app.model_action(action);
     }
@@ -136,90 +147,6 @@ fn brush(
         RemovalBrush::default().size_percent,
         &percent,
     );
-    action
-}
-
-/// Selecting people with a click: the people model's status, the button
-/// that starts picking, and what the search found.
-fn people(app: &mut PhotonationApp, ui: &mut Ui) -> Option<ModelAction> {
-    ui.horizontal(|ui| {
-        ui.label(
-            RichText::new("People")
-                .size(13.0)
-                .color(theme::palette().text),
-        );
-        let ready = app
-            .models
-            .status(ModelKind::People)
-            .is_some_and(|status| status.is_ready());
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            let picking = app.view.selecting_people;
-            let label = if picking { "Done" } else { "Select People" };
-            if ui
-                .add_enabled_ui(ready || picking, |ui| {
-                    tool_button(
-                        ui,
-                        label,
-                        picking,
-                        "Select people with a click\nOutlines the people in the photo; \
-                         click one to remove them.",
-                    )
-                })
-                .inner
-                .clicked()
-            {
-                app.view.selecting_people = !picking;
-            }
-        });
-    });
-    if app.models.status(ModelKind::People).is_none() {
-        // Load it now, so the first click doesn't wait.
-        app.request_model_status(ModelKind::People);
-    }
-    let expanded = app.view.model_details.entry(ModelKind::People).or_default();
-    let action = models::status(
-        ui,
-        ModelKind::People,
-        app.models.status(ModelKind::People),
-        "Paint over people with the brush instead.",
-        expanded,
-    );
-    if !app.view.selecting_people {
-        return action;
-    }
-    let Some(path) = app.current_path().cloned() else {
-        return action;
-    };
-    if app.people.of(&path).is_none() {
-        app.find_people(path.clone());
-    }
-    match app.people.of(&path) {
-        Some(Search::Searching) | None => {
-            ui.horizontal(|ui| {
-                ui.add(
-                    egui::Spinner::new()
-                        .size(12.0)
-                        .color(theme::palette().text_secondary),
-                );
-                hint(ui, "Finding people…");
-            });
-        }
-        Some(Search::Found(found)) if found.is_empty() => {
-            hint(ui, "No people found in this photo.");
-        }
-        Some(Search::Found(found)) => {
-            let count = found.len();
-            let people = if count == 1 { "person" } else { "people" };
-            hint(
-                ui,
-                &format!(
-                    "{count} {people} found. Click one to remove them; ⇧-click adds them \
-                     to the selected removal."
-                ),
-            );
-        }
-        Some(Search::Failed(message)) => hint(ui, &format!("Couldn't look for people: {message}")),
-    }
     action
 }
 

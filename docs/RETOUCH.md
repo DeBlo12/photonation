@@ -20,7 +20,7 @@ the raw file when needed and cached in memory.
 | `photonation-engine` | `retouch.rs` | `Retoucher`: picks the inpainter, fills in order, caches, finds people; the retouch worker |
 | `apps/desktop` | `panels/removals.rs`, `panels/removal_brush.rs` | The Remove panel and painting on the photo |
 | `apps/desktop` | `panels/models.rs` | The model card: status, and what to download, shown before anything is |
-| `apps/desktop` | `people.rs`, `panels/people_picker.rs` | The people found in the open photo, and picking one with a click |
+| `apps/desktop` | `people.rs`, `panels/people_picker.rs` | The people found in the open photo; the People section of the Remove and Masks panels, and picking one with a click |
 
 ## Edit model
 
@@ -159,9 +159,11 @@ so they are redone with it.
 In the Remove panel, **Select People** outlines everyone an RF-DETR
 segmentation model finds in the photo; the person under the pointer is
 drawn in the accent colour, and a click removes them (⇧-click adds them to
-the selected removal). The model is needed only to find people: the person
-becomes ordinary brush strokes, so the removal saves, renders, exports and
-edits like a painted one.
+the selected removal). The Masks panel has the same section: there a click
+makes a brush mask of the person ("Person 2"), and ⇧-click adds them to the
+selected mask's brush. The model is needed only to find people: the person
+becomes ordinary brush strokes, so the removal or mask saves, renders,
+exports and edits like a painted one.
 
 ```text
 desktop: Select People ─▶ RenderService::find_people(path)
@@ -172,7 +174,8 @@ engine preview worker (has the photo decoded):
 engine retouch worker:
   load the people model if needed (ModelStatus { kind: People, … })
   PeopleDetector::find ─▶ Event::PeopleFound { path, people }
-desktop: outlines on the photo; click ─▶ Selection::to_strokes ─▶ Removal
+desktop: outlines on the photo; click ─▶ Selection::to_strokes ─▶ Removal,
+         or a brush mask's MaskStrokes
 ```
 
 **The model** (`people.rs`). One `1×3×S×S` input (the photo stretched to a
@@ -199,22 +202,29 @@ Group DETR trains with and drops for inference. On an M1 Pro, preparing the
 image takes about 0.1 s and the search about 1 s on one thread.
 
 **From mask to strokes** (`selection.rs`). The person's mask is sampled
-twice as fine (216 cells across) with bilinear interpolation and
+four times as fine (432 cells across) with bilinear interpolation and
 thresholded at 0.5, so the outline follows the probabilities instead of the
-model's grid steps. Each connected part becomes one stroke that zigzags
+model's grid steps; a step of the traced outline is then about 14 px on a
+24 MP photo. Each connected part becomes one stroke that zigzags
 along its rows, two points a row, with a radius of half a cell's diagonal,
 so even the corners of a row's end cells are covered. A removal adds a
 margin of 0.6 % of the long edge, so no fringe of the person is left for the
 fill to copy. A removal keeps at most 32 strokes (the largest parts first);
-a part taller than 512 rows continues in another stroke.
+a part taller than 512 rows continues in another stroke. A mask takes the
+outline as painting strokes reaching one cell further, at most 64, that fade
+over their whole radius (feather 100) at full flow: a soft edge about as
+wide as the model's own mask is accurate, which hides the outline's steps.
+(With feather 50 and no reach, each row's end showed as a tooth along
+slanted edges.)
 
 ## Installing models
 
 Photonation ships no weights and never downloads anything itself. Each tool
 that needs a model shows its status; while none is installed, **Get the …
 Model** opens a card that says, before anything is downloaded, what the
-model does, who made it, what it learned from, the file and its size, the
-licence (with a link and what it allows), where it comes from, its SHA-256
+model does, who made it, a link to its makers' page (*About*), what it
+learned from, the file and its size, the licence (with a link and what it
+allows), where the file comes from, its SHA-256
 (with Copy), and that it runs on this computer only. Only **Download** then
 opens the file in the browser; **Open Models Folder** and **Check Again**
 finish the job (`panels/models.rs`).
@@ -231,7 +241,7 @@ Windows. A download can keep its own name: without `inpaint.onnx` or
 (`models.rs: installed_model`). Files whose names start with `rfdetr` are
 people models, any other is an inpainting model. The desktop app loads the
 inpainting model in the background at start-up and the people model when
-the Remove panel first opens; while a model is missing, every status request
+the Remove or Masks panel first opens; while a model is missing, every status request
 (Check Again) and use looks again, so no restart is needed. Check a download
 before installing it: `shasum -a 256 <file>`. Model licences are listed in
 [NOTICE](../NOTICE).
@@ -264,10 +274,11 @@ version covers: an upgrade starts the cache again, and the old files age out.
   resolution would remove the cap.
 - Photonation does not verify model files itself yet; pinning known-good
   hashes needs a SHA-256 implementation (a new dependency).
-- People are found on an 864 px image and outlined on a 216-cell grid, so
+- People are found on an 864 px image with masks of 108 cells across, so
   someone far away gets a coarse outline; widen it by ⇧-painting.
-- Next: dust spot detection, and wire/fence detection. People masks in the
-  Masks panel use the same model.
+- For the same reason a mask's edge is soft and doesn't trace hair or fine
+  detail; refine it with the brush (Erase, or ⌥-paint).
+- Next: dust spot detection, and wire/fence detection.
 - `fill_missing` runs removals one after another; independent removals
   (non-overlapping canvases) could run in parallel.
 - Note for distributors: the PatchMatch algorithm has been the subject of

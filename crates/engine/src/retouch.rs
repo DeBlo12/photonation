@@ -37,9 +37,11 @@ const MAX_DISK_FILL_BYTES: u64 = 64 * 1024 * 1024;
 /// The long edge of the image people are looked for in: twice the model's
 /// input, so shrinking to it averages rather than skips pixels.
 pub const PEOPLE_IMAGE_EDGE: usize = 864;
-/// How much finer than the model's mask grid a person's outline is traced.
+/// How much finer than the model's mask grid a person's outline is traced:
+/// fine enough that the steps of the traced outline are a few pixels on a
+/// 24 MP photo, so a mask's soft edge hides them.
 #[cfg_attr(not(feature = "ai"), allow(dead_code))]
-const SELECTION_UPSAMPLE: usize = 2;
+const SELECTION_UPSAMPLE: usize = 4;
 
 /// One person found in a photo, ready to be selected with a click.
 #[derive(Clone, Debug, PartialEq)]

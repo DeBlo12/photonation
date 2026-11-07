@@ -1341,6 +1341,15 @@ fn content(page: Page) -> Content {
                     ),
                 ),
                 term(
+                    "Select People",
+                    format!(
+                        "outlines the people in the photo (with the people model; see \
+                         Remove). Click a person to make a brush mask of them, \
+                         {shift}-click to add them to the selected mask's brush. Refine the \
+                         edge with the brush; click Done to edit shapes again."
+                    ),
+                ),
+                term(
                     "Combining:",
                     "a mask holds up to 8 shapes, one of them a brush. Each further shape Adds to, Subtracts from \
                      or Intersects with what the mask selects so far, and Invert flips the \

@@ -8,6 +8,20 @@ changes to CI alone are not released.
 
 ## [Unreleased]
 
+## 0.26.0 - 2026-11-07
+
+### Added
+
+- **People masks**: the Masks panel has the same People section as the Remove
+  panel. A click on a person makes a brush mask of them, and ⇧-click adds them to
+  the selected mask's brush. The mask is ordinary painted strokes with a soft
+  edge, so the brush refines it and the model isn't needed afterwards.
+
+### Changed
+
+- A person's outline is traced four times finer than the model's mask (was twice),
+  so its steps are about 14 px on a 24 MP photo.
+
 ## 0.25.0 - 2026-11-07
 
 ### Added

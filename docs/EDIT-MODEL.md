@@ -142,6 +142,11 @@ A mask keeps one brush, since one brush both paints and erases. Sanitizing drops
 further ones: each brush becomes a weight map in memory (see PIPELINE.md §5b), so
 this ties what a hostile sidecar can allocate to `MAX_MASKS`.
 
+A person selected with a click (Masks or Remove panel, RETOUCH.md) is stored as
+ordinary strokes: in a mask, painting strokes with feather 100 and full flow along
+the person's outline. Nothing in the sidecar says a model found them, and
+rendering never needs the model.
+
 **Combining.** A mask's selection at a point starts as its first shape's
 weight (0..1); each further shape then combines with it by its `CombineMode`:
 
@@ -207,7 +212,8 @@ hostile sidecar can cause.
 
 `settings.removals` lists brushed areas to replace with a fill, applied in
 order before any adjustment: at most `MAX_REMOVALS` (64), each with up to 32
-strokes of up to 1024 points, in mask space. The fill itself is not stored;
+strokes of up to 1024 points, in mask space (a person removed with a click is
+such strokes too). The fill itself is not stored;
 it is recomputed from the raw file. Sanitizing caps the counts, drops
 non-finite points and clamps radii and feather. Details in
 [RETOUCH.md](RETOUCH.md).

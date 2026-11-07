@@ -8,13 +8,16 @@
 //! right-click for more), then the selected mask's shapes, settings and
 //! local adjustments, or the selected group's settings. Gradients are edited
 //! by dragging their handles in the viewer (`mask_handles.rs`), brushes by
-//! painting there (`mask_brush.rs`). See docs/DESKTOP.md.
+//! painting there (`mask_brush.rs`). A person found by the people model
+//! becomes a brush mask with a click (`people_picker.rs`). See
+//! docs/DESKTOP.md.
 
 pub mod groups;
 
 use crate::app::{MaskBrushTool, MaskSelection, PhotonationApp, ViewState};
 use crate::panels::adjustments::{control_slider, style_for};
 use crate::panels::mask_thumbnails::{HIDDEN_OPACITY, tint_strength};
+use crate::panels::people_picker::{self, PeopleTool};
 use crate::panels::tool_button;
 use crate::panels::viewer::photo_frame;
 use crate::theme;
@@ -25,12 +28,19 @@ use eframe::egui::{
 };
 use groups::{GROUP_INDENT, LayerAction, Layers, ListRow};
 use photonation_develop::{
-    CombineMode, LOCAL_CONTROLS, LinearGradient, LocalAdjustments, MAX_BRUSH_RADIUS,
+    BrushStroke, CombineMode, LOCAL_CONTROLS, LinearGradient, LocalAdjustments, MAX_BRUSH_RADIUS,
     MAX_MASK_COMPONENTS, MAX_MASK_GROUPS, MAX_MASK_NAME_CHARS, MAX_MASKS, MIN_BRUSH_RADIUS, Mask,
-    MaskBrush, MaskComponent, MaskGroup, MaskShape, MaskStroke, RadialGradient, group_members,
+    MaskBrush, MaskComponent, MaskGroup, MaskShape, MaskSpace, MaskStroke, RadialGradient,
+    group_members,
 };
 
 const ROW_HEIGHT: f32 = 46.0;
+/// Most strokes a person's outline becomes in a mask's brush.
+const PERSON_STROKES: usize = 64;
+/// A person mask's strokes fade over their whole radius, which reaches a cell
+/// past the outline: soft enough to hide the outline's steps, about as soft
+/// as the model's own mask is accurate.
+const PERSON_FEATHER: f32 = 100.0;
 const THUMB_HEIGHT: f32 = 34.0;
 /// Thumbnail width limits, so panoramas and portraits keep a usable size.
 const THUMB_WIDTH: std::ops::RangeInclusive<f32> = 26.0..=60.0;
@@ -50,6 +60,22 @@ pub fn show(app: &mut PhotonationApp, ui: &mut Ui) {
             action = Some(chosen);
         }
     });
+    let mut model_action = None;
+    card(ui, |ui| {
+        model_action = people_picker::section(
+            app,
+            ui,
+            &PeopleTool {
+                click: "Click one to mask them; ⇧-click adds them to the selected mask.",
+                tooltip: "Select people with a click\nOutlines the people in the photo; click \
+                          one to make a mask of them.",
+                without_model: "Paint people with a brush mask instead.",
+            },
+        );
+    });
+    if let Some(model_action) = model_action {
+        app.model_action(model_action);
+    }
     if let Some(group) = app.view.mask_groups.selected
         && group < app.settings.mask_groups.len()
     {
@@ -838,6 +864,78 @@ fn add_mask(masks: &mut Vec<Mask>, selection: &mut Option<MaskSelection>, shape:
     *selection = Some(MaskSelection::mask(masks.len() - 1));
 }
 
+/// Masks the person `index` found in the open photo: as a new brush mask
+/// (selected), or added to the selected mask's brush. Their outline becomes
+/// ordinary brush strokes, so the mask edits and saves like a painted one.
+pub fn mask_person(app: &mut PhotonationApp, index: usize, add_to_selected: bool) {
+    let (Some(path), Some(info)) = (app.current_path(), app.info.as_ref()) else {
+        return;
+    };
+    let space = MaskSpace::new(info.size.0 as f64, info.size.1 as f64);
+    let Some(person) = app.people.found(path).get(index) else {
+        return;
+    };
+    let selection = &person.found.selection;
+    let strokes = selection.to_strokes(space, selection.cell_size(space), PERSON_STROKES);
+    add_person(
+        &mut app.settings.masks,
+        &mut app.view.selected_mask,
+        strokes,
+        add_to_selected,
+    );
+    // Show what the mask selects; its adjustments start neutral.
+    app.view.mask_overlay = true;
+}
+
+/// Adds a person's strokes as a new mask, or to the selected mask's brush
+/// (adding one if it has none and there is room), as far as the caps allow.
+fn add_person(
+    masks: &mut Vec<Mask>,
+    selection: &mut Option<MaskSelection>,
+    strokes: Vec<BrushStroke>,
+    add_to_selected: bool,
+) {
+    let strokes = strokes.into_iter().map(|path| MaskStroke {
+        path,
+        feather: PERSON_FEATHER,
+        ..MaskStroke::default()
+    });
+    let fill = |brush: &mut MaskBrush, strokes: &mut dyn Iterator<Item = MaskStroke>| {
+        for stroke in strokes {
+            if brush.has_room_for(&stroke) {
+                brush.strokes.push(stroke);
+            }
+        }
+    };
+    if add_to_selected
+        && let Some(current) = *selection
+        && let Some(mask) = masks.get_mut(current.mask)
+    {
+        let mut component = current.component;
+        add_component(mask, &mut component, MaskShape::Brush(MaskBrush::default()));
+        if let Some(MaskComponent {
+            shape: MaskShape::Brush(brush),
+            ..
+        }) = mask.components.get_mut(component)
+        {
+            fill(brush, &mut strokes.into_iter());
+            *selection = Some(MaskSelection {
+                component,
+                ..current
+            });
+        }
+        return;
+    }
+    if masks.len() >= MAX_MASKS {
+        return;
+    }
+    let mut brush = MaskBrush::default();
+    fill(&mut brush, &mut strokes.into_iter());
+    let name = format!("Person {}", masks.len() + 1);
+    masks.push(Mask::new(name, MaskShape::Brush(brush)));
+    *selection = Some(MaskSelection::mask(masks.len() - 1));
+}
+
 /// Removes a mask; the selection stays on the mask it was on, if it remains.
 fn remove_mask(masks: &mut Vec<Mask>, selection: &mut Option<MaskSelection>, index: usize) {
     if index >= masks.len() {
@@ -1077,6 +1175,41 @@ mod tests {
         assert_eq!(summary(&mask), "2 shapes · inverted · 60 %");
         let brush = Mask::new("Painted", MaskShape::Brush(MaskBrush::default()));
         assert_eq!(summary(&brush), "Brush · no adjustments");
+    }
+
+    #[test]
+    fn a_person_becomes_a_new_brush_mask_or_joins_the_selected_ones_brush() {
+        let person = vec![BrushStroke {
+            points: vec![[0.4, 0.5], [0.6, 0.5]],
+            radius: 0.01,
+        }];
+        let mut masks = named(&["Sky"]);
+        let mut selection = Some(MaskSelection::mask(0));
+        add_person(&mut masks, &mut selection, person.clone(), false);
+        assert_eq!(names(&masks), ["Sky", "Person 2"]);
+        assert_eq!(selection, Some(MaskSelection::mask(1)));
+        let MaskShape::Brush(brush) = &masks[1].components[0].shape else {
+            panic!("a brush mask");
+        };
+        assert_eq!(brush.strokes[0].path, person[0]);
+        assert!(!brush.strokes[0].erase);
+
+        selection = Some(MaskSelection::mask(0));
+        add_person(&mut masks, &mut selection, person.clone(), true);
+        assert_eq!(masks.len(), 2, "no new mask");
+        assert_eq!(masks[0].components.len(), 2, "a brush joins the gradient");
+        assert_eq!(
+            selection,
+            Some(MaskSelection {
+                mask: 0,
+                component: 1
+            })
+        );
+        add_person(&mut masks, &mut selection, person, true);
+        let MaskShape::Brush(brush) = &masks[0].components[1].shape else {
+            panic!("the same brush");
+        };
+        assert_eq!((masks[0].components.len(), brush.strokes.len()), (2, 2));
     }
 
     #[test]

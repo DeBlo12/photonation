@@ -76,6 +76,9 @@ the removal's brush weight. Because this happens before the develop stage,
 every adjustment applies to the fill as to the rest of the photo. Computing
 fills is non-local and happens outside the render; see
 [RETOUCH.md](RETOUCH.md). `render` is `render_with_fills` without fills.
+`as_shot_image` renders the whole photo upright and as shot, the way a
+removal's canvas is prepared, for the people model (RETOUCH.md, Selecting
+people).
 
 ## 3c. Highlight reconstruction (`highlights.rs`, process V2)
 

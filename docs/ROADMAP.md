@@ -13,7 +13,8 @@
 - Sharpening; Lanczos resizing; JPEG/PNG/TIFF export with ICC profiles and
   EXIF/XMP metadata (camera and capture, creator and copyright, optional GPS)
 - JSON sidecars, process versions, undo/redo
-- Masks: linear and radial gradients, drawn on the photo, and a brush, combined
+- Masks: linear and radial gradients, drawn on the photo, a brush, and people
+  selected with one click (RF-DETR segmentation), combined
   per mask (add, subtract, intersect), with invert, amount and eight local
   adjustments; layer panel with live thumbnails, reordering and a GPU overlay;
   masks a row can't reach cost it nothing on the CPU, and local saturation shares
@@ -60,10 +61,9 @@
 
 In this order:
 
-1. **More masks**: later AI subject and sky masks.
-2. **Better removals**: people masks in the Masks panel (the same model as
-   one-click people selection), dust spot and wire/fence detection,
-   full-resolution tiled fills. See [RETOUCH.md](RETOUCH.md).
+1. **More masks**: later AI subject and sky masks (people masks are done).
+2. **Better removals**: dust spot and wire/fence detection, full-resolution
+   tiled fills. See [RETOUCH.md](RETOUCH.md).
 
 ## Priority
 

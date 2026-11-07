@@ -64,7 +64,7 @@ it, and the inspector's outline pulses amber (`ViewState::tool_warning`).
 | `panels/removals.rs` | Remove panel: method, brush size, model status, People, removal list, selected removal |
 | `panels/removal_brush.rs` | Painting removals on the canvas and drawing brushed areas |
 | `panels/models.rs` | Model card: a model's status, and what to download, shown before the download |
-| `panels/people_picker.rs` | Outlining the people found and picking one with a click |
+| `panels/people_picker.rs` | The People section (Remove and Masks panels), outlining the people found and picking one with a click |
 | `people.rs` | The people search for the open photo (`PeopleSearch`) |
 | `gpu/mask_overlay.rs`, `.wgsl` | The selected mask's tint over the photo, evaluated per pixel on the GPU |
 | `gpu/mod.rs` | Graphics adapter choice and texture limits |
@@ -360,6 +360,13 @@ and copies them into the presets folder.
 3. **Name, Amount, Invert** and the overlay switch.
 4. **Adjustments**: the local sliders, Reset, Delete Mask.
 
+**People** (a card under the layer list, `people_picker::section`, shared with
+the Remove panel): *Select People* and the people model's card. While picking, a
+click on a person adds a brush mask named "Person N" made of their outline and
+selects it (`masks::mask_person`); ⇧-click adds them to the selected mask's
+brush, adding a brush if the mask has none. Handles and the brush don't take
+the pointer while picking.
+
 **Selection.** `ViewState::selected_mask` is a `MaskSelection { mask, component }`:
 the mask the panel edits and the shape whose handles show. `ViewState::mask_groups`
 (`GroupView`) holds the selected group, never set together with a selected mask
@@ -545,7 +552,8 @@ the computer. Only *Download* opens the file in the browser; *Open Models
 Folder* and *Check Again* finish. The open cards are in
 `ViewState::model_details`; see RETOUCH.md, "Installing models".
 
-**People** (`people.rs`, `panels/people_picker.rs`): *Select People* sets
+**People** (`people.rs`, `panels/people_picker.rs`, the same section as in the
+Masks panel): *Select People* sets
 `ViewState::selecting_people` and asks the engine to find people in the open
 photo (`RenderService::find_people`); `PeopleSearch` keeps the answer for
 that photo, with each person's outline as strokes. While picking, the
@@ -564,7 +572,7 @@ grey, and a ring shows the brush under the pointer.
 `Event::RemovalsFilled` the app requests the current generation again. At
 start-up it asks the engine to load the generative model
 (`request_model_status(ModelKind::Inpainting)`), and the people model when
-the Remove panel first shows. The `ai` cargo feature (on by default) builds the
+the Remove or Masks panel first shows. The `ai` cargo feature (on by default) builds the
 neural inpainting; see [RETOUCH.md](RETOUCH.md).
 
 ## Export metadata

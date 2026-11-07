@@ -13,7 +13,7 @@
 //!   opened (latest-wins), so a slow disk never holds up the window.
 //! * Retouch worker: one thread filling removals in the background (a
 //!   neural fill takes seconds), so previews never wait for them; it loads
-//!   the generative model too.
+//!   the models and finds people too.
 //!
 //! Every job runs under [`isolate_panics`]: a decoder or pipeline bug hit
 //! by an unusual file becomes an [`Event::Error`] instead of silently
@@ -23,12 +23,14 @@ use crate::library::scan_subfolders;
 use crate::preview::PreviewRenderer;
 use crate::thumbnails::{THUMBNAIL_WORKERS, ThumbnailCache, ThumbnailQueue, thumbnail_worker};
 use crate::{
-    Decoder, ExportOptions, Histogram, ModelStatus, RawDecoder, Retoucher, Subfolder,
-    data_directory, default_model_path, export_photo_with, output_path, unused_path,
+    Decoder, ExportOptions, FoundPerson, Histogram, ModelKind, ModelStatus, PEOPLE_IMAGE_EDGE,
+    RawDecoder, Retoucher, Subfolder, data_directory, default_model_path, export_photo_with,
+    output_path, unused_path,
 };
 use photonation_develop::{OklabLch, Settings, WhiteBalance};
 use photonation_image::{CameraInfo, Pixels, SensorImage};
 use photonation_pipeline::{CameraModel, RemovalFills, RenderOptions};
+use photonation_retouch::RgbImage;
 use std::any::Any;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
@@ -127,9 +129,18 @@ pub enum Event {
     RemovalsFilled {
         path: PathBuf,
     },
-    /// The generative removal model's state, after a status request or
-    /// when it changes.
-    ModelStatus(ModelStatus),
+    /// A model's state, after a status request or when it changes.
+    ModelStatus {
+        kind: ModelKind,
+        status: ModelStatus,
+    },
+    /// The people found in a photo ([`RenderService::find_people`]), most
+    /// certain first, or why none could be looked for (no people model: an
+    /// [`Event::ModelStatus`] says more).
+    PeopleFound {
+        path: PathBuf,
+        people: Result<Vec<FoundPerson>, String>,
+    },
     /// A folder inside `parent` has raw files ([`RenderService::scan_subfolders`]).
     SubfolderFound {
         parent: PathBuf,
@@ -148,6 +159,8 @@ pub enum Event {
 enum PreviewJob {
     Render(PreviewRequest),
     Pick(PickJob),
+    /// Prepare the image people are looked for in.
+    FindPeople(PathBuf),
 }
 
 /// What a picker measures at a point of the photo.
@@ -172,7 +185,11 @@ enum RetouchJob {
         settings: Box<Settings>,
     },
     /// Load the model if needed and report its status.
-    Status,
+    Status(ModelKind),
+    FindPeople {
+        path: PathBuf,
+        image: Arc<RgbImage>,
+    },
 }
 
 struct ExportJob {
@@ -383,10 +400,18 @@ impl RenderService {
             .ok();
     }
 
-    /// Loads the generative removal model in the background if needed;
-    /// answers with [`Event::ModelStatus`].
-    pub fn request_model_status(&self) {
-        self.retouches.send(RetouchJob::Status).ok();
+    /// Loads a model in the background if needed; answers with
+    /// [`Event::ModelStatus`].
+    pub fn request_model_status(&self, kind: ModelKind) {
+        self.retouches.send(RetouchJob::Status(kind)).ok();
+    }
+
+    /// Looks for people in a photo, loading the people model if needed;
+    /// answers with [`Event::PeopleFound`]. The photo is prepared on the
+    /// preview worker, which has it decoded, and searched on the retouch
+    /// worker, which keeps the models.
+    pub fn find_people(&self, path: PathBuf) {
+        self.previews.send(PreviewJob::FindPeople(path)).ok();
     }
 
     /// Exports photos (with explicit settings, or `None` to use each sidecar).
@@ -511,6 +536,7 @@ fn preview_worker(
         let mut latest_edited = None;
         let mut latest_before = None;
         let mut picks = Vec::new();
+        let mut find_people = None;
         for job in std::iter::once(first).chain(jobs.try_iter()) {
             match job {
                 PreviewJob::Render(r) if r.kind == crate::PreviewKind::Edited => {
@@ -518,6 +544,29 @@ fn preview_worker(
                 }
                 PreviewJob::Render(r) => latest_before = Some(r),
                 PreviewJob::Pick(pick) => picks.push(pick),
+                PreviewJob::FindPeople(path) => find_people = Some(path),
+            }
+        }
+        if let Some(path) = find_people {
+            let prepared = isolate_panics(|| {
+                let sensor = load_photo(&mut current, &path, decoder, sink)?;
+                Ok(photonation_pipeline::as_shot_image(
+                    &sensor,
+                    PEOPLE_IMAGE_EDGE,
+                ))
+            });
+            match prepared {
+                Ok(image) => {
+                    let image = Arc::new(image);
+                    context
+                        .retouches
+                        .send(RetouchJob::FindPeople { path, image })
+                        .ok();
+                }
+                Err(message) => sink.send(Event::PeopleFound {
+                    path,
+                    people: Err(message),
+                }),
             }
         }
         for pick in picks {
@@ -689,13 +738,29 @@ fn export_worker(
     }
 }
 
-/// Fills removals in the background: for each burst, only the newest
-/// request (older ones describe settings the user has moved on from).
+/// Fills removals and finds people in the background: for each burst, only
+/// the newest request of each (older ones describe settings or photos the
+/// user has moved on from).
 fn retouch_worker(jobs: Receiver<RetouchJob>, retoucher: &Retoucher, sink: EventSink) {
-    let mut reported: Option<ModelStatus> = None;
+    let mut reported: Vec<(ModelKind, ModelStatus)> = Vec::new();
+    // Announces a model's status once it differs from the last one sent.
+    let mut report = |kind: ModelKind, status: ModelStatus, always: bool| {
+        let last = reported
+            .iter_mut()
+            .find(|(reported_kind, _)| *reported_kind == kind);
+        if !always && last.as_ref().is_some_and(|(_, last)| *last == status) {
+            return;
+        }
+        match last {
+            Some((_, last)) => *last = status.clone(),
+            None => reported.push((kind, status.clone())),
+        }
+        sink.send(Event::ModelStatus { kind, status });
+    };
     while let Ok(first) = jobs.recv() {
         let mut latest_fill = None;
-        let mut status_requested = false;
+        let mut latest_people = None;
+        let mut status_requested = Vec::new();
         for job in std::iter::once(first).chain(jobs.try_iter()) {
             match job {
                 RetouchJob::Fill {
@@ -703,14 +768,34 @@ fn retouch_worker(jobs: Receiver<RetouchJob>, retoucher: &Retoucher, sink: Event
                     sensor,
                     settings,
                 } => latest_fill = Some((path, sensor, settings)),
-                RetouchJob::Status => status_requested = true,
+                RetouchJob::Status(kind) => {
+                    if !status_requested.contains(&kind) {
+                        status_requested.push(kind);
+                    }
+                }
+                RetouchJob::FindPeople { path, image } => latest_people = Some((path, image)),
             }
         }
-        if status_requested {
-            let status = isolate_panics(|| Ok(retoucher.ensure_model()))
+        for kind in status_requested {
+            let status = isolate_panics(|| Ok(retoucher.ensure_model(kind)))
                 .unwrap_or_else(|message| ModelStatus::Failed { message });
-            sink.send(Event::ModelStatus(status.clone()));
-            reported = Some(status);
+            report(kind, status, true);
+        }
+        if let Some((path, image)) = latest_people {
+            let found = isolate_panics(|| {
+                retoucher
+                    .find_people(&image)
+                    .unwrap_or_else(|| Err("no people model is installed".into()))
+            });
+            sink.send(Event::PeopleFound {
+                path,
+                people: found,
+            });
+            report(
+                ModelKind::People,
+                retoucher.model_status(ModelKind::People),
+                false,
+            );
         }
         if let Some((path, sensor, settings)) = latest_fill {
             let filled = isolate_panics(|| {
@@ -724,11 +809,11 @@ fn retouch_worker(jobs: Receiver<RetouchJob>, retoucher: &Retoucher, sink: Event
                     message,
                 });
             }
-            let status = retoucher.model_status();
-            if reported.as_ref() != Some(&status) {
-                sink.send(Event::ModelStatus(status.clone()));
-                reported = Some(status);
-            }
+            report(
+                ModelKind::Inpainting,
+                retoucher.model_status(ModelKind::Inpainting),
+                false,
+            );
         }
     }
 }

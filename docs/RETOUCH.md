@@ -11,11 +11,16 @@ the raw file when needed and cached in memory.
 | Crate | File | Role |
 |---|---|---|
 | `photonation-develop` | `removals.rs` | The edit model: `Removal`, `BrushStroke`, `RemovalMethod`, caps, fingerprints |
+| `photonation-develop` | `selection.rs` | `Selection`: a found person as grid cells, and the strokes that cover it |
 | `photonation-retouch` | `patch_match.rs` | `ContentAwareFill`: multi-scale PatchMatch, pure Rust; `Refined`: a network's fill refined by it |
 | `photonation-retouch` | `onnx.rs` (feature `onnx`) | `OnnxInpainter`: LaMa or MI-GAN through tract |
-| `photonation-pipeline` | `retouch.rs` | Cutting a removal's canvas, converting fills to patches, the `Retouch` blend stage |
-| `photonation-engine` | `retouch.rs` | `Retoucher`: picks the inpainter, fills in order, caches; the retouch worker |
+| `photonation-retouch` | `people.rs` (feature `onnx`) | `PeopleDetector`: an RF-DETR segmentation model through tract |
+| `photonation-pipeline` | `retouch.rs` | Cutting a removal's canvas, converting fills to patches, the `Retouch` blend stage, the image people are looked for in (`as_shot_image`) |
+| `photonation-engine` | `models.rs` | `ModelKind`, where models are installed, `ModelStatus`, loading on first use |
+| `photonation-engine` | `retouch.rs` | `Retoucher`: picks the inpainter, fills in order, caches, finds people; the retouch worker |
 | `apps/desktop` | `panels/removals.rs`, `panels/removal_brush.rs` | The Remove panel and painting on the photo |
+| `apps/desktop` | `panels/models.rs` | The model card: status, and what to download, shown before anything is |
+| `apps/desktop` | `people.rs`, `panels/people_picker.rs` | The people found in the open photo, and picking one with a click |
 
 ## Edit model
 
@@ -143,24 +148,93 @@ sample image, tract's output matches onnxruntime's (mean difference 0.5 of
 255) and the published result (2.1). Check the hash before installing:
 `shasum -a 256 inpaint.onnx`.
 
-**Installing a model.** Photonation ships no weights. Without a model the
-Remove panel links the download of the LaMa export above
-(`removals.rs: LAMA_DOWNLOAD`), shows its SHA-256 with a Copy button, opens
-the models folder and has a Check Again button. Put an ONNX export at
+**Installing a model** is covered for both models under
+[Installing models](#installing-models). Without an inpainting model (or in
+a build without the `ai` feature) generative removals use content-aware
+fill; once a model loads, cached fills are dropped and the app renders again
+so they are redone with it.
 
-- macOS: `~/Library/Application Support/Photonation/models/inpaint.onnx`
-- Linux: `$XDG_DATA_HOME/photonation/models/inpaint.onnx` (default `~/.local/share/...`)
-- Windows: `%APPDATA%\Photonation\models\inpaint.onnx`
+## Selecting people
 
-or point `PHOTONATION_INPAINT_MODEL` at the file. Without `inpaint.onnx`,
-the only `.onnx` file in that folder is used (`installed_model`), so a
-download keeps its own name. The desktop app loads it in the background at
-start-up and shows its status in the Remove panel; while no model is
-installed, every status request (Check Again) and generative fill looks
-again, so no restart is needed. Without a model (or in a build without the
-`ai` feature) generative removals use content-aware fill; once a model
-loads, cached fills are dropped and the app renders again so they are
-redone with it. Model licences are listed in [NOTICE](../NOTICE).
+In the Remove panel, **Select People** outlines everyone an RF-DETR
+segmentation model finds in the photo; the person under the pointer is
+drawn in the accent colour, and a click removes them (⇧-click adds them to
+the selected removal). The model is needed only to find people: the person
+becomes ordinary brush strokes, so the removal saves, renders, exports and
+edits like a painted one.
+
+```text
+desktop: Select People ─▶ RenderService::find_people(path)
+engine preview worker (has the photo decoded):
+  as_shot_image   the whole default crop, upright, as shot, ≤ 864 px,
+                  encoded like a removal's canvas (steps 2, 4 and 5 above)
+  ─▶ RetouchJob::FindPeople to the retouch worker (latest wins)
+engine retouch worker:
+  load the people model if needed (ModelStatus { kind: People, … })
+  PeopleDetector::find ─▶ Event::PeopleFound { path, people }
+desktop: outlines on the photo; click ─▶ Selection::to_strokes ─▶ Removal
+```
+
+**The model** (`people.rs`). One `1×3×S×S` input (the photo stretched to a
+square, RGB 0..1 normalized with ImageNet's mean and standard deviation),
+and per query a box, 91 class logits (sparse COCO ids, 1 = person) and mask
+logits over the whole image at `S/4`. Outputs are told apart by shape. A
+query is a person when the person class's probability is at least 0.5 (every
+real person in the test photos scored 0.84 or more, a signpost 0.40); a
+person whose mask mostly repeats a more certain one's is dropped.
+
+| Model | Licence | Input | Output |
+|---|---|---|---|
+| [RF-DETR](https://github.com/roboflow/rf-detr) Seg Medium | Apache-2.0 | `input` 1×3×432×432 | `dets` 1×200×4, `labels` 1×200×91, `masks` 1×200×108×108 |
+
+**Verifying the model.** `rfdetr-seg-medium.onnx` from
+[besit/rfdetr-onnx](https://huggingface.co/besit/rfdetr-onnx) has SHA-256
+`33f97a068ea7de3892e4cbc3825e15c5418be818506d7f39f44e1fb1f7ab6abb`, the hash
+its page lists. Its weights were compared with Roboflow's own checkpoint
+([Roboflow/rf-detr-seg-medium](https://huggingface.co/Roboflow/rf-detr-seg-medium),
+`model.safetensors`, SHA-256 `0b1656792d51e2ecfaa49434248c0093bac883f9b75723e04a1ba23f45666d64`):
+every weight the model uses when it runs is in the export bit for bit. The
+rest of the checkpoint (about 12 % of its values) is the extra query groups
+Group DETR trains with and drops for inference. On an M1 Pro, preparing the
+image takes about 0.1 s and the search about 1 s on one thread.
+
+**From mask to strokes** (`selection.rs`). The person's mask is sampled
+twice as fine (216 cells across) with bilinear interpolation and
+thresholded at 0.5, so the outline follows the probabilities instead of the
+model's grid steps. Each connected part becomes one stroke that zigzags
+along its rows, two points a row, with a radius of half a cell's diagonal,
+so even the corners of a row's end cells are covered. A removal adds a
+margin of 0.6 % of the long edge, so no fringe of the person is left for the
+fill to copy. A removal keeps at most 32 strokes (the largest parts first);
+a part taller than 512 rows continues in another stroke.
+
+## Installing models
+
+Photonation ships no weights and never downloads anything itself. Each tool
+that needs a model shows its status; while none is installed, **Get the …
+Model** opens a card that says, before anything is downloaded, what the
+model does, who made it, what it learned from, the file and its size, the
+licence (with a link and what it allows), where it comes from, its SHA-256
+(with Copy), and that it runs on this computer only. Only **Download** then
+opens the file in the browser; **Open Models Folder** and **Check Again**
+finish the job (`panels/models.rs`).
+
+| Model | File | Size | Put it at (macOS) | Or set |
+|---|---|---|---|---|
+| Inpainting (LaMa) | `lama_fp32.onnx` | 208 MB | `~/Library/Application Support/Photonation/models/inpaint.onnx` | `PHOTONATION_INPAINT_MODEL` |
+| People (RF-DETR) | `rfdetr-seg-medium.onnx` | 138 MB | `~/Library/Application Support/Photonation/models/people.onnx` | `PHOTONATION_PEOPLE_MODEL` |
+
+The models folder is `$XDG_DATA_HOME/photonation/models` (default
+`~/.local/share/...`) on Linux and `%APPDATA%\Photonation\models` on
+Windows. A download can keep its own name: without `inpaint.onnx` or
+`people.onnx`, the only ONNX file in the folder of that kind is used
+(`models.rs: installed_model`). Files whose names start with `rfdetr` are
+people models, any other is an inpainting model. The desktop app loads the
+inpainting model in the background at start-up and the people model when
+the Remove panel first opens; while a model is missing, every status request
+(Check Again) and use looks again, so no restart is needed. Check a download
+before installing it: `shasum -a 256 <file>`. Model licences are listed in
+[NOTICE](../NOTICE).
 
 ## Caching fills
 
@@ -190,8 +264,10 @@ version covers: an upgrade starts the cache again, and the old files age out.
   resolution would remove the cap.
 - Photonation does not verify model files itself yet; pinning known-good
   hashes needs a SHA-256 implementation (a new dependency).
-- Removals are painted by hand. Next: one-click selection of people (a
-  segmentation model), dust spot detection, and wire/fence detection.
+- People are found on an 864 px image and outlined on a 216-cell grid, so
+  someone far away gets a coarse outline; widen it by ⇧-painting.
+- Next: dust spot detection, and wire/fence detection. People masks in the
+  Masks panel use the same model.
 - `fill_missing` runs removals one after another; independent removals
   (non-overlapping canvases) could run in parallel.
 - Note for distributors: the PatchMatch algorithm has been the subject of

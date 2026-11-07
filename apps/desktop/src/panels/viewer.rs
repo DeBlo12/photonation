@@ -10,7 +10,7 @@ use crate::app::{PhotonationApp, Preview, ViewState, Zoom};
 use crate::gpu::mask_overlay::MaskOverlay;
 use crate::menus;
 use crate::panels::mask_thumbnails::tint_strength;
-use crate::panels::{crop, mask_brush, mask_handles, removal_brush};
+use crate::panels::{crop, mask_brush, mask_handles, people_picker, removal_brush, removals};
 use crate::photo_frame::PhotoFrame;
 use crate::theme;
 use crate::widgets::{self, Icon};
@@ -167,14 +167,24 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
                     Rect::from_center_size(canvas.center() + app.view.pan, displayed),
                 )
             {
-                // A stroke owns the pointer like a mask handle drag does.
-                dragging_mask |= removal_brush::interact(
-                    &mut app.settings.removals,
-                    &mut app.view,
-                    ui,
-                    &response,
-                    &frame,
-                );
+                if app.view.selecting_people {
+                    let path = app.current_path().cloned().unwrap_or_default();
+                    let people = app.people.found(&path);
+                    if let Some((index, add)) =
+                        people_picker::clicked(people, ui, &response, &frame)
+                    {
+                        removals::remove_person(app, index, add);
+                    }
+                } else {
+                    // A stroke owns the pointer like a mask handle drag does.
+                    dragging_mask |= removal_brush::interact(
+                        &mut app.settings.removals,
+                        &mut app.view,
+                        ui,
+                        &response,
+                        &frame,
+                    );
+                }
             }
             if response.dragged()
                 && app.view.zoom != Zoom::Fit
@@ -239,13 +249,23 @@ pub fn show(app: &mut PhotonationApp, ui: &mut egui::Ui) {
                 crop::paint(app, &painter, &frame);
             }
             if painting_removals && let Some(frame) = photo_frame(app, image_rect) {
+                let picking = app.view.selecting_people;
                 removal_brush::paint(
                     &app.settings.removals,
                     &app.view,
                     &painter,
                     &frame,
-                    response.hover_pos(),
+                    // No brush outline while a click picks a person.
+                    response.hover_pos().filter(|_| !picking),
                 );
+                if picking && let Some(path) = app.current_path() {
+                    people_picker::paint(
+                        app.people.found(path),
+                        &painter,
+                        &frame,
+                        response.hover_pos(),
+                    );
+                }
             }
             if app.is_rendering() || app.filling_removals {
                 let spinner = Rect::from_center_size(

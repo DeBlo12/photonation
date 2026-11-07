@@ -2,24 +2,22 @@
 // Copyright (C) 2026 The Photonation contributors
 
 //! Removal fills: choosing an inpainter per removal, computing fills in
-//! order, and caching them so renders only blend. Control flow is in
-//! docs/RETOUCH.md.
+//! order, and caching them so renders only blend; and finding people to
+//! select. Control flow is in docs/RETOUCH.md.
 
 use crate::disk_cache::{mark_used, trim_directory, write_whole};
-use photonation_develop::{RemovalMethod, Settings};
+use crate::models::{LazyModel, ModelKind, ModelStatus, lock};
+use photonation_develop::{RemovalMethod, Selection, Settings};
 use photonation_image::{Rect, SensorImage};
 use photonation_pipeline::{RemovalFills, RemovalJob, RetouchPatch, removal_canvas, removal_jobs};
-use photonation_retouch::{ContentAwareFill, Inpainter};
+use photonation_retouch::{ContentAwareFill, Inpainter, RgbImage};
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 
-/// Environment variable naming the inpainting model file, overriding the
-/// default location ([`default_model_path`]).
-pub const MODEL_PATH_VARIABLE: &str = "PHOTONATION_INPAINT_MODEL";
 /// Photos whose fills stay cached; older ones are dropped first.
 const CACHED_PHOTOS: usize = 8;
 /// The disk cache is trimmed to [`DISK_CACHE_TRIMMED_BYTES`] when it grows past
@@ -36,70 +34,54 @@ const DISK_CACHE_HEADER_BYTES: usize = 4 + 6 * 4;
 /// `MAX_CANVAS_EDGE` square, three `f32`s a pixel.
 const MAX_DISK_FILL_BYTES: u64 = 64 * 1024 * 1024;
 
-/// Where the "Generative AI" removal method stands.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ModelStatus {
-    /// Not loaded yet; loading starts with the first generative removal.
-    NotLoaded,
-    /// This build has no neural inpainting (the `ai` feature is off).
-    NotBuilt,
-    /// No model file at the expected place.
-    NotInstalled {
-        expected: Option<PathBuf>,
-    },
-    Ready {
-        name: String,
-    },
-    Failed {
-        message: String,
-    },
+/// The long edge of the image people are looked for in: twice the model's
+/// input, so shrinking to it averages rather than skips pixels.
+pub const PEOPLE_IMAGE_EDGE: usize = 864;
+/// How much finer than the model's mask grid a person's outline is traced.
+#[cfg_attr(not(feature = "ai"), allow(dead_code))]
+const SELECTION_UPSAMPLE: usize = 2;
+
+/// One person found in a photo, ready to be selected with a click.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FoundPerson {
+    /// How sure the model is, 0..1.
+    pub score: f32,
+    pub selection: Selection,
 }
 
-impl ModelStatus {
-    pub fn is_ready(&self) -> bool {
-        matches!(self, ModelStatus::Ready { .. })
+/// Finds people in an upright as-shot image
+/// ([`photonation_pipeline::as_shot_image`]).
+pub trait PeopleFinder: Send + Sync {
+    /// The people found, most certain first.
+    fn find(&self, image: &RgbImage) -> Result<Vec<FoundPerson>, String>;
+}
+
+#[cfg(feature = "ai")]
+impl PeopleFinder for photonation_retouch::PeopleDetector {
+    fn find(&self, image: &RgbImage) -> Result<Vec<FoundPerson>, String> {
+        let people = photonation_retouch::PeopleDetector::find(self, image)
+            .map_err(|error| error.to_string())?;
+        Ok(people
+            .into_iter()
+            .map(|person| FoundPerson {
+                score: person.score,
+                selection: Selection::from_probabilities(
+                    person.width,
+                    person.height,
+                    &person.mask,
+                    SELECTION_UPSAMPLE,
+                ),
+            })
+            .collect())
     }
 }
 
-/// `$PHOTONATION_INPAINT_MODEL`, or `models/inpaint.onnx` in the
-/// [`data_directory`].
-pub fn default_model_path() -> Option<PathBuf> {
-    if let Some(path) = std::env::var_os(MODEL_PATH_VARIABLE) {
-        return Some(PathBuf::from(path));
-    }
-    data_directory().map(|directory| directory.join("models").join("inpaint.onnx"))
-}
-
-/// The platform's place for Photonation's own files (models, preferences):
-/// `~/Library/Application Support/Photonation` on macOS,
-/// `$XDG_DATA_HOME/photonation` or `~/.local/share/photonation` on Linux,
-/// `%APPDATA%\Photonation` on Windows.
-pub fn data_directory() -> Option<PathBuf> {
-    let home = std::env::var_os("HOME").map(PathBuf::from);
-    if cfg!(target_os = "macos") {
-        home.map(|home| home.join("Library/Application Support/Photonation"))
-    } else if cfg!(windows) {
-        std::env::var_os("APPDATA").map(|appdata| PathBuf::from(appdata).join("Photonation"))
-    } else {
-        std::env::var_os("XDG_DATA_HOME")
-            .map(PathBuf::from)
-            .or_else(|| home.map(|home| home.join(".local/share")))
-            .map(|data| data.join("photonation"))
-    }
-}
-
-/// The neural inpainter, loaded on first use.
-enum Generative {
-    NotLoaded,
-    Ready(Arc<dyn Inpainter>),
-    Unavailable(ModelStatus),
-}
-
-/// Fills removals and remembers the results. Shared by all workers.
+/// Fills removals and remembers the results, and finds people. Shared by
+/// all workers.
 pub struct Retoucher {
     content_aware: ContentAwareFill,
-    model_path: Option<PathBuf>,
-    generative: Mutex<Generative>,
+    generative: LazyModel<dyn Inpainter>,
+    people: LazyModel<dyn PeopleFinder>,
     /// Per photo, fills by removal chain fingerprint; `order` is oldest
     /// first.
     cache: Mutex<FillCache>,
@@ -135,18 +117,33 @@ impl Retoucher {
     pub fn new(model_path: Option<PathBuf>) -> Retoucher {
         Retoucher {
             content_aware: ContentAwareFill::default(),
-            model_path,
-            generative: Mutex::new(Generative::NotLoaded),
+            generative: LazyModel::new(ModelKind::Inpainting, model_path),
+            people: LazyModel::new(ModelKind::People, None),
             cache: Mutex::new(FillCache::default()),
             disk: None,
         }
     }
 
-    /// The retoucher this machine works with: its installed model, and fills
-    /// kept in `fills` under the data directory.
+    /// The retoucher this machine works with: its installed models, and
+    /// fills kept in `fills` under the data directory.
     pub fn installed() -> Retoucher {
-        Retoucher::new(default_model_path())
-            .with_disk_cache(data_directory().map(|data| data.join("fills")))
+        Retoucher::new(ModelKind::Inpainting.default_path())
+            .with_people_model(ModelKind::People.default_path())
+            .with_disk_cache(crate::data_directory().map(|data| data.join("fills")))
+    }
+
+    /// Finds people with the model at `path` (when built with the `ai`
+    /// feature).
+    pub fn with_people_model(mut self, path: Option<PathBuf>) -> Retoucher {
+        self.people = LazyModel::new(ModelKind::People, path);
+        self
+    }
+
+    /// Finds people with `finder` (tests, or a front end that loads models
+    /// itself).
+    pub fn with_people_finder(mut self, finder: Arc<dyn PeopleFinder>, name: &str) -> Retoucher {
+        self.people = LazyModel::ready(ModelKind::People, finder, name.to_string());
+        self
     }
 
     /// Also keeps fills in `directory`, so reopening a photo doesn't compute
@@ -159,52 +156,54 @@ impl Retoucher {
     /// A retoucher with an inpainter already at hand for the generative
     /// method (tests, or a front end that loads models itself).
     pub fn with_generative(inpainter: Arc<dyn Inpainter>) -> Retoucher {
-        let retoucher = Retoucher::new(None);
-        *lock(&retoucher.generative) = Generative::Ready(inpainter);
+        let name = inpainter.name().to_string();
+        let mut retoucher = Retoucher::new(None);
+        retoucher.generative = LazyModel::ready(ModelKind::Inpainting, inpainter, name);
         retoucher
     }
 
-    pub fn model_status(&self) -> ModelStatus {
-        match &*lock(&self.generative) {
-            Generative::NotLoaded => ModelStatus::NotLoaded,
-            Generative::Ready(inpainter) => ModelStatus::Ready {
-                name: inpainter.name().to_string(),
-            },
-            Generative::Unavailable(status) => status.clone(),
+    pub fn model_status(&self, kind: ModelKind) -> ModelStatus {
+        match kind {
+            ModelKind::Inpainting => self.generative.status(),
+            ModelKind::People => self.people.status(),
         }
     }
 
-    /// Loads the model if that has not been tried yet, or if no model was
-    /// installed then (seconds for a large model), and returns the
-    /// resulting status. A model put in place while the app runs is found
-    /// the next time.
-    pub fn ensure_model(&self) -> ModelStatus {
-        let mut generative = lock(&self.generative);
-        if matches!(
-            *generative,
-            Generative::NotLoaded | Generative::Unavailable(ModelStatus::NotInstalled { .. })
-        ) {
-            *generative = match load_model(self.model_path.as_deref()) {
-                Ok(inpainter) => {
+    /// Loads the model if that has not been tried yet, or if none was
+    /// installed then (seconds for a large model), and returns the resulting
+    /// status. A model put in place while the app runs is found the next
+    /// time.
+    pub fn ensure_model(&self, kind: ModelKind) -> ModelStatus {
+        match kind {
+            ModelKind::Inpainting => {
+                if self.generative.ensure(load_inpainter) {
                     // Fills made while the model was missing used the
                     // fallback; redo them with the model.
                     *lock(&self.cache) = FillCache::default();
-                    Generative::Ready(inpainter)
                 }
-                Err(status) => Generative::Unavailable(status),
-            };
+            }
+            ModelKind::People => {
+                self.people.ensure(load_people_finder);
+            }
         }
-        drop(generative);
-        self.model_status()
+        self.model_status(kind)
+    }
+
+    /// The people in an upright as-shot image of a photo, loading the model
+    /// first if needed. `None` while no model is ready
+    /// ([`Retoucher::model_status`] says why).
+    pub fn find_people(&self, image: &RgbImage) -> Option<Result<Vec<FoundPerson>, String>> {
+        self.ensure_model(ModelKind::People);
+        Some(self.people.get()?.find(image))
     }
 
     /// The inpainter for `method`: generative falls back to content-aware
     /// while no model is ready.
     fn inpainter(&self, method: RemovalMethod) -> Arc<dyn Inpainter> {
         if method == RemovalMethod::Generative
-            && let Generative::Ready(inpainter) = &*lock(&self.generative)
+            && let Some(inpainter) = self.generative.get()
         {
-            return inpainter.clone();
+            return inpainter;
         }
         Arc::new(self.content_aware)
     }
@@ -248,7 +247,7 @@ impl Retoucher {
             .iter()
             .any(|removal| removal.is_active() && removal.method == RemovalMethod::Generative)
         {
-            self.ensure_model();
+            self.ensure_model(ModelKind::Inpainting);
         }
         let mut fills = self.cached_fills(path, &settings);
         for job in removal_jobs(&settings) {
@@ -301,27 +300,9 @@ impl Retoucher {
             .iter()
             .any(|removal| removal.is_active() && removal.method == RemovalMethod::Generative);
         if uses_model {
-            self.model_identity().hash(&mut hasher);
+            self.generative.identity().hash(&mut hasher);
         }
         Some(directory.join(format!("{:016x}.fill", hasher.finish())))
-    }
-
-    /// What tells one model from another: its name, and its file's size and
-    /// modification time. `None` while there's no model and the fallback fills.
-    fn model_identity(&self) -> Option<(String, Option<u64>, Option<std::time::SystemTime>)> {
-        let Generative::Ready(inpainter) = &*lock(&self.generative) else {
-            return None;
-        };
-        let metadata = self
-            .model_path
-            .as_deref()
-            .and_then(installed_model)
-            .and_then(|model| std::fs::metadata(model).ok());
-        Some((
-            inpainter.name().to_string(),
-            metadata.as_ref().map(std::fs::Metadata::len),
-            metadata.and_then(|metadata| metadata.modified().ok()),
-        ))
     }
 }
 
@@ -395,59 +376,39 @@ fn store_fill(entry: &Path, patch: &RetouchPatch) {
     }
 }
 
-/// A poisoned lock only means another job panicked mid-update; the
-/// caches stay usable (worst case a fill is computed again).
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-}
-
-/// The model file for `expected`: that file, or else the only ONNX file
-/// in its folder, so a download can keep its own name (`lama_fp32.onnx`).
-#[cfg_attr(not(feature = "ai"), allow(dead_code))]
-fn installed_model(expected: &Path) -> Option<PathBuf> {
-    if expected.is_file() {
-        return Some(expected.to_path_buf());
-    }
-    let mut models = std::fs::read_dir(expected.parent()?)
-        .ok()?
-        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-        .filter(|path| {
-            path.is_file()
-                && path
-                    .extension()
-                    .is_some_and(|extension| extension.eq_ignore_ascii_case("onnx"))
-        });
-    let model = models.next()?;
-    models.next().is_none().then_some(model)
+/// The installed inpainting model, refined by content-aware fill: the
+/// network sets the structure at its low resolution, and content-aware fill
+/// adds the photo's own texture at the canvas's resolution.
+#[cfg(feature = "ai")]
+fn load_inpainter(path: &Path) -> Result<(Arc<dyn Inpainter>, String), String> {
+    let inpainter =
+        photonation_retouch::OnnxInpainter::load(path).map_err(|error| error.to_string())?;
+    let name = inpainter.name().to_string();
+    let refined = photonation_retouch::Refined {
+        inner: inpainter,
+        detail: ContentAwareFill::default(),
+    };
+    Ok((Arc::new(refined), name))
 }
 
 #[cfg(feature = "ai")]
-fn load_model(path: Option<&Path>) -> Result<Arc<dyn Inpainter>, ModelStatus> {
-    let Some(path) = path.and_then(installed_model) else {
-        return Err(ModelStatus::NotInstalled {
-            expected: path.map(Path::to_path_buf),
-        });
-    };
-    let path = path.as_path();
-    // The network sets the structure at its low resolution; content-aware
-    // fill then adds the photo's own texture at the canvas's resolution.
-    photonation_retouch::OnnxInpainter::load(path)
-        .map(|inpainter| {
-            Arc::new(photonation_retouch::Refined {
-                inner: inpainter,
-                detail: ContentAwareFill::default(),
-            }) as Arc<dyn Inpainter>
-        })
-        .map_err(|error| ModelStatus::Failed {
-            message: error.to_string(),
-        })
+fn load_people_finder(path: &Path) -> Result<(Arc<dyn PeopleFinder>, String), String> {
+    let detector =
+        photonation_retouch::PeopleDetector::load(path).map_err(|error| error.to_string())?;
+    let name = detector.name().to_string();
+    Ok((Arc::new(detector), name))
+}
+
+// Without the `ai` feature `LazyModel::ensure` reports `NotBuilt` before
+// loading anything.
+#[cfg(not(feature = "ai"))]
+fn load_inpainter(_: &Path) -> Result<(Arc<dyn Inpainter>, String), String> {
+    Err("this build has no neural networks".into())
 }
 
 #[cfg(not(feature = "ai"))]
-fn load_model(_: Option<&Path>) -> Result<Arc<dyn Inpainter>, ModelStatus> {
-    Err(ModelStatus::NotBuilt)
+fn load_people_finder(_: &Path) -> Result<(Arc<dyn PeopleFinder>, String), String> {
+    Err("this build has no neural networks".into())
 }
 
 #[cfg(test)]
@@ -705,43 +666,9 @@ mod tests {
             .expect("fill");
         assert_eq!(fills.len(), 1);
         assert!(matches!(
-            retoucher.model_status(),
+            retoucher.model_status(ModelKind::Inpainting),
             ModelStatus::NotInstalled { .. } | ModelStatus::NotBuilt
         ));
-    }
-
-    #[test]
-    fn a_model_is_looked_for_again_until_one_is_installed() {
-        let folder = tempfile::tempdir().expect("temporary folder");
-        let expected = folder.path().join("inpaint.onnx");
-        let retoucher = Retoucher::new(Some(expected.clone()));
-        let first = retoucher.ensure_model();
-        if first == ModelStatus::NotBuilt {
-            return;
-        }
-        assert!(matches!(first, ModelStatus::NotInstalled { .. }));
-        // A download under its own name is found; this one is not a
-        // model, so loading it fails, and that is not tried again.
-        std::fs::write(folder.path().join("lama_fp32.onnx"), b"not a model").expect("write");
-        assert!(matches!(
-            retoucher.ensure_model(),
-            ModelStatus::Failed { .. }
-        ));
-    }
-
-    #[test]
-    fn the_installed_model_is_the_expected_file_or_the_only_onnx_file() {
-        let folder = tempfile::tempdir().expect("temporary folder");
-        let expected = folder.path().join("inpaint.onnx");
-        assert_eq!(installed_model(&expected), None);
-        std::fs::write(folder.path().join("notes.txt"), b"").expect("write");
-        let lama = folder.path().join("lama_fp32.onnx");
-        std::fs::write(&lama, b"").expect("write");
-        assert_eq!(installed_model(&expected), Some(lama));
-        std::fs::write(folder.path().join("other.ONNX"), b"").expect("write");
-        assert_eq!(installed_model(&expected), None, "two models: neither");
-        std::fs::write(&expected, b"").expect("write");
-        assert_eq!(installed_model(&expected), Some(expected));
     }
 
     #[test]

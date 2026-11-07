@@ -61,8 +61,11 @@ it, and the inspector's outline pulses amber (`ViewState::tool_warning`).
 | `panels/mask_brush.rs` | Painting a mask's brush on the canvas |
 | `panels/crop.rs` | Crop tool: the frame on the canvas and the crop card |
 | `photo_frame.rs` | Screen ↔ photo positions for the displayed crop (handles, overlay, crop tool) |
-| `panels/removals.rs` | Remove panel: method, brush size, model status, removal list, selected removal |
+| `panels/removals.rs` | Remove panel: method, brush size, model status, People, removal list, selected removal |
 | `panels/removal_brush.rs` | Painting removals on the canvas and drawing brushed areas |
+| `panels/models.rs` | Model card: a model's status, and what to download, shown before the download |
+| `panels/people_picker.rs` | Outlining the people found and picking one with a click |
+| `people.rs` | The people search for the open photo (`PeopleSearch`) |
 | `gpu/mask_overlay.rs`, `.wgsl` | The selected mask's tint over the photo, evaluated per pixel on the GPU |
 | `gpu/mod.rs` | Graphics adapter choice and texture limits |
 | `panels/export.rs` | Export sheet (format, quality, size, colour space, scope, file name with a preview of the result, metadata) |
@@ -525,12 +528,31 @@ default sidecar, so the Lightroom edits do not return.
 ## Remove
 
 **Panel** (`panels/removals.rs`): the method for new removals (*Generative
-AI* or *Content-aware*), with the model's status under it (ready, loading,
-not built, or not installed: a link to download LaMa, its SHA-256, Open
-Models Folder and Check Again; see RETOUCH.md), and the brush size (% of the
-long edge). Then the list of removals (select, show/hide, ×), and for the
-selected one its method, Feather, *Try Another Fill* (content-aware only: a
-new seed) and Delete. A spinner by the title shows while fills are computed.
+AI* or *Content-aware*), with the model card under it, and the brush size (%
+of the long edge). Then **People**: *Select People* (while the people model
+is ready) and the people model's card, then what the search found. Then the
+list of removals (select, show/hide, ×), and for the selected one its
+method, Feather, *Try Another Fill* (content-aware only: a new seed) and
+Delete. A spinner by the title shows while fills are computed.
+
+**Model card** (`panels/models.rs`): one line while the model works (its
+name, a link to its licence, "runs on this computer only"), *Loading the
+model…*, or why it doesn't and what is used instead. While none is
+installed, *Get the … Model…* opens the details first: what it does, who
+made it, what it learned from, the file and its size, the licence and what
+it allows, the page it is on, the SHA-256 (Copy), and that photos stay on
+the computer. Only *Download* opens the file in the browser; *Open Models
+Folder* and *Check Again* finish. The open cards are in
+`ViewState::model_details`; see RETOUCH.md, "Installing models".
+
+**People** (`people.rs`, `panels/people_picker.rs`): *Select People* sets
+`ViewState::selecting_people` and asks the engine to find people in the open
+photo (`RenderService::find_people`); `PeopleSearch` keeps the answer for
+that photo, with each person's outline as strokes. While picking, the
+viewer outlines everyone found, the person under the pointer in the accent,
+and a click calls `removals::remove_person`: the person's selection becomes
+strokes with a margin, as a new removal or (⇧) added to the selected one.
+Opening another photo while picking searches it.
 
 **Canvas** (`panels/removal_brush.rs`): a drag paints a stroke, a click dabs
 once, ⇧ adds the stroke to the selected removal. The stroke lives in
@@ -541,7 +563,8 @@ grey, and a ring shows the brush under the pointer.
 **Fills** arrive in the background (docs/ENGINE.md): on
 `Event::RemovalsFilled` the app requests the current generation again. At
 start-up it asks the engine to load the generative model
-(`request_model_status`). The `ai` cargo feature (on by default) builds the
+(`request_model_status(ModelKind::Inpainting)`), and the people model when
+the Remove panel first shows. The `ai` cargo feature (on by default) builds the
 neural inpainting; see [RETOUCH.md](RETOUCH.md).
 
 ## Export metadata

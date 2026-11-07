@@ -28,7 +28,7 @@ use crate::{CameraModel, WORKING};
 use photonation_color::{Mat3, Primaries, apply3};
 use photonation_develop::{MaskSpace, Removal, Settings, WhiteBalance, removal_chain_fingerprints};
 use photonation_image::{NormRect, Rect, SensorImage};
-use photonation_retouch::Canvas;
+use photonation_retouch::{Canvas, RgbImage};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -439,60 +439,22 @@ pub fn removal_canvas(
         return None;
     }
 
-    let longest = region.w.max(region.h);
-    let target = if longest > MAX_CANVAS_EDGE {
-        let shrink = MAX_CANVAS_EDGE as f64 / longest as f64;
-        (
-            ((region.w as f64 * shrink).round() as usize).max(2),
-            ((region.h as f64 * shrink).round() as usize).max(2),
-        )
-    } else {
-        (region.w, region.h)
-    };
-    let half_size_is_enough = target.0 * 2 <= region.w && target.1 * 2 <= region.h;
-    let demosaic = Demosaic::choose(&sensor.layout, half_size_is_enough);
-    // Demosaic white balanced as shot, like a render: demosaicing does not
-    // commute with per-channel scaling, so balancing afterwards would not
-    // match the photo. The patch divides the balance back out. Each channel
-    // keeps its own headroom, so a fill in a blown area is as bright as
-    // the highlights reconstructed around it (process V2); V1 renders clip
-    // it at 1 like the rest of the photo.
-    let display_balance = CameraModel::new(sensor, &WhiteBalance::AsShot).wb_multipliers;
-    let source = SensorSource::new(sensor, region, display_balance, demosaic, true);
-    let source_region = source.region();
-    let mut graph = Graph::new(Box::new(source));
     let earlier = Settings {
         removals: settings.removals[..index].to_vec(),
         ..Settings::default()
     };
-    push_retouch(
-        &mut graph,
-        sensor,
-        &earlier,
-        fills,
+    let AsShot {
+        display,
+        width,
+        height,
         source_region,
         display_balance,
-        display_balance,
-    );
-    if graph.size() != target {
-        graph.push(Box::new(Resize::new(graph.size(), target)));
-    }
-    let (width, height) = graph.size();
-    let balanced = graph.render_rows(0..height).data;
-
+        from_display,
+    } = render_as_shot(sensor, region, MAX_CANVAS_EDGE, &earlier, fills);
     let positions = PixelToMask::new(sensor, source_region, (width, height));
     let weight = RemovalWeight::new(removal, space);
     let hole: Vec<f32> = (0..width * height)
         .map(|pixel| weight.at(positions.at(pixel % width, pixel / width)))
-        .collect();
-    let camera = CameraModel::new(sensor, &WhiteBalance::AsShot);
-    let to_display = Primaries::REC709.from_xyz() * WORKING.to_xyz() * camera.camera_to_working;
-    let from_display = to_display.inverse().unwrap_or(to_display);
-    let as_f32 = |matrix: Mat3| matrix.0.map(|row| row.map(|v| v as f32));
-    let (to_display, from_display) = (as_f32(to_display), as_f32(from_display));
-    let display: Vec<f32> = balanced
-        .chunks_exact(3)
-        .flat_map(|pixel| apply3(&to_display, [pixel[0], pixel[1], pixel[2]]))
         .collect();
     let display_gain = highlight_gain(&display, &hole);
     let rgb = display
@@ -515,6 +477,122 @@ pub fn removal_canvas(
         from_display,
         display_gain,
     })
+}
+
+/// A sensor region rendered without adjustments: what both a removal's
+/// canvas and the image people are looked for in start from.
+struct AsShot {
+    /// White balanced as shot, linear Rec. 709 RGB, stored orientation.
+    display: Vec<f32>,
+    width: usize,
+    height: usize,
+    /// The sensor area actually rendered (the region snapped to the CFA).
+    source_region: Rect,
+    /// As-shot white balance, so the image looks natural to a network.
+    display_balance: [f32; 3],
+    /// Linear Rec. 709 → white-balanced camera RGB.
+    from_display: [[f32; 3]; 3],
+}
+
+/// Renders `region` of the sensor at most `max_edge` pixels on its long
+/// edge, with the removals of `earlier` applied from `fills`.
+fn render_as_shot(
+    sensor: &SensorImage,
+    region: Rect,
+    max_edge: usize,
+    earlier: &Settings,
+    fills: &RemovalFills,
+) -> AsShot {
+    let longest = region.w.max(region.h);
+    let target = if longest > max_edge {
+        let shrink = max_edge as f64 / longest as f64;
+        (
+            ((region.w as f64 * shrink).round() as usize).max(2),
+            ((region.h as f64 * shrink).round() as usize).max(2),
+        )
+    } else {
+        (region.w, region.h)
+    };
+    let half_size_is_enough = target.0 * 2 <= region.w && target.1 * 2 <= region.h;
+    let demosaic = Demosaic::choose(&sensor.layout, half_size_is_enough);
+    // Demosaic white balanced as shot, like a render: demosaicing does not
+    // commute with per-channel scaling, so balancing afterwards would not
+    // match the photo. A patch divides the balance back out. Each channel
+    // keeps its own headroom, so a fill in a blown area is as bright as
+    // the highlights reconstructed around it (process V2); V1 renders clip
+    // it at 1 like the rest of the photo.
+    let display_balance = CameraModel::new(sensor, &WhiteBalance::AsShot).wb_multipliers;
+    let source = SensorSource::new(sensor, region, display_balance, demosaic, true);
+    let source_region = source.region();
+    let mut graph = Graph::new(Box::new(source));
+    push_retouch(
+        &mut graph,
+        sensor,
+        earlier,
+        fills,
+        source_region,
+        display_balance,
+        display_balance,
+    );
+    if graph.size() != target {
+        graph.push(Box::new(Resize::new(graph.size(), target)));
+    }
+    let (width, height) = graph.size();
+    let balanced = graph.render_rows(0..height).data;
+    let camera = CameraModel::new(sensor, &WhiteBalance::AsShot);
+    let to_display = Primaries::REC709.from_xyz() * WORKING.to_xyz() * camera.camera_to_working;
+    let from_display = to_display.inverse().unwrap_or(to_display);
+    let as_f32 = |matrix: Mat3| matrix.0.map(|row| row.map(|v| v as f32));
+    let (to_display, from_display) = (as_f32(to_display), as_f32(from_display));
+    let display = balanced
+        .chunks_exact(3)
+        .flat_map(|pixel| apply3(&to_display, [pixel[0], pixel[1], pixel[2]]))
+        .collect();
+    AsShot {
+        display,
+        width,
+        height,
+        source_region,
+        display_balance,
+        from_display,
+    }
+}
+
+/// The whole photo (its default crop) upright and as shot, without
+/// adjustments or removals, at most `long_edge` pixels on its long edge and
+/// encoded like a removal's canvas: what a model looking for people sees.
+/// Its normalized positions are mask positions.
+pub fn as_shot_image(sensor: &SensorImage, long_edge: usize) -> RgbImage {
+    let AsShot {
+        display,
+        width,
+        height,
+        ..
+    } = render_as_shot(
+        sensor,
+        sensor.crop,
+        long_edge,
+        &Settings::default(),
+        &RemovalFills::default(),
+    );
+    let gain = highlight_gain(&display, &vec![0.0; width * height]);
+    let orientation = sensor.orientation;
+    let (upright_width, upright_height) = orientation.display_size(width, height);
+    let mut rgb = vec![0.0; upright_width * upright_height * 3];
+    for (pixel, linear) in display.chunks_exact(3).enumerate() {
+        let (x, y) = orientation.to_display(pixel % width, pixel / width, width, height);
+        let target = (y * upright_width + x) * 3;
+        for channel in 0..3 {
+            rgb[target + channel] = (linear[channel] * gain)
+                .clamp(0.0, 1.0)
+                .powf(1.0 / CANVAS_GAMMA);
+        }
+    }
+    RgbImage {
+        width: upright_width,
+        height: upright_height,
+        rgb,
+    }
 }
 
 /// Gain that maps the 99th percentile of the known pixels' brightest

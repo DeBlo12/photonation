@@ -23,6 +23,9 @@ pub struct ModelDownload {
     /// What it does in Photonation.
     pub purpose: &'static str,
     pub made_by: &'static str,
+    /// The model's own page, where its makers describe it (the download is a
+    /// conversion hosted elsewhere).
+    pub about_url: &'static str,
     pub trained_on: &'static str,
     pub file_name: &'static str,
     pub bytes: u64,
@@ -43,6 +46,7 @@ pub const INPAINTING: ModelDownload = ModelDownload {
     name: "LaMa",
     purpose: "Fills removals with content that fits the scene (Generative AI).",
     made_by: "Samsung AI Center (LaMa); converted to ONNX by Carve",
+    about_url: "https://github.com/advimman/lama",
     trained_on: "Places2 (photos of scenes)",
     file_name: "lama_fp32.onnx",
     bytes: 208_044_816,
@@ -58,6 +62,7 @@ pub const PEOPLE: ModelDownload = ModelDownload {
     name: "RF-DETR Seg Medium",
     purpose: "Finds the people in a photo, so a click selects one.",
     made_by: "Roboflow (RF-DETR); converted to ONNX by besit, weights unchanged",
+    about_url: "https://github.com/roboflow/rf-detr",
     trained_on: "COCO (everyday photos from Flickr)",
     file_name: "rfdetr-seg-medium.onnx",
     bytes: 138_376_531,
@@ -104,6 +109,8 @@ pub fn status(
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;
                 hint(ui, &format!("Model: {name} ·"));
+                about_link(ui, model);
+                hint(ui, "·");
                 licence_link(ui, model);
                 hint(ui, "· runs on this computer only");
             });
@@ -146,6 +153,22 @@ pub fn status(
         return None;
     }
     details(ui, kind, expected, expanded)
+}
+
+/// "About LaMa": the page where the model's makers describe it.
+fn about_link(ui: &mut Ui, model: &ModelDownload) {
+    let link = ui.hyperlink_to(
+        RichText::new(format!("About {}", model.name)).size(11.0),
+        model.about_url,
+    );
+    hover_tip(
+        link,
+        &format!(
+            "About {}\nIts makers' page: what it is, how it was made and trained. Opens \
+             in your browser; nothing is downloaded.",
+            model.name
+        ),
+    );
 }
 
 fn licence_link(ui: &mut Ui, model: &ModelDownload) {
@@ -191,6 +214,9 @@ fn details(
                     };
                     row(ui, "Does", model.purpose);
                     row(ui, "Made by", model.made_by);
+                    field_name(ui, "About");
+                    about_link(ui, model);
+                    ui.end_row();
                     row(ui, "Learned from", model.trained_on);
                     row(
                         ui,
@@ -343,6 +369,12 @@ mod tests {
                     .ends_with(&format!("/{}", model.file_name))
             );
             assert!(model.download_url.starts_with(model.page_url));
+            assert!(model.about_url.starts_with("https://"));
+            assert!(
+                retouch.contains(model.about_url),
+                "RETOUCH.md links {}",
+                model.about_url
+            );
             assert!(
                 retouch.contains(model.page_url),
                 "RETOUCH.md links {}",

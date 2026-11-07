@@ -222,8 +222,9 @@ slanted edges.)
 Photonation ships no weights and never downloads anything itself. Each tool
 that needs a model shows its status; while none is installed, **Get the …
 Model** opens a card that says, before anything is downloaded, what the
-model does, who made it, what it learned from, the file and its size, the
-licence (with a link and what it allows), where it comes from, its SHA-256
+model does, who made it, a link to its makers' page (*About*), what it
+learned from, the file and its size, the licence (with a link and what it
+allows), where the file comes from, its SHA-256
 (with Copy), and that it runs on this computer only. Only **Download** then
 opens the file in the browser; **Open Models Folder** and **Check Again**
 finish the job (`panels/models.rs`).

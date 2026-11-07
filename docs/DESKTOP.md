@@ -543,11 +543,13 @@ method, Feather, *Try Another Fill* (content-aware only: a new seed) and
 Delete. A spinner by the title shows while fills are computed.
 
 **Model card** (`panels/models.rs`): one line while the model works (its
-name, a link to its licence, "runs on this computer only"), *Loading the
+name, links to its makers' page and its licence, "runs on this computer
+only"), *Loading the
 model…*, or why it doesn't and what is used instead. While none is
 installed, *Get the … Model…* opens the details first: what it does, who
-made it, what it learned from, the file and its size, the licence and what
-it allows, the page it is on, the SHA-256 (Copy), and that photos stay on
+made it, *About* (its makers' page), what it learned from, the file and its
+size, the licence and what it allows, the page the file is on, the SHA-256
+(Copy), and that photos stay on
 the computer. Only *Download* opens the file in the browser; *Open Models
 Folder* and *Check Again* finish. The open cards are in
 `ViewState::model_details`; see RETOUCH.md, "Installing models".

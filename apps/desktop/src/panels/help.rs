@@ -1513,8 +1513,9 @@ fn content(page: Page) -> Content {
                     "Photonation ships no models and never downloads anything itself. \
                      Generative AI needs the LaMa model (lama_fp32.onnx, 208 MB), Select \
                      People the RF-DETR model (rfdetr-seg-medium.onnx, 138 MB), both \
-                     Apache-2.0. Get the Model shows what the model does, who made it, \
-                     what it learned from, its size, licence and SHA-256 before anything \
+                     Apache-2.0. Get the Model shows what the model does, who made it \
+                     (About links their page), what it learned from, its size, licence and \
+                     SHA-256 before anything \
                      downloads; Download then opens it in your browser. Put the file in \
                      {DATA_FOLDER}{sep}models (Open Models Folder; it can keep its name), \
                      then click Check Again. Models run on this computer only. Without the \

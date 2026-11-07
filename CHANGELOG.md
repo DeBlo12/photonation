@@ -17,6 +17,10 @@ changes to CI alone are not released.
   the selected mask's brush. The mask is ordinary painted strokes with a soft
   edge, so the brush refines it and the model isn't needed afterwards.
 
+- Model cards link each model's own page (*About LaMa*, *About RF-DETR Seg
+  Medium*), where its makers describe it, besides the page the download is on;
+  so does a working model's status line.
+
 ### Changed
 
 - A person's outline is traced four times finer than the model's mask (was twice),

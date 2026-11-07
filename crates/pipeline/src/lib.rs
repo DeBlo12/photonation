@@ -40,7 +40,8 @@ pub use lens::{LensMap, lens_profile};
 pub use photonation_lens::Profile as LensProfile;
 pub use plan::{PlanError, RenderPlan, render_plan};
 pub use retouch::{
-    RemovalCanvas, RemovalFills, RemovalJob, RetouchPatch, removal_canvas, removal_jobs,
+    RemovalCanvas, RemovalFills, RemovalJob, RetouchPatch, as_shot_image, removal_canvas,
+    removal_jobs,
 };
 pub use source::Demosaic;
 pub use tone::BASELINE_EXPOSURE;

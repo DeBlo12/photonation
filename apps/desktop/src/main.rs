@@ -19,6 +19,7 @@ mod menus;
 #[cfg(target_os = "macos")]
 mod native_menu;
 mod panels;
+mod people;
 mod photo_frame;
 mod preferences;
 mod presets;

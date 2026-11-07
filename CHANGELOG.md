@@ -8,6 +8,32 @@ changes to CI alone are not released.
 
 ## [Unreleased]
 
+## 0.25.0 - 2026-11-07
+
+### Added
+
+- **Select People** in the Remove panel: an RF-DETR segmentation model outlines
+  the people in the photo, and a click removes one (⇧-click adds them to the
+  selected removal). The person becomes ordinary brush strokes with a small
+  margin, so the removal edits and saves like a painted one and needs no model
+  afterwards. The model (`rfdetr-seg-medium.onnx`, 138 MB, Apache-2.0) is a
+  separate download, like LaMa, and runs on this computer only.
+
+### Changed
+
+- The Remove panel's model card says, before anything is downloaded, what each
+  model does, who made it, what it learned from, its file and size, its licence
+  and what that allows, where it comes from and its SHA-256. Only the Download
+  button then opens the file in the browser; Photonation downloads nothing itself.
+  A working model's line links its licence.
+- A download kept under its own name is found for each model separately: files
+  named `rfdetr…` are people models, any other ONNX file an inpainting model.
+
+### Fixed
+
+- The Remove help page no longer says fills are computed again when a photo is
+  reopened; since 0.24.0 they come back from disk.
+
 ## 0.24.1 - 2026-11-07
 
 ### Fixed

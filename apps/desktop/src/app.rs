@@ -12,8 +12,8 @@ use photonation_develop::{
     RemovalMethod, Settings, SettingsOrigin, load_photo, save_photo,
 };
 use photonation_engine::{
-    Event, ExportOptions, Histogram, History, ModelStatus, PhotoInfo, PreviewKind, PreviewRequest,
-    RenderService,
+    Event, ExportOptions, Histogram, History, ModelKind, ModelStatus, PhotoInfo, PreviewKind,
+    PreviewRequest, RenderService,
 };
 use photonation_image::NormRect;
 use std::collections::{HashMap, HashSet};
@@ -252,6 +252,11 @@ pub struct ViewState {
     pub tool_warning: Option<Instant>,
     /// Index into `settings.removals`.
     pub selected_removal: Option<usize>,
+    /// The Remove panel's People mode: a click on the photo picks a person
+    /// instead of painting.
+    pub selecting_people: bool,
+    /// Model cards showing what to download.
+    pub model_details: HashMap<ModelKind, bool>,
     pub full_screen: Option<PhotoFullScreen>,
     pub removal_brush: RemovalBrush,
     /// A gradient just added, while it is still the selected shape: the next
@@ -312,6 +317,8 @@ impl Default for ViewState {
             library: Default::default(),
             tool_warning: None,
             selected_removal: None,
+            selecting_people: false,
+            model_details: HashMap::new(),
             full_screen: None,
             removal_brush: RemovalBrush::default(),
             shape_to_draw: None,
@@ -378,6 +385,7 @@ impl ViewState {
         self.cropping = false;
         self.show_removals = false;
         self.painting = None;
+        self.selecting_people = false;
         self.mask_stroke = None;
         self.library.grid = false;
         self.library.survey = false;
@@ -410,6 +418,31 @@ impl ViewState {
             && tab_visible
             && self.selected_point_color < settings.point_colors.len())
         .then_some(self.selected_point_color)
+    }
+}
+
+/// The last status the engine reported for each model; `None` until one
+/// is asked for.
+#[derive(Default)]
+pub struct ModelStatuses {
+    inpainting: Option<ModelStatus>,
+    people: Option<ModelStatus>,
+}
+
+impl ModelStatuses {
+    pub fn status(&self, kind: ModelKind) -> Option<&ModelStatus> {
+        match kind {
+            ModelKind::Inpainting => self.inpainting.as_ref(),
+            ModelKind::People => self.people.as_ref(),
+        }
+    }
+
+    pub fn set(&mut self, kind: ModelKind, status: ModelStatus) {
+        let slot = match kind {
+            ModelKind::Inpainting => &mut self.inpainting,
+            ModelKind::People => &mut self.people,
+        };
+        *slot = Some(status);
     }
 }
 
@@ -465,8 +498,10 @@ pub struct PhotonationApp {
     pub gpu_setting_at_launch: crate::gpu::GpuSetting,
     /// The GPU mask overlay is installed (wgpu is rendering).
     pub mask_overlay_ready: bool,
-    /// Whether "Generative AI" removals run a model (None until reported).
-    pub model_status: Option<ModelStatus>,
+    /// Whether each model is installed and loaded.
+    pub models: ModelStatuses,
+    /// The people found in the open photo, for one-click selection.
+    pub people: crate::people::PeopleSearch,
     /// Removals changed and their fills have not all arrived yet.
     pub filling_removals: bool,
     /// Large images for the survey view, and the size each was asked at.
@@ -510,7 +545,7 @@ impl PhotonationApp {
         app.load_presets();
         // Load the inpainting model in the background, so the first
         // generative removal doesn't wait for it.
-        app.engine.request_model_status();
+        app.request_model_status(ModelKind::Inpainting);
         if let Some(render_state) = &cc.wgpu_render_state {
             crate::gpu::mask_overlay::install(render_state);
             let gpu = crate::gpu::describe(&render_state.adapter.get_info());
@@ -583,7 +618,8 @@ impl PhotonationApp {
             preferences: Default::default(),
             gpu_setting_at_launch: Default::default(),
             mask_overlay_ready: false,
-            model_status: None,
+            models: ModelStatuses::default(),
+            people: Default::default(),
             filling_removals: false,
             survey_images: HashMap::new(),
             survey_requested: HashMap::new(),
@@ -765,6 +801,26 @@ impl PhotonationApp {
     pub fn notify(&mut self, message: impl Into<String>) {
         self.status = Some((message.into(), Instant::now()));
         self.status_is_about_photo = false;
+    }
+
+    /// Asks the engine to load a model if needed and report on it.
+    pub fn request_model_status(&mut self, kind: ModelKind) {
+        self.models.set(kind, ModelStatus::NotLoaded);
+        self.engine.request_model_status(kind);
+    }
+
+    /// Does what a model card asked for.
+    pub fn model_action(&mut self, action: crate::panels::models::ModelAction) {
+        match action {
+            crate::panels::models::ModelAction::CheckAgain(kind) => self.request_model_status(kind),
+            crate::panels::models::ModelAction::Failed(message) => self.notify(message),
+        }
+    }
+
+    /// Looks for people in `path` (the answer arrives as an event).
+    pub fn find_people(&mut self, path: PathBuf) {
+        self.people.start(path.clone());
+        self.engine.find_people(path);
     }
 
     pub fn current_path(&self) -> Option<&PathBuf> {
@@ -1045,17 +1101,35 @@ impl PhotonationApp {
                     self.last_requested = None;
                     self.filling_removals = false;
                 }
-                Event::ModelStatus(status) => {
-                    // A model found after start-up redoes the fills made
-                    // without it (the engine dropped them).
-                    let was_ready = self
-                        .model_status
-                        .as_ref()
-                        .is_some_and(ModelStatus::is_ready);
-                    if status.is_ready() && !was_ready && !self.settings.removals.is_empty() {
-                        self.refresh();
+                Event::ModelStatus { kind, status } => {
+                    let was_ready = self.models.status(kind).is_some_and(ModelStatus::is_ready);
+                    match kind {
+                        // A model found after start-up redoes the fills made
+                        // without it (the engine dropped them).
+                        ModelKind::Inpainting => {
+                            if status.is_ready() && !was_ready && !self.settings.removals.is_empty()
+                            {
+                                self.refresh();
+                            }
+                        }
+                        // A search waiting for a model that isn't there
+                        // won't be answered with people.
+                        ModelKind::People if !status.is_ready() => self.people.cancel(),
+                        ModelKind::People => {}
                     }
-                    self.model_status = Some(status);
+                    self.models.set(kind, status);
+                }
+                Event::PeopleFound { path, people } => {
+                    let space = self.info.as_ref().filter(|info| info.path == path).map_or(
+                        photonation_develop::MaskSpace::new(1.0, 1.0),
+                        |info| {
+                            photonation_develop::MaskSpace::new(
+                                info.size.0 as f64,
+                                info.size.1 as f64,
+                            )
+                        },
+                    );
+                    self.people.arrived(&path, people, space);
                 }
                 Event::ColorPicked { path, color } if Some(&path) == self.current_path() => {
                     self.color_picked(color)

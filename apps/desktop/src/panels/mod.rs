@@ -19,6 +19,8 @@ pub mod mask_handles;
 pub mod mask_thumbnails;
 pub mod masks;
 pub mod menu_bar;
+pub mod models;
+pub mod people_picker;
 pub mod point_colors;
 pub mod presets;
 pub mod removal_brush;

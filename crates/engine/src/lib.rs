@@ -3,7 +3,7 @@
 
 //! Session services shared by every front end (desktop, CLI, later web):
 //! background rendering with latest-wins coalescing, thumbnails, export
-//! jobs, removal fills, folder scanning, undo history and histograms. Nothing here knows
+//! jobs, removal fills, finding people, folder scanning, undo history and histograms. Nothing here knows
 //! about a UI toolkit; results arrive as [`Event`]s.
 
 mod decoder;
@@ -14,6 +14,7 @@ mod history;
 mod level;
 mod library;
 mod metadata;
+mod models;
 mod preview;
 mod retouch;
 mod service;
@@ -29,9 +30,11 @@ pub use history::History;
 pub use level::level_angle;
 pub use library::{Subfolder, scan_folder};
 pub use metadata::{MetadataOptions, MetadataPreset};
+pub use models::{
+    MODEL_PATH_VARIABLE, ModelKind, ModelStatus, PEOPLE_MODEL_PATH_VARIABLE, data_directory,
+    default_model_path,
+};
 pub use photonation_raw::supported_extensions as raw_extensions;
 pub use preview::GPU_RENDER_VARIABLE;
-pub use retouch::{
-    MODEL_PATH_VARIABLE, ModelStatus, Retoucher, data_directory, default_model_path,
-};
+pub use retouch::{FoundPerson, PEOPLE_IMAGE_EDGE, PeopleFinder, Retoucher};
 pub use service::{Event, PhotoInfo, PreviewKind, PreviewRequest, RenderService, RenderedImage};

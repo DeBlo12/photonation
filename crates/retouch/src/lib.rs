@@ -13,6 +13,9 @@
 //!   MI-GAN) that can invent structure found nowhere else in the photo
 //!   (the cow behind the fly, the field behind the fence).
 //!
+//! With the same feature, [`PeopleDetector`] finds people with an RF-DETR
+//! segmentation model, so a click can select one to remove or mask.
+//!
 //! Nothing here knows about raw files or the develop pipeline; the
 //! pipeline cuts canvases out of the photo and blends fills back in. See
 //! docs/RETOUCH.md.
@@ -21,11 +24,15 @@ mod canvas;
 #[cfg(feature = "onnx")]
 mod onnx;
 mod patch_match;
+#[cfg(feature = "onnx")]
+mod people;
 
-pub use canvas::Canvas;
+pub use canvas::{Canvas, RgbImage};
 #[cfg(feature = "onnx")]
 pub use onnx::{ModelLayout, OnnxInpainter};
 pub use patch_match::{ContentAwareFill, Refined};
+#[cfg(feature = "onnx")]
+pub use people::{PeopleDetector, PeopleError, Person};
 
 #[derive(Debug, thiserror::Error)]
 pub enum InpaintError {

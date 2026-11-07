@@ -7,10 +7,10 @@ Crate: `photonation-engine`. Front ends talk to `RenderService` and receive
 
 | Worker | Threads | Input | Output events |
 |---|---|---|---|
-| Preview | 1 | `PreviewJob::Render(PreviewRequest)`, `PreviewJob::Pick` (white balance or colour) | `PhotoLoaded`, `Preview`, `WhiteBalancePicked`, `ColorPicked`, `Error` |
+| Preview | 1 | `PreviewJob::Render(PreviewRequest)`, `PreviewJob::Pick` (white balance or colour), `PreviewJob::FindPeople` | `PhotoLoaded`, `Preview`, `WhiteBalancePicked`, `ColorPicked`, `PeopleFound` (on failure), `Error` |
 | Thumbnails | 2 | `ThumbnailJob` (`Survey`, `Quick`, `Render`) | `Thumbnail`, `CaptureTime`, `SurveyImage`, `Error` |
 | Export | 1 | `ExportJob` (a batch) | `ExportProgress`, `ExportFinished` |
-| Retouch | 1 | `RetouchJob::Fill`, `RetouchJob::Status` | `RemovalsFilled`, `ModelStatus`, `Error` |
+| Retouch | 1 | `RetouchJob::Fill`, `RetouchJob::Status(kind)`, `RetouchJob::FindPeople` | `RemovalsFilled`, `ModelStatus`, `PeopleFound`, `Error` |
 | Folders | 1 | The folder to look through (`scan_subfolders`) | `SubfolderFound`, `SubfoldersScanned`, `Error` |
 
 Every event send also calls the `notify` callback the front end passed in (the
@@ -105,16 +105,22 @@ loop:
 
 One `Retoucher` is shared by all workers. It caches fills per photo (the 8
 most recent photos) by removal chain fingerprint, chooses the inpainter per
-removal (the generative model when loaded, else content-aware fill), and
-fills missing removals in order.
+removal (the generative model when loaded, else content-aware fill), fills
+missing removals in order, and finds people. Its models (`models.rs`:
+`LazyModel`) load on first use and are looked for again while missing.
 
 - **Preview** renders with the cached fills and, if any are missing, sends
   `RetouchJob::Fill` to the retouch worker instead of waiting.
 - **Retouch worker** keeps only the newest request of a burst, fills what is
   missing and sends `RemovalsFilled` after each fill; the desktop then asks
-  for the same generation again. `RetouchJob::Status`
-  (`request_model_status`) loads the model if needed and answers with
-  `ModelStatus`.
+  for the same generation again. `RetouchJob::Status(kind)`
+  (`request_model_status`) loads that model if needed and answers with
+  `ModelStatus { kind, status }`; a status that changes while filling or
+  finding people is announced too.
+- **Finding people** (`find_people`): the preview worker, which has the photo
+  decoded, prepares `as_shot_image` and passes it to the retouch worker,
+  which keeps the newest search of a burst and answers with `PeopleFound`
+  (the people, or why none could be looked for).
 - **Thumbnails and exports** fill missing removals synchronously.
 
 See [RETOUCH.md](RETOUCH.md).

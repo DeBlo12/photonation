@@ -67,11 +67,12 @@ THIRD-PARTY-LICENSES.txt with cargo-about (about.toml) and the installers ship
 it. We modify none of these crates; if that changes, Apache-2.0 section 4(b)
 requires the modified files to say so.
 
-Inpainting models (not distributed)
------------------------------------
+Neural network models (not distributed)
+---------------------------------------
 
 Photonation does not ship neural network weights. The "Generative AI"
-removal method loads a model file the user installs (see docs/RETOUCH.md):
+removal method and selecting people load model files the user installs (see
+docs/RETOUCH.md):
 
 LaMa (https://github.com/advimman/lama), Apache-2.0
   Resolution-robust Large Mask Inpainting with Fourier Convolutions,
@@ -79,6 +80,11 @@ LaMa (https://github.com/advimman/lama), Apache-2.0
 
 MI-GAN (https://github.com/Picsart-AI-Research/MI-GAN), MIT
   Mobile Inpainting GAN, Sargsyan et al. 2023, Picsart AI Research.
+
+RF-DETR (https://github.com/roboflow/rf-detr), Apache-2.0
+  RF-DETR segmentation, Copyright 2025 Roboflow, Inc. Trained on COCO.
+  The ONNX export (https://huggingface.co/besit/rfdetr-onnx) is a
+  third-party conversion of Roboflow's weights.
 
 Anyone who bundles one of these models with Photonation must include that
 model's licence (and, for LaMa, any NOTICE file of the upstream project).

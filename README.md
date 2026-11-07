@@ -22,7 +22,8 @@ a Lightroom-style develop module with a Photomator-inspired interface.
 - **Local edits and geometry**: masks (linear and radial gradients and a brush
   combined per mask, with local adjustments), crop and straighten (draw a level line, or let
   Auto find it), and object removal by content-aware fill or a neural inpainting
-  model.
+  model, with people selected in one click. Models are separate downloads that
+  run on your computer only.
 - **Culling and presets**: star ratings, pick and reject flags, colour labels,
   filter and sort, grid and survey views; presets and copying settings between
   photos. Lightroom edits (from XMP) and `.xmp` presets import.

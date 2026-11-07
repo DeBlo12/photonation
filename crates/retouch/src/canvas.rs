@@ -60,6 +60,21 @@ impl Canvas {
     }
 }
 
+/// An upright image for a model to look at: interleaved RGB,
+/// display-encoded (sRGB), 0..1.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RgbImage {
+    pub width: usize,
+    pub height: usize,
+    pub rgb: Vec<f32>,
+}
+
+impl RgbImage {
+    pub fn is_valid(&self) -> bool {
+        self.width > 0 && self.height > 0 && self.rgb.len() == self.width * self.height * 3
+    }
+}
+
 /// Bilinear resampling of an interleaved image with `channels` per pixel.
 pub fn resize_interleaved(
     samples: &[f32],

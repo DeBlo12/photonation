@@ -22,6 +22,7 @@ mod masks;
 mod point_colors;
 mod presets;
 mod removals;
+mod selection;
 mod settings;
 mod sidecar;
 
@@ -56,6 +57,7 @@ pub use removals::{
     BrushStroke, MAX_BRUSH_RADIUS, MAX_REMOVAL_STROKES, MAX_REMOVALS, MAX_STROKE_POINTS,
     MIN_BRUSH_RADIUS, Removal, RemovalMethod, removal_chain_fingerprints,
 };
+pub use selection::Selection;
 pub use settings::{
     ColorGrading, ColorMixer, GradingWheel, HslAdjustment, LensCorrection, NoiseReduction,
     ParametricCurve, PointCurve, ProcessVersion, Settings, Sharpening, ToneCurve, WhiteBalance,

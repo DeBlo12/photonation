@@ -1484,19 +1484,32 @@ fn content(page: Page) -> Content {
                 term("Feather", "softens the removal's edge."),
                 text(
                     "Fills are computed in the background, while a spinner shows by the \
-                     panel's title, and kept in memory; reopening a photo computes them \
-                     again. The sidecar stores only the brush strokes. Removals come before \
-                     every adjustment, so the fill matches the rest of the photo.",
+                     panel's title, and kept in memory and on disk, so reopening a photo \
+                     shows them at once. The sidecar stores only the brush strokes. Removals \
+                     come before every adjustment, so the fill matches the rest of the photo.",
                 ),
-                Block::Heading("Installing a model"),
+                Block::Heading("People"),
+                term(
+                    "Select People",
+                    format!(
+                        "outlines the people in the photo; the one under the pointer stands \
+                         out. Click a person to remove them, {shift}-click to add them to the \
+                         selected removal. Click Done to paint again. The person becomes \
+                         ordinary brush strokes with a small margin, so you can widen the \
+                         removal by painting and it needs no model afterwards."
+                    ),
+                ),
+                Block::Heading("Installing models"),
                 Block::Text(format!(
-                    "Photonation ships no model. Without one, the Remove panel links the \
-                     LaMa model (lama_fp32.onnx, Apache-2.0) and shows its SHA-256 to check \
-                     the download against. Put the file in {DATA_FOLDER}{sep}models (Open \
-                     Models Folder; any name, if it is the only ONNX file there, else \
-                     inpaint.onnx), or set PHOTONATION_INPAINT_MODEL to its path, then \
-                     click Check Again. Without a model, Generative AI uses content-aware \
-                     fill.",
+                    "Photonation ships no models and never downloads anything itself. \
+                     Generative AI needs the LaMa model (lama_fp32.onnx, 208 MB), Select \
+                     People the RF-DETR model (rfdetr-seg-medium.onnx, 138 MB), both \
+                     Apache-2.0. Get the Model shows what the model does, who made it, \
+                     what it learned from, its size, licence and SHA-256 before anything \
+                     downloads; Download then opens it in your browser. Put the file in \
+                     {DATA_FOLDER}{sep}models (Open Models Folder; it can keep its name), \
+                     then click Check Again. Models run on this computer only. Without the \
+                     LaMa model, Generative AI uses content-aware fill.",
                     sep = std::path::MAIN_SEPARATOR
                 )),
                 tip(

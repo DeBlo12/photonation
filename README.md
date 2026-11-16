@@ -85,6 +85,16 @@ Windows 10/11 with
 editor (Start menu: Photonation) and, optionally, puts the `photonation` CLI
 on `PATH`. Shortcuts use Ctrl where the table below shows ⌘, and Alt for ⌥.
 
+### Updating
+
+An installed copy updates itself: **Check for Updates…** (the Photonation menu
+on macOS, Help on Windows) asks GitHub for the latest release, and **Install
+Update** downloads its installer, checks it against the checksum GitHub
+recorded, puts it in place and restarts. Preferences, presets, models and edits
+stay as they are. Nothing is checked unless you choose the item. It finds
+something once a release with installers is published; until then, and for a
+copy run with `cargo run`, update from the source.
+
 ### CLI
 
 | Command | What it does |

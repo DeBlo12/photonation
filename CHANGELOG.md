@@ -8,6 +8,24 @@ changes to CI alone are not released.
 
 ## [Unreleased]
 
+## 0.27.0 - 2026-11-16
+
+### Added
+
+- **Check for Updates** (the Photonation menu on macOS, Help elsewhere): asks
+  GitHub for the latest release and shows what changed in it. **Install Update**
+  downloads the release's installer, checks it against the size and SHA-256
+  GitHub recorded for it, and puts it in place: on macOS the app is replaced and
+  restarts, on Windows the installer opens as Photonation quits. Preferences,
+  presets, models and edits stay as they are. Nothing is checked unless the item
+  is chosen, and a copy built from source is pointed to the release's page
+  instead. It has something to find once a release with installers is published.
+
+### Changed
+
+- Dependencies: moxcms 0.9.2 (colour management fixes), tract-onnx 0.23.10,
+  trash 5.3.0 and rfd 0.18.0.
+
 ## 0.26.1 - 2026-11-07
 
 ### Fixed

@@ -1,7 +1,10 @@
 # Security policy
 
 Photonation parses untrusted files (camera raws), so decoder and pipeline bugs
-can have security impact.
+can have security impact. The app also installs its own updates when asked
+(Check for Updates), so anything that could make it install a file other than
+the project's release is in scope; how an update is verified is described in
+[docs/DESKTOP.md](docs/DESKTOP.md#updates-updates-panelsupdatesrs).
 
 ## Supported versions
 

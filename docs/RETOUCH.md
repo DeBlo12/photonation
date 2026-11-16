@@ -219,7 +219,7 @@ slanted edges.)
 
 ## Installing models
 
-Photonation ships no weights and never downloads anything itself. Each tool
+Photonation ships no weights and never downloads a model itself. Each tool
 that needs a model shows its status; while none is installed, **Get the …
 Model** opens a card that says, before anything is downloaded, what the
 model does, who made it, a link to its makers' page (*About*), what it

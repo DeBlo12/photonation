@@ -222,6 +222,8 @@ pub struct ViewState {
     pub show_settings: bool,
     pub settings_tab: usize,
     pub show_about: bool,
+    /// The Check for Updates window.
+    pub show_updates: bool,
     /// The Help window and its page.
     pub help: panels::help::HelpView,
     pub export_options: ExportOptions,
@@ -300,6 +302,7 @@ impl Default for ViewState {
             show_settings: false,
             settings_tab: 0,
             show_about: false,
+            show_updates: false,
             help: Default::default(),
             export_options: ExportOptions::default(),
             export_all: false,
@@ -350,6 +353,7 @@ impl ViewState {
         self.show_export
             || self.show_settings
             || self.show_about
+            || self.show_updates
             || self.library.confirm_trash
             || self.presets.show_copy
             || self.presets.new_preset.is_some()
@@ -504,6 +508,8 @@ pub struct PhotonationApp {
     pub people: crate::people::PeopleSearch,
     /// Removals changed and their fills have not all arrived yet.
     pub filling_removals: bool,
+    /// The check for a newer release, and its installation.
+    pub updates: crate::updates::Updater,
     /// Large images for the survey view, and the size each was asked at.
     pub survey_images: HashMap<PathBuf, Preview>,
     pub survey_requested: HashMap<PathBuf, usize>,
@@ -621,6 +627,7 @@ impl PhotonationApp {
             models: ModelStatuses::default(),
             people: Default::default(),
             filling_removals: false,
+            updates: Default::default(),
             survey_images: HashMap::new(),
             survey_requested: HashMap::new(),
         }
@@ -1548,6 +1555,9 @@ impl eframe::App for PhotonationApp {
         }
         if self.view.show_about {
             panels::settings::about(self, &ctx);
+        }
+        if self.view.show_updates {
+            panels::updates::show(self, &ctx);
         }
         if self.view.help.open {
             panels::help::show(&mut self.view, &ctx);

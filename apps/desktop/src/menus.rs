@@ -100,6 +100,7 @@ pub enum Action {
     Help,
     KeyboardShortcuts,
     About,
+    CheckForUpdates,
 }
 
 fn item(label: impl Into<String>, shortcut: &'static str, action: Action, enabled: bool) -> Entry {
@@ -197,6 +198,10 @@ fn about() -> Entry {
     item("About Photonation", "", Action::About, true)
 }
 
+fn check_for_updates() -> Entry {
+    item("Check for Updates…", "", Action::CheckForUpdates, true)
+}
+
 fn settings() -> Entry {
     item(
         "Settings…",
@@ -216,6 +221,7 @@ fn application() -> Menu {
         title: "Photonation",
         entries: vec![
             about(),
+            check_for_updates(),
             Entry::Separator,
             settings(),
             Entry::Separator,
@@ -610,7 +616,7 @@ fn help_menu(native: bool) -> Vec<Entry> {
         item("Keyboard Shortcuts", "", Action::KeyboardShortcuts, true),
     ];
     if !native {
-        entries.extend([Entry::Separator, about()]);
+        entries.extend([Entry::Separator, check_for_updates(), about()]);
     }
     entries
 }
@@ -692,6 +698,10 @@ impl PhotonationApp {
             Action::Help => help::open(&mut self.view),
             Action::KeyboardShortcuts => help::open_page(&mut self.view, help::Page::Shortcuts),
             Action::About => self.view.show_about = true,
+            Action::CheckForUpdates => {
+                self.view.show_updates = true;
+                self.updates.check(ctx);
+            }
         }
     }
 }
@@ -787,6 +797,20 @@ mod tests {
         let file = labels(&titled(&menus, "File").entries);
         assert!(!file.contains(&"Settings…") && !file.contains(&"Quit"));
         assert!(!labels(&titled(&menus, "Help").entries).contains(&"About Photonation"));
+    }
+
+    #[test]
+    fn check_for_updates_is_where_each_system_keeps_it() {
+        const CHECK_FOR_UPDATES: &str = "Check for Updates…";
+        let in_the_window = menus(&app(), false);
+        assert!(labels(&titled(&in_the_window, "Help").entries).contains(&CHECK_FOR_UPDATES));
+        let native = menus(&app(), true);
+        assert!(labels(&native[0].entries).contains(&CHECK_FOR_UPDATES));
+        assert!(!labels(&titled(&native, "Help").entries).contains(&CHECK_FOR_UPDATES));
+        // Its window has to be answered first, like the other dialogs.
+        let mut app = app();
+        app.view.show_updates = true;
+        assert!(app.view.dialog_open());
     }
 
     #[test]

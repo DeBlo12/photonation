@@ -28,6 +28,7 @@ pub mod removals;
 pub mod settings;
 pub mod survey;
 pub mod toolbar;
+pub mod updates;
 pub mod viewer;
 
 use crate::theme;

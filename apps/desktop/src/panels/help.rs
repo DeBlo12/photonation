@@ -32,6 +32,24 @@ const SETTINGS_MENU_ITEM: &str = if cfg!(target_os = "macos") {
 } else {
     "File › Settings…"
 };
+/// Where the Check for Updates item is.
+const UPDATES_MENU_ITEM: &str = if cfg!(target_os = "macos") {
+    "Photonation › Check for Updates…"
+} else {
+    "Help › Check for Updates…"
+};
+/// What Install Update does with the release, on this kind of computer.
+const UPDATE_INSTALLS_BY: &str = if cfg!(target_os = "macos") {
+    "downloads the release's disk image, checks it against the checksum GitHub recorded \
+     for it, replaces the app and offers to restart. If macOS asks whether Photonation \
+     may update apps, allow it."
+} else if cfg!(windows) {
+    "downloads the release's installer and checks it against the checksum GitHub \
+     recorded for it. Photonation then quits and the installer opens."
+} else {
+    "is for copies put in place by an installer. One built from source gets a link to \
+     the release's page instead."
+};
 /// Where Photonation keeps its preferences and models.
 const DATA_FOLDER: &str = if cfg!(target_os = "macos") {
     "~/Library/Application Support/Photonation"
@@ -1719,6 +1737,20 @@ fn content(page: Page) -> Content {
                 tip(
                     "If the window draws wrongly or Photonation doesn't start on a laptop, \
                      choose integrated graphics or software rendering.",
+                ),
+                Block::Heading("Updates"),
+                term(
+                    "Check for Updates",
+                    format!(
+                        "({UPDATES_MENU_ITEM}) asks GitHub for the latest release and shows \
+                         what changed in it. This is the only time Photonation goes online, \
+                         and only when you choose it."
+                    ),
+                ),
+                term("Install Update", UPDATE_INSTALLS_BY),
+                text(
+                    "Your edits are saved before the restart, and preferences, presets and \
+                     models stay as they are.",
                 ),
             ],
             see_also: &[Page::Export],

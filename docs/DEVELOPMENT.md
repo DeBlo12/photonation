@@ -10,6 +10,17 @@ cargo test --workspace
 cargo clippy --workspace --all-targets
 ```
 
+Two tests of the update check are skipped by default, because one needs the
+network and the other mounts a disk image (macOS):
+
+```bash
+cargo test -p photonation-desktop -- --ignored github
+```
+
+```bash
+cargo test -p photonation-desktop -- --ignored disk_image
+```
+
 ```bash
 cargo run --release -p photonation-desktop -- ~/Pictures/Raw
 ```
@@ -122,6 +133,19 @@ release:
 3. Build the installers from that tag and attach them to the GitHub release.
    Tags can't be moved or deleted, so get the merge right first. The macOS script
    warns when a build isn't that tag, or has uncommitted changes.
+
+**What Check for Updates needs from a release.** The app's update check
+([DESKTOP.md](DESKTOP.md#updates-updates-panelsupdatesrs)) only sees a release
+once it is published: not a draft, not a pre-release, and it has to be the
+repository's latest. It looks for the installers by the names the packaging
+scripts give them (`photonation-<version>-macos-arm64.dmg`,
+`photonation-<version>-macos-x86_64.dmg`,
+`photonation-<version>-windows-x64-setup.exe`), under the tag `v<version>`, so
+attach them unrenamed. A platform whose installer is missing gets a link to the
+release's page instead of an Install button. GitHub records each file's SHA-256
+at upload, which is what the app verifies the download against; replacing a file
+on a published release changes it for everyone who updates afterwards. The
+release's description is shown in the app as *what changed*, as plain text.
 
 ## App icon
 

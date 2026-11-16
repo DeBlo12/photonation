@@ -28,6 +28,8 @@ trash.workspace = true
 png.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# The folder an update downloads to.
+tempfile.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 muda.workspace = true
@@ -45,7 +47,6 @@ gpu = ["photonation-engine/gpu"]
 
 [dev-dependencies]
 naga.workspace = true
-tempfile.workspace = true
 
 [build-dependencies]
 winresource.workspace = true

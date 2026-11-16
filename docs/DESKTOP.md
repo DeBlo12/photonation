@@ -64,6 +64,7 @@ it, and the inspector's outline pulses amber (`ViewState::tool_warning`).
 | `panels/removals.rs` | Remove panel: method, brush size, model status, People, removal list, selected removal |
 | `panels/removal_brush.rs` | Painting removals on the canvas and drawing brushed areas |
 | `panels/models.rs` | Model card: a model's status, and what to download, shown before the download |
+| `updates/`, `panels/updates.rs` | Check for Updates: the latest release from GitHub, and installing it (see *Updates*) |
 | `panels/people_picker.rs` | The People section (Remove and Masks panels), outlining the people found and picking one with a click |
 | `people.rs` | The people search for the open photo (`PeopleSearch`) |
 | `gpu/mask_overlay.rs`, `.wgsl` | The selected mask's tint over the photo, evaluated per pixel on the GPU |
@@ -621,7 +622,8 @@ or photo>`) takes the same paths.
 **Menus** (`menus.rs`). File (Open Folder, Open Photo, Export, Export All
 Photos, Settings, Quit), Edit (Undo, Redo, Reset All Adjustments), View (Fit,
 Actual Pixels, Compare, Full Screen Photo, Masks, Crop and Straighten, Remove
-Objects, previous and next photo, and the window's full screen) and Help (Photonation Help, Keyboard Shortcuts, About).
+Objects, previous and next photo, and the window's full screen) and Help (Photonation Help, Keyboard Shortcuts,
+Check for Updates, About).
 Items show their shortcuts and are disabled when they cannot apply.
 
 Each frame `menus::menus` builds the menus as data from the app's state, so an
@@ -631,7 +633,7 @@ is open every item but Quit is disabled.
 
 Windows and Linux draw that data in the window (`panels/menu_bar.rs`). On macOS
 `native_menu.rs` puts it in the system menu bar, arranged as Mac apps are: an
-application menu with About, Settings and Quit, and a Window menu. Installed when
+application menu with About, Check for Updates, Settings and Quit, and a Window menu. Installed when
 the app starts, it replaces winit's default menu bar. A choice arrives through
 muda's event handler, which wakes the app, and is performed at the start of the
 next frame. At the end of each frame the bar is compared with the data: items
@@ -669,6 +671,89 @@ Shortcuts opens the last one.
 - **Text.** Written from the code and `docs/*.md`; menu paths use › because
   Inter has no ▸. Tests check every page is listed once, has text, and opens
   for its tool.
+
+## Updates (`updates/`, `panels/updates.rs`)
+
+Check for Updates… (the application menu on macOS, Help elsewhere) asks GitHub
+for the project's latest published release and, on a click, installs it, so a
+new version doesn't mean finding the installer and running it by hand. It is the
+only time the app goes online, and only when the item is chosen: nothing is
+checked at launch or in the background.
+
+| Module | What it does |
+| --- | --- |
+| `updates/mod.rs` | `Updater`: the states the window shows, and the thread the requests run on |
+| `updates/release.rs` | `Version`, and GitHub's answer read into a `Release` with the `Installer` for this computer |
+| `updates/transfer.rs` | The two requests, through the system's `curl` |
+| `updates/sha256.rs` | SHA-256 of the download |
+| `updates/install.rs` | How this copy can be updated (`Method`), replacing the app bundle, and the last step (`Finish`) |
+| `panels/updates.rs` | The window |
+
+**Control flow.** `Action::CheckForUpdates` opens the window and calls
+`Updater::check`. Requests run on a thread named `updates` that reports back
+over a channel and wakes the window; `Updater::poll`, called when the window
+draws, moves the state along (`next_state`). One thing runs at a time: a check
+or an installation under way, or one waiting for its restart, is never started
+over.
+
+1. **Check.** `transfer::get` asks
+   `api.github.com/repos/<owner>/<name>/releases/latest`, the repository being
+   the one in `Cargo.toml`. `check_from` reads the answer: 404 means no release
+   is published yet; a release whose `v<version>` tag is newer than the running
+   version is an update; anything else is up to date (a build from source ahead
+   of the last release included). Drafts and pre-releases are never offered.
+2. **Which installer.** `Platform::installer_name` is the file name the
+   packaging scripts write: `photonation-<version>-macos-<arm64|x86_64>.dmg` or
+   `photonation-<version>-windows-x64-setup.exe`. The release's file of exactly
+   that name is used, with the size and SHA-256 GitHub recorded when it was
+   uploaded. Without a checksum, or with an implausible size, there is no
+   installer to offer and the window links the release's page instead. The
+   download address is built from the repository, the version and the file
+   name; no address in the answer is followed.
+3. **Whether this copy can take it** (`Method::current`). On macOS it has to
+   run from an app bundle (`….app/Contents/MacOS/`); on Windows the setup
+   program's uninstaller has to be beside it. A copy built from source gets the
+   release's page, not an Install button.
+4. **Install Update** (`Updater::install`, then `download_and_install` on the
+   thread). The installer downloads to a new temporary folder that only this
+   user can read; the progress bar is the file's size against the expected one.
+   `verify` then holds it to that size and checksum, and deletes a download
+   that differs.
+   - **macOS** (`install::replace_bundle`): the disk image is mounted out of
+     sight inside the temporary folder, `ditto` copies its `Photonation.app` to
+     a hidden neighbour of the running bundle (`.Photonation.app.update`), and
+     two renames swap them (`swap_in`), so the app is never half of each. If
+     the new one can't move in, the old one moves back. The image is detached
+     again either way.
+   - **Windows**: nothing more yet; the setup program is ready to run.
+5. **Restart** (`Updater::finish`, on the window's button). macOS: a small
+   shell script waits for this process to end and then opens the bundle.
+   Windows: the setup program starts, and upgrades the installation in place as
+   it does when run by hand. Either way the app then closes its window, which
+   saves the open photo's edits (`on_exit`). *Later* leaves it for the next
+   start: on macOS the new version is already in place.
+
+**When it fails.** The window says what happened and offers Try Again. If the
+download was already verified (macOS didn't allow the app to be replaced, say),
+*Show the download* opens it for installing by hand.
+
+**What vouches for an update.** HTTPS to GitHub, and the checksum GitHub
+recorded for the file. `curl` runs by its full path where the system has one,
+ignores `~/.curlrc`, and refuses anything but HTTPS, also after a redirect.
+Releases are not yet signed with a Developer ID, so there is no signature to
+check; and since `curl` doesn't mark its downloads as quarantined, macOS
+doesn't ask about the updated copy at its first launch as it does for one
+downloaded in a browser.
+
+**Why `curl` and a hand-written SHA-256.** Both keep an HTTP client, a TLS
+stack and a hashing crate out of the dependency tree for two requests. macOS and
+Windows 10 and later ship `curl`; where it is missing the check says so.
+
+**Tests.** Reading releases, choosing the installer, the checksum (against the
+standard's examples), the swap of the bundles and every state of the window are
+covered without the network. Two tests are `#[ignore]`d and run by hand:
+`-- --ignored github` asks the real GitHub, and `-- --ignored disk_image` makes
+a disk image and installs from it (macOS).
 
 ## GPU selection (`gpu/mod.rs`)
 

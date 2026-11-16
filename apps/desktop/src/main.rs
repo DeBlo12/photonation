@@ -25,6 +25,7 @@ mod preferences;
 mod presets;
 mod screenshot;
 mod theme;
+mod updates;
 mod widgets;
 
 fn main() -> eframe::Result {

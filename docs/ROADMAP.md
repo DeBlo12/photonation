@@ -56,6 +56,8 @@
 - Full screen: the photo alone on the whole screen (⌃F, `F` off the Mac), and the
   window alone (`F11` or the system's own)
 - Opening a single photo as well as a folder
+- Check for Updates: the latest release from GitHub, downloaded, verified and
+  installed from within the app (once releases are published)
 
 ## Next
 
